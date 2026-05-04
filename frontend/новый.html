@@ -1,0 +1,1905 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Agent Control Panel</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-primary: #0a0e17;
+        --bg-secondary: #111827;
+        --bg-tertiary: #1f2937;
+        --bg-card: #151c2c;
+        --border: #2d3748;
+        --border-focus: #3b82f6;
+        --text-primary: #f1f5f9;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --accent: #3b82f6;
+        --accent-hover: #2563eb;
+        --accent-glow: rgba(59, 130, 246, 0.3);
+        --success: #10b981;
+        --success-bg: rgba(16, 185, 129, 0.1);
+        --warning: #f59e0b;
+        --warning-bg: rgba(245, 158, 11, 0.1);
+        --error: #ef4444;
+        --error-bg: rgba(239, 68, 68, 0.1);
+        --radius: 12px;
+        --radius-sm: 8px;
+        --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          'Inter',
+          -apple-system,
+          sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background:
+          linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+        background-size: 50px 50px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .app-container {
+        position: relative;
+        z-index: 1;
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        grid-template-rows: auto 1fr;
+        gap: 20px;
+        min-height: 100vh;
+      }
+
+      /* Header */
+      .header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 24px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        backdrop-filter: blur(10px);
+      }
+
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .logo {
+        width: 42px;
+        height: 42px;
+        background: linear-gradient(135deg, var(--accent), #8b5cf6);
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+      }
+
+      .header-title h1 {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .header-title span {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .status-badge {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        border-radius: 100px;
+        font-size: 12px;
+        font-weight: 600;
+        transition: var(--transition);
+      }
+      .status-badge.stopped {
+        background: var(--error-bg);
+        color: var(--error);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+      }
+      .status-badge.running {
+        background: var(--success-bg);
+        color: var(--success);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+      }
+      .status-badge.checking {
+        background: var(--warning-bg);
+        color: var(--warning);
+        border: 1px solid rgba(245, 158, 11, 0.2);
+      }
+      .status-badge.error {
+        background: var(--error-bg);
+        color: var(--error);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .status-badge.running .status-dot,
+      .status-badge.checking .status-dot {
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.4;
+          transform: scale(0.7);
+        }
+      }
+
+      /* Sidebar */
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+
+      .card-header {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .card-header h2 {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .card-body {
+        padding: 16px 18px;
+      }
+
+      /* Controls */
+      .controls-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: var(--transition);
+        font-family: inherit;
+        position: relative;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      .btn:hover:not(:disabled) {
+        border-color: var(--border-focus);
+        background: rgba(59, 130, 246, 0.08);
+      }
+      .btn:active:not(:disabled) {
+        transform: scale(0.97);
+      }
+      .btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+      }
+      .btn.primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        box-shadow: 0 0 16px var(--accent-glow);
+      }
+      .btn.danger {
+        background: var(--error-bg);
+        border-color: rgba(239, 68, 68, 0.3);
+        color: var(--error);
+      }
+      .btn.danger:hover:not(:disabled) {
+        background: rgba(239, 68, 68, 0.15);
+      }
+      .btn.success {
+        background: var(--success-bg);
+        border-color: rgba(16, 185, 129, 0.3);
+        color: var(--success);
+      }
+      .btn.success:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.15);
+      }
+      .btn.full-width {
+        grid-column: 1 / -1;
+      }
+
+      .btn-icon {
+        font-size: 14px;
+      }
+
+      /* Stats */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .stat-item {
+        padding: 12px;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+      }
+      .stat-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 5px;
+      }
+      .stat-value {
+        font-size: 16px;
+        font-weight: 700;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .stat-value.green {
+        color: var(--success);
+      }
+      .stat-value.blue {
+        color: var(--accent);
+      }
+      .stat-value.yellow {
+        color: var(--warning);
+      }
+      .stat-value.red {
+        color: var(--error);
+      }
+
+      /* Main */
+      .main-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* Tabs */
+      .tabs {
+        display: flex;
+        gap: 3px;
+        padding: 3px;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        flex-wrap: wrap;
+      }
+
+      .tab {
+        padding: 9px 16px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: var(--transition);
+        font-family: inherit;
+      }
+      .tab:hover:not(.active) {
+        color: var(--text-secondary);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .tab.active {
+        background: var(--accent);
+        color: white;
+        box-shadow: 0 2px 8px var(--accent-glow);
+      }
+
+      /* Forms */
+      .form-group {
+        margin-bottom: 14px;
+      }
+      .form-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .form-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+      }
+      .form-label label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+      .form-label .hint {
+        font-size: 10px;
+        color: var(--text-muted);
+      }
+
+      .form-input {
+        width: 100%;
+        padding: 10px 12px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        color: var(--text-primary);
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+        transition: var(--transition);
+      }
+      .form-input:focus {
+        outline: none;
+        border-color: var(--border-focus);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+      }
+      .form-input::placeholder {
+        color: var(--text-muted);
+      }
+
+      .form-textarea {
+        width: 100%;
+        min-height: 260px;
+        resize: vertical;
+        line-height: 1.6;
+        font-size: 11.5px;
+        font-family: 'JetBrains Mono', monospace;
+        overflow-y: auto;
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .form-row-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+      }
+
+      .form-number-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 0;
+      }
+      .form-number-wrapper .form-input {
+        border-radius: 0;
+        border-right: none;
+        text-align: center;
+      }
+      .form-number-wrapper .btn {
+        border-radius: 0;
+        padding: 10px 8px;
+        min-width: 36px;
+      }
+      .form-number-wrapper .btn:first-child {
+        border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+      }
+      .form-number-wrapper .btn:last-child {
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      }
+
+      /* Prompt editor */
+      .prompt-editor {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .prompt-editor .editor-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-bottom: none;
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      }
+      .prompt-editor .editor-toolbar span {
+        font-size: 10px;
+        color: var(--text-muted);
+      }
+      .editor-actions {
+        display: flex;
+        gap: 5px;
+      }
+      .editor-actions .btn {
+        padding: 5px 8px;
+        font-size: 10px;
+        border-radius: 5px;
+      }
+
+      .prompt-editor textarea {
+        width: 100%;
+        min-height: 320px;
+        resize: vertical;
+        line-height: 1.7;
+        font-size: 11.5px;
+        tab-size: 2;
+        font-family: 'JetBrains Mono', monospace;
+        padding: 14px;
+        border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+        overflow-y: auto;
+      }
+
+      /* Console */
+      .console-container {
+        background: #000;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        overflow: hidden;
+      }
+
+      .console-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 12px;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border);
+      }
+      .console-header .dots {
+        display: flex;
+        gap: 5px;
+      }
+      .console-header .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+      }
+      .console-header .dot.red {
+        background: #ef4444;
+      }
+      .console-header .dot.yellow {
+        background: #f59e0b;
+      }
+      .console-header .dot.green {
+        background: #10b981;
+      }
+      .console-header .title {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      .console-log {
+        padding: 12px;
+        max-height: 360px;
+        overflow-y: auto;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .console-log::-webkit-scrollbar {
+        width: 5px;
+      }
+      .console-log::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .console-log::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+
+      .log-line {
+        display: flex;
+        gap: 8px;
+        padding: 1.5px 0;
+        animation: fadeIn 0.15s ease;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(3px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .log-time {
+        color: var(--text-muted);
+        white-space: nowrap;
+        flex-shrink: 0;
+        font-size: 10px;
+      }
+      .log-text {
+        word-break: break-all;
+      }
+      .log-text.info {
+        color: var(--text-secondary);
+      }
+      .log-text.success {
+        color: var(--success);
+      }
+      .log-text.warning {
+        color: var(--warning);
+      }
+      .log-text.error {
+        color: var(--error);
+      }
+      .log-text.system {
+        color: var(--accent);
+      }
+
+      /* Chat */
+      .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: 480px;
+      }
+
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .chat-messages::-webkit-scrollbar {
+        width: 5px;
+      }
+      .chat-messages::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .chat-messages::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+
+      .chat-msg {
+        display: flex;
+        gap: 10px;
+        max-width: 85%;
+        animation: fadeIn 0.2s ease;
+      }
+      .chat-msg.user {
+        align-self: flex-end;
+        flex-direction: row-reverse;
+      }
+      .chat-msg.bot {
+        align-self: flex-start;
+      }
+
+      .chat-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+      .chat-msg.user .chat-avatar {
+        background: var(--accent);
+      }
+      .chat-msg.bot .chat-avatar {
+        background: #8b5cf6;
+      }
+
+      .chat-bubble {
+        padding: 10px 14px;
+        border-radius: 14px;
+        font-size: 13px;
+        line-height: 1.5;
+        border: 1px solid var(--border);
+      }
+      .chat-msg.user .chat-bubble {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+        border-bottom-right-radius: 4px;
+      }
+      .chat-msg.bot .chat-bubble {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        border-bottom-left-radius: 4px;
+      }
+
+      .chat-input-area {
+        display: flex;
+        gap: 8px;
+        padding: 12px;
+        border-top: 1px solid var(--border);
+        background: var(--bg-card);
+      }
+      .chat-input {
+        flex: 1;
+        padding: 10px 14px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
+        border-radius: 100px;
+        color: var(--text-primary);
+        font-size: 13px;
+        font-family: inherit;
+        transition: var(--transition);
+      }
+      .chat-input:focus {
+        outline: none;
+        border-color: var(--border-focus);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+      }
+      .chat-input:disabled {
+        opacity: 0.5;
+      }
+
+      .chat-send {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--accent);
+        border: none;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        transition: var(--transition);
+      }
+      .chat-send:hover:not(:disabled) {
+        background: var(--accent-hover);
+        box-shadow: 0 0 16px var(--accent-glow);
+      }
+      .chat-send:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .chat-status {
+        text-align: center;
+        padding: 20px;
+        color: var(--text-muted);
+        font-size: 13px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .chat-status .icon {
+        font-size: 32px;
+      }
+
+      .typing-indicator {
+        display: flex;
+        gap: 4px;
+        padding: 12px 16px;
+      }
+      .typing-indicator span {
+        width: 6px;
+        height: 6px;
+        background: var(--text-muted);
+        border-radius: 50%;
+        animation: typing 1.2s infinite;
+      }
+      .typing-indicator span:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .typing-indicator span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      @keyframes typing {
+        0%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.4;
+        }
+        50% {
+          transform: translateY(-6px);
+          opacity: 1;
+        }
+      }
+
+      /* Toggles */
+      .toggle-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 0;
+      }
+      .toggle-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      .toggle {
+        position: relative;
+        width: 40px;
+        height: 22px;
+        cursor: pointer;
+      }
+      .toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .toggle-slider {
+        position: absolute;
+        inset: 0;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 100px;
+        transition: var(--transition);
+      }
+      .toggle-slider::before {
+        content: '';
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 2px;
+        top: 2px;
+        background: var(--text-muted);
+        border-radius: 50%;
+        transition: var(--transition);
+      }
+      .toggle input:checked + .toggle-slider {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      .toggle input:checked + .toggle-slider::before {
+        transform: translateX(18px);
+        background: white;
+      }
+
+      /* Token input */
+      .token-input-wrapper {
+        position: relative;
+      }
+      .token-input-wrapper .form-input {
+        padding-right: 36px;
+      }
+      .token-toggle {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 3px;
+        font-size: 14px;
+      }
+
+      /* Tab content */
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+
+      /* Toast */
+      .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .toast {
+        padding: 12px 16px;
+        border-radius: var(--radius-sm);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        font-size: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        animation: slideIn 0.3s ease;
+        min-width: 260px;
+      }
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateX(80px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+      .toast.success {
+        border-left: 3px solid var(--success);
+      }
+      .toast.error {
+        border-left: 3px solid var(--error);
+      }
+      .toast.warning {
+        border-left: 3px solid var(--warning);
+      }
+      .toast.info {
+        border-left: 3px solid var(--accent);
+      }
+
+      /* Responsive */
+      @media (max-width: 1024px) {
+        .app-container {
+          grid-template-columns: 1fr;
+          padding: 16px;
+        }
+        .sidebar {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+        }
+        .form-row,
+        .form-row-3 {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 640px) {
+        .sidebar {
+          grid-template-columns: 1fr;
+        }
+        .header {
+          flex-direction: column;
+          gap: 10px;
+          text-align: center;
+        }
+        .header-left {
+          flex-direction: column;
+        }
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+        .controls-grid {
+          grid-template-columns: 1fr;
+        }
+        .tabs {
+          overflow-x: auto;
+          flex-wrap: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Header -->
+      <header class="header">
+        <div class="header-left">
+          <div class="logo">🤖</div>
+          <div class="header-title">
+            <h1>AI Agent Control Panel</h1>
+            <span>Управление Telegram-ботом и AI-агентом</span>
+          </div>
+        </div>
+        <div class="status-badge stopped" id="statusBadge">
+          <span class="status-dot"></span>
+          <span id="statusText">Остановлен</span>
+        </div>
+      </header>
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- Controls -->
+        <div class="card">
+          <div class="card-header"><h2>⚡ Управление</h2></div>
+          <div class="card-body">
+            <div class="controls-grid">
+              <button class="btn primary full-width" id="btnStart" onclick="startAgent()">
+                <span class="btn-icon">▶️</span> Запустить
+              </button>
+              <button class="btn danger" id="btnStop" onclick="stopAgent()" disabled>
+                <span class="btn-icon">⏹️</span> Стоп
+              </button>
+              <button class="btn" id="btnRestart" onclick="restartAgent()" disabled style="color: var(--warning)">
+                <span class="btn-icon">🔄</span> Рестарт
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="card">
+          <div class="card-header"><h2>📊 Статистика</h2></div>
+          <div class="card-body">
+            <div class="stats-grid">
+              <div class="stat-item">
+                <div class="stat-label">Uptime</div>
+                <div class="stat-value green" id="statUptime">--:--:--</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Запросов</div>
+                <div class="stat-value blue" id="statRequests">0</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Инструментов</div>
+                <div class="stat-value yellow" id="statTools">0</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-label">Ошибок</div>
+                <div class="stat-value red" id="statErrors">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connection Test -->
+        <div class="card">
+          <div class="card-header"><h2>🔗 Проверка бота</h2></div>
+          <div class="card-body">
+            <button class="btn success full-width" id="btnCheckBot" onclick="checkBotConnection()">
+              <span class="btn-icon">📨</span> Проверить через Telegram
+            </button>
+            <div
+              style="margin-top: 10px; font-size: 11px; color: var(--text-muted); text-align: center"
+              id="checkBotStatus"
+            >
+              Нажмите для проверки
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Tabs -->
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab(this, 'prompt')">📝 Системный промпт</button>
+          <button class="tab" onclick="switchTab(this, 'settings')">⚙️ Параметры</button>
+          <button class="tab" onclick="switchTab(this, 'quick')">🔘 Быстрые настройки</button>
+          <button class="tab" onclick="switchTab(this, 'chat')">💬 Чат-тест</button>
+          <button class="tab" onclick="switchTab(this, 'logs')">🖥️ Логи</button>
+        </div>
+
+        <!-- Prompt Tab -->
+        <div class="tab-content active" id="tab-prompt">
+          <div class="card">
+            <div class="card-header">
+              <h2>Системный промпт агента</h2>
+              <span style="font-size: 11px; color: var(--text-muted)" id="promptCharCount">0 символов</span>
+            </div>
+            <div class="card-body" style="padding: 16px">
+              <div class="prompt-editor">
+                <div class="editor-toolbar">
+                  <span>Markdown / Plain text</span>
+                  <div class="editor-actions">
+                    <button class="btn" onclick="resetPrompt()">↩️ Сброс</button>
+                    <button class="btn" onclick="formatPrompt()">✨ Формат</button>
+                    <button class="btn" onclick="copyPrompt()">📋 Копировать</button>
+                  </div>
+                </div>
+                <textarea
+                  class="form-textarea"
+                  id="systemPrompt"
+                  spellcheck="false"
+                  placeholder="Введите системный промпт..."
+                ></textarea>
+              </div>
+              <div style="margin-top: 12px; display: flex; gap: 8px">
+                <button class="btn primary" onclick="savePrompt()" style="flex: 1">💾 Сохранить промпт</button>
+                <button class="btn" onclick="exportConfig()">📤 Экспорт</button>
+                <button class="btn" onclick="importConfig()">📥 Импорт</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="tab-settings">
+          <div class="card">
+            <div class="card-header"><h2>Основные параметры</h2></div>
+            <div class="card-body">
+              <div class="form-group">
+                <div class="form-label">
+                  <label>TELEGRAM_TOKEN</label>
+                  <span class="hint">Токен из @BotFather</span>
+                </div>
+                <div class="token-input-wrapper">
+                  <input type="password" class="form-input" id="settingToken" placeholder="123456789:AAH..." />
+                  <button class="token-toggle" onclick="toggleTokenVisibility()">👁️</button>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>PROJECT_PATH</label>
+                    <span class="hint">Путь к проекту</span>
+                  </div>
+                  <input type="text" class="form-input" id="settingProjectPath" placeholder="E:\Git\test_project" />
+                </div>
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>SERVER_URL</label>
+                    <span class="hint">llama.cpp / Ollama</span>
+                  </div>
+                  <input
+                    type="text"
+                    class="form-input"
+                    id="settingServerUrl"
+                    placeholder="http://192.168.1.103:8080/v1"
+                  />
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="form-label">
+                  <label>MODEL_NAME</label>
+                  <span class="hint">Имя модели</span>
+                </div>
+                <input type="text" class="form-input" id="settingModelName" placeholder="qwen2.5-coder-7b-instruct" />
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Лимиты и производительность</h2></div>
+            <div class="card-body">
+              <div class="form-row-3">
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>MAX_FILE_CHARS</label>
+                    <span class="hint">Макс. символов файла</span>
+                  </div>
+                  <input
+                    type="number"
+                    class="form-input"
+                    id="settingMaxFileChars"
+                    value="2000"
+                    min="500"
+                    max="20000"
+                    step="500"
+                  />
+                </div>
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>MAX_HISTORY_PAIRS</label>
+                    <span class="hint">Пар сообщений</span>
+                  </div>
+                  <input type="number" class="form-input" id="settingMaxHistory" value="8" min="2" max="20" />
+                </div>
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>MAX_SEARCH_RESULTS</label>
+                    <span class="hint">Результатов поиска</span>
+                  </div>
+                  <input type="number" class="form-input" id="settingMaxSearch" value="15" min="5" max="50" />
+                </div>
+              </div>
+              <div class="form-row-3">
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>MAX_FILES_IN_PROMPT</label>
+                    <span class="hint">Файлов в контексте</span>
+                  </div>
+                  <input type="number" class="form-input" id="settingMaxFiles" value="2" min="1" max="10" />
+                </div>
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>TIMEOUT (мс)</label>
+                    <span class="hint">Таймаут запроса</span>
+                  </div>
+                  <input
+                    type="number"
+                    class="form-input"
+                    id="settingTimeout"
+                    value="120000"
+                    min="10000"
+                    max="300000"
+                    step="10000"
+                  />
+                </div>
+                <div class="form-group">
+                  <div class="form-label">
+                    <label>MAX_TOKENS</label>
+                    <span class="hint">Контекст ответа</span>
+                  </div>
+                  <div class="form-number-wrapper">
+                    <button class="btn" onclick="adjustMaxTokens(-4096)" title="-4096">−4K</button>
+                    <input
+                      type="number"
+                      class="form-input"
+                      id="settingMaxTokens"
+                      value="1024"
+                      min="256"
+                      max="65536"
+                      step="256"
+                    />
+                    <button class="btn" onclick="adjustMaxTokens(4096)" title="+4096">+4K</button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="form-label">
+                  <label>TEMPERATURE</label>
+                  <span class="hint">Креативность (0-1)</span>
+                </div>
+                <input
+                  type="range"
+                  id="settingTemperature"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value="0.1"
+                  style="width: 100%; accent-color: var(--accent)"
+                />
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 10px;
+                    color: var(--text-muted);
+                    margin-top: 3px;
+                  "
+                >
+                  <span>0</span>
+                  <span id="tempValue" style="color: var(--accent); font-weight: 600">0.10</span>
+                  <span>1</span>
+                </div>
+              </div>
+              <div style="margin-top: 16px; display: flex; gap: 8px">
+                <button class="btn primary" onclick="saveAllSettings()" style="flex: 1">
+                  💾 Сохранить все настройки
+                </button>
+                <button class="btn" onclick="resetSettings()">↩️ Сброс</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Settings Tab -->
+        <div class="tab-content" id="tab-quick">
+          <div class="card">
+            <div class="card-header"><h2>Быстрые настройки</h2></div>
+            <div class="card-body">
+              <div class="toggle-container">
+                <span class="toggle-label">Auto-save промпт</span>
+                <label class="toggle">
+                  <input type="checkbox" id="toggleAutoSave" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div style="border-top: 1px solid var(--border)"></div>
+              <div class="toggle-container">
+                <span class="toggle-label">Verbose логи</span>
+                <label class="toggle">
+                  <input type="checkbox" id="toggleVerbose" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div style="border-top: 1px solid var(--border)"></div>
+              <div class="toggle-container">
+                <span class="toggle-label">Автостарт при загрузке</span>
+                <label class="toggle">
+                  <input type="checkbox" id="toggleAutoStart" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div style="border-top: 1px solid var(--border)"></div>
+              <div class="toggle-container">
+                <span class="toggle-label">Уведомления в Telegram</span>
+                <label class="toggle">
+                  <input type="checkbox" id="toggleNotif" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div style="border-top: 1px solid var(--border)"></div>
+              <div class="toggle-container">
+                <span class="toggle-label">Показывать токены в логах</span>
+                <label class="toggle">
+                  <input type="checkbox" id="toggleShowTokens" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div style="margin-top: 16px">
+                <button class="btn primary full-width" onclick="saveQuickSettings()">💾 Сохранить</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>⚡ Пресеты</h2></div>
+            <div class="card-body">
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <button class="btn" onclick="applyPreset('fast')" style="width: 100%">
+                  🚀 Быстрый (3B модель, малый контекст)
+                </button>
+                <button class="btn" onclick="applyPreset('balanced')" style="width: 100%">
+                  ⚖️ Баланс (7B модель, 32K контекст)
+                </button>
+                <button class="btn" onclick="applyPreset('quality')" style="width: 100%">
+                  🧠 Качество (14B модель, 64K контекст)
+                </button>
+                <button class="btn danger" onclick="applyPreset('debug')" style="width: 100%">🐛 Режим отладки</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Tab -->
+        <div class="tab-content" id="tab-chat">
+          <div class="card">
+            <div class="card-header">
+              <h2>💬 Чат с агентом</h2>
+              <span style="font-size: 10px; color: var(--text-muted)" id="chatStatus">Бот не запущен</span>
+            </div>
+            <div class="card-body" style="padding: 0">
+              <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                  <div class="chat-status">
+                    <div class="icon">🤖</div>
+                    <div>Запустите агента для начала общения</div>
+                  </div>
+                </div>
+                <div class="chat-input-area">
+                  <input
+                    type="text"
+                    class="chat-input"
+                    id="chatInput"
+                    placeholder="Введите сообщение..."
+                    disabled
+                    onkeypress="handleChatKey(event)"
+                  />
+                  <button class="chat-send" id="chatSendBtn" onclick="sendChatMessage()" disabled>➤</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div class="tab-content" id="tab-logs">
+          <div class="card">
+            <div class="card-header">
+              <h2>Консоль логов</h2>
+              <div style="display: flex; gap: 6px">
+                <button class="btn" onclick="clearLogs()" style="padding: 5px 10px; font-size: 10px">
+                  🗑️ Очистить
+                </button>
+                <button class="btn" onclick="exportLogs()" style="padding: 5px 10px; font-size: 10px">
+                  📥 Экспорт
+                </button>
+              </div>
+            </div>
+            <div class="console-container">
+              <div class="console-header">
+                <div class="dots">
+                  <div class="dot red"></div>
+                  <div class="dot yellow"></div>
+                  <div class="dot green"></div>
+                </div>
+                <span class="title">agent-logs</span>
+                <span style="font-size: 10px; color: var(--text-muted)" id="logCount">0 строк</span>
+              </div>
+              <div class="console-log" id="consoleLog"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+      // ==================== CONFIG ====================
+      const API_BASE = 'http://127.0.0.1:3000/api';
+      const API_KEY = 'agent-secret-key'; // Должен совпадать с API_KEY в test.js
+
+      // ==================== STATE ====================
+      let agentState = { running: false, stats: {}, config: {} };
+      let logHistory = [];
+      let chatHistory = [];
+      let uptimeInterval = null;
+      let logInterval = null;
+
+      // ==================== API HELPERS ====================
+      async function apiFetch(endpoint, options = {}) {
+        const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, ...options.headers };
+        const resp = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: resp.statusText }));
+          throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        return resp.json();
+      }
+
+      // ==================== INIT ====================
+      document.addEventListener('DOMContentLoaded', async () => {
+        loadLocalConfig();
+        updateUIFromConfig();
+        updatePromptCharCount();
+        addLog('system', 'Панель загружена');
+
+        // Проверка статуса при загрузке
+        await refreshStatus();
+
+        // Авто-обновление статуса каждые 5 сек
+        setInterval(refreshStatus, 5000);
+
+        // Авто-старт если включено
+        if (config.autoStart && !agentState.running) {
+          setTimeout(() => startAgent(), 1000);
+        }
+      });
+
+      // ==================== STATUS & SYNC ====================
+      async function refreshStatus() {
+        try {
+          const status = await apiFetch('/status');
+          agentState = { ...agentState, ...status };
+          updateAgentStateUI(status.running);
+          updateStatsUI(status.stats);
+          if (status.running && !uptimeInterval) startUptimeTimer(status.uptime);
+          if (!status.running && uptimeInterval) stopUptimeTimer();
+        } catch (e) {
+          // API недоступен — агент выключен или не запущен
+          if (agentState.running) updateAgentStateUI(false);
+        }
+      }
+
+      function updateAgentStateUI(running) {
+        agentState.running = running;
+        const badge = document.getElementById('statusBadge');
+        const text = document.getElementById('statusText');
+        badge.className = 'status-badge ' + (running ? 'running' : 'stopped');
+        text.textContent = running ? 'Работает' : 'Остановлен';
+        document.getElementById('btnStart').disabled = running;
+        document.getElementById('btnStop').disabled = !running;
+        document.getElementById('btnRestart').disabled = !running;
+        document.getElementById('btnCheckBot').disabled = !running;
+        updateChatStatus(running ? 'Агент запущен' : 'Бот не запущен', running);
+      }
+
+      function updateStatsUI(stats) {
+        document.getElementById('statRequests').textContent = stats.requests || 0;
+        document.getElementById('statTools').textContent = stats.tools || 0;
+        document.getElementById('statErrors').textContent = stats.errors || 0;
+      }
+
+      function startUptimeTimer(initialMs) {
+        if (uptimeInterval) clearInterval(uptimeInterval);
+        const start = Date.now() - (initialMs || 0);
+        uptimeInterval = setInterval(() => {
+          const elapsed = Date.now() - start;
+          const h = Math.floor(elapsed / 3600000);
+          const m = Math.floor((elapsed % 3600000) / 60000);
+          const s = Math.floor((elapsed % 60000) / 1000);
+          document.getElementById('statUptime').textContent =
+            `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }, 1000);
+      }
+
+      function stopUptimeTimer() {
+        if (uptimeInterval) clearInterval(uptimeInterval);
+        uptimeInterval = null;
+        document.getElementById('statUptime').textContent = '--:--:--';
+      }
+
+      // ==================== AGENT CONTROLS ====================
+      async function startAgent() {
+        try {
+          addLog('system', '🚀 Запуск агента...');
+          const resp = await apiFetch('/start', { method: 'POST' });
+
+          if (resp.launching) {
+            addLog('info', '⏳ Запуск инициирован, мониторим статус...');
+            showToast('Запуск в процессе...', 'info');
+
+            let attempts = 0;
+            const checkInterval = setInterval(async () => {
+              attempts++;
+              try {
+                const status = await apiFetch('/status');
+                if (status.running) {
+                  clearInterval(checkInterval);
+                  updateAgentStateUI(true);
+                  addLog('success', '✓ Агент запущен (подтверждено)');
+                  showToast('Агент работает!', 'success');
+                  startLogPolling();
+                } else if (attempts >= 15) {
+                  clearInterval(checkInterval);
+                  addLog('warning', '⚠️ Таймаут ожидания запуска');
+                  showToast('Проверьте консоль сервера', 'warning');
+                }
+              } catch {
+                if (attempts >= 15) clearInterval(checkInterval);
+              }
+            }, 1000);
+            return;
+          }
+
+          await refreshStatus();
+          addLog('success', '✓ Агент запущен');
+          showToast('Агент запущен', 'success');
+          startLogPolling();
+        } catch (e) {
+          addLog('error', `❌ ${e.message}`);
+          showToast(e.message, 'error');
+        }
+      }
+
+      async function stopAgent() {
+        try {
+          addLog('warning', '⏹️ Остановка...');
+          await apiFetch('/stop', { method: 'POST' });
+          await refreshStatus();
+          addLog('system', 'Агент остановлен');
+          showToast('Агент остановлен', 'warning');
+          stopLogPolling();
+        } catch (e) {
+          addLog('error', `❌ Ошибка: ${e.message}`);
+          showToast(e.message, 'error');
+        }
+      }
+
+      async function restartAgent() {
+        try {
+          addLog('info', '🔄 Перезапуск...');
+          await apiFetch('/restart', { method: 'POST' });
+          await refreshStatus();
+          addLog('success', '✓ Перезапущен');
+          showToast('Агент перезапущен', 'success');
+        } catch (e) {
+          addLog('error', `❌ Ошибка: ${e.message}`);
+          showToast(e.message, 'error');
+        }
+      }
+
+      async function checkBotConnection() {
+        const token = document.getElementById('settingToken').value;
+        if (!token) return showToast('Укажите токен', 'error');
+
+        const statusEl = document.getElementById('checkBotStatus');
+        statusEl.innerHTML =
+          '<span class="spinner" style="display:inline-block;width:12px;height:12px;border:2px solid var(--text-muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;"></span> Проверка...';
+
+        try {
+          const resp = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            statusEl.textContent = `✓ ${data.result.first_name} (@${data.result.username})`;
+            statusEl.style.color = 'var(--success)';
+            addLog('success', `✓ Бот: ${data.result.first_name}`);
+            showToast('Бот подключён', 'success');
+          } else throw new Error(data.description);
+        } catch (e) {
+          statusEl.textContent = '✗ Ошибка';
+          statusEl.style.color = 'var(--error)';
+          addLog('error', `✗ ${e.message}`);
+          showToast(e.message, 'error');
+        }
+      }
+
+      // ==================== CONFIG MANAGEMENT ====================
+      const DEFAULT_PROMPT = `Ты — экспертный AI-агент для управления кодом и файловой системой.
+      Проект: {PROJECT_PATH}
+      🔧 ИНСТРУМЕНТЫ: <tool>{"name":"...","args":{...}}</tool>
+      createFile, updateFile, deleteFile, readFile, listFiles, searchCode
+      📜 ПРАВИЛА: 1) Сначала readFile перед изменением. 2) updateFile — полный код. 3) Авто-редактирование. 4) Только JSON в <tool>.`;
+
+      const DEFAULT_CONFIG = {
+        token: '',
+        projectPath: 'E:\\Git\\test_project',
+        serverUrl: 'http://192.168.1.103:8080/v1',
+        modelName: 'qwen2.5-coder-7b-instruct',
+        maxFileChars: 2000,
+        maxHistoryPairs: 5,
+        maxSearchResults: 15,
+        systemPrompt: DEFAULT_PROMPT,
+        autoSave: true,
+        verbose: false,
+        autoStart: false,
+        notifications: true,
+        showTokens: true,
+      };
+
+      let config = { ...DEFAULT_CONFIG };
+
+      function loadLocalConfig() {
+        try {
+          const saved = localStorage.getItem('agent-config');
+          if (saved) config = { ...DEFAULT_CONFIG, ...JSON.parse(saved) };
+        } catch {}
+      }
+
+      function saveLocalConfig() {
+        localStorage.setItem('agent-config', JSON.stringify(config));
+      }
+
+      function updateUIFromConfig() {
+        document.getElementById('settingToken').value = config.token || '';
+        document.getElementById('settingProjectPath').value = config.projectPath || '';
+        document.getElementById('settingServerUrl').value = config.serverUrl || '';
+        document.getElementById('settingModelName').value = config.modelName || '';
+        document.getElementById('settingMaxFileChars').value = config.maxFileChars;
+        document.getElementById('settingMaxHistory').value = config.maxHistoryPairs;
+        document.getElementById('settingMaxSearch').value = config.maxSearchResults;
+        document.getElementById('systemPrompt').value = config.systemPrompt || DEFAULT_PROMPT;
+        document.getElementById('toggleAutoSave').checked = config.autoSave !== false;
+        document.getElementById('toggleVerbose').checked = config.verbose === true;
+        document.getElementById('toggleAutoStart').checked = config.autoStart === true;
+        document.getElementById('toggleNotif').checked = config.notifications !== false;
+        document.getElementById('toggleShowTokens').checked = config.showTokens !== false;
+      }
+
+      function savePrompt() {
+        const prompt = document.getElementById('systemPrompt').value;
+        config.systemPrompt = prompt;
+        saveLocalConfig();
+        apiFetch('/config', { method: 'POST', body: JSON.stringify({ systemPrompt: prompt }) })
+          .then(() => {
+            addLog('success', '💾 Промпт сохранён на сервере');
+            showToast('Промпт применён', 'success');
+          })
+          .catch((e) => {
+            addLog('error', `❌ API: ${e.message}`);
+            showToast('Локально сохранено', 'warning');
+          });
+      }
+
+      function saveAllSettings() {
+        config = {
+          token: document.getElementById('settingToken').value,
+          projectPath: document.getElementById('settingProjectPath').value,
+          serverUrl: document.getElementById('settingServerUrl').value,
+          modelName: document.getElementById('settingModelName').value,
+          maxFileChars: parseInt(document.getElementById('settingMaxFileChars').value) || 2000,
+          maxHistoryPairs: parseInt(document.getElementById('settingMaxHistory').value) || 5,
+          maxSearchResults: parseInt(document.getElementById('settingMaxSearch').value) || 15,
+          systemPrompt: document.getElementById('systemPrompt').value,
+          autoSave: document.getElementById('toggleAutoSave').checked,
+          verbose: document.getElementById('toggleVerbose').checked,
+          autoStart: document.getElementById('toggleAutoStart').checked,
+          notifications: document.getElementById('toggleNotif').checked,
+          showTokens: document.getElementById('toggleShowTokens').checked,
+        };
+        saveLocalConfig();
+        apiFetch('/config', { method: 'POST', body: JSON.stringify(config) })
+          .then(() => {
+            addLog('success', '💾 Настройки синхронизированы');
+            showToast('Настройки применены', 'success');
+          })
+          .catch((e) => showToast(`API ошибка: ${e.message}`, 'error'));
+      }
+
+      function resetSettings() {
+        if (!confirm('Сбросить настройки?')) return;
+        config = { ...DEFAULT_CONFIG };
+        updateUIFromConfig();
+        saveLocalConfig();
+        apiFetch('/config', { method: 'POST', body: JSON.stringify({ systemPrompt: DEFAULT_PROMPT }) }).catch(() => {});
+        addLog('warning', '↩️ Настройки сброшены');
+        showToast('Настройки сброшены', 'warning');
+      }
+
+      // ==================== PROMPT UTILS ====================
+      function updatePromptCharCount() {
+        const len = document.getElementById('systemPrompt').value.length;
+        document.getElementById('promptCharCount').textContent = `${len.toLocaleString()} символов`;
+      }
+      function resetPrompt() {
+        if (confirm('Сбросить промпт?')) {
+          document.getElementById('systemPrompt').value = DEFAULT_PROMPT;
+          updatePromptCharCount();
+          addLog('warning', '↩️ Промпт сброшен');
+        }
+      }
+      function formatPrompt() {
+        const ta = document.getElementById('systemPrompt');
+        ta.value = ta.value.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+        updatePromptCharCount();
+        showToast('Отформатировано', 'success');
+      }
+      function copyPrompt() {
+        navigator.clipboard.writeText(document.getElementById('systemPrompt').value);
+        showToast('Скопировано', 'success');
+      }
+      document.getElementById('systemPrompt').addEventListener('input', () => {
+        updatePromptCharCount();
+        if (document.getElementById('toggleAutoSave').checked) {
+          clearTimeout(window._autoSaveT);
+          window._autoSaveT = setTimeout(() => {
+            config.systemPrompt = document.getElementById('systemPrompt').value;
+            saveLocalConfig();
+            apiFetch('/config', { method: 'POST', body: JSON.stringify({ systemPrompt: config.systemPrompt }) }).catch(
+              () => {}
+            );
+          }, 2000);
+        }
+      });
+
+      // ==================== LOGS ====================
+      function addLog(type, message) {
+        const el = document.getElementById('consoleLog');
+        const now = new Date();
+        const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        line.innerHTML = `<span class="log-time">[${time}]</span><span class="log-text ${type}">${escapeHtml(message)}</span>`;
+        el.appendChild(line);
+        el.scrollTop = el.scrollHeight;
+        logHistory.push({ time, type, message });
+        document.getElementById('logCount').textContent = `${logHistory.length} строк`;
+      }
+
+      async function pollLogs() {
+        try {
+          const logs = await apiFetch('/logs?limit=50');
+          logs.reverse().forEach((l) => {
+            if (!logHistory.some((x) => x.time === l.time && x.message === l.message)) {
+              const el = document.getElementById('consoleLog');
+              const time = new Date(l.time).toLocaleTimeString();
+              const line = document.createElement('div');
+              line.className = 'log-line';
+              line.innerHTML = `<span class="log-time">[${time}]</span><span class="log-text ${l.type}">${escapeHtml(l.message)}</span>`;
+              el.appendChild(line);
+              el.scrollTop = el.scrollHeight;
+              logHistory.push({ time, type: l.type, message: l.message });
+              document.getElementById('logCount').textContent = `${logHistory.length} строк`;
+            }
+          });
+        } catch {}
+      }
+
+      function startLogPolling() {
+        if (logInterval) clearInterval(logInterval);
+        pollLogs();
+        logInterval = setInterval(pollLogs, 3000);
+      }
+      function stopLogPolling() {
+        if (logInterval) clearInterval(logInterval);
+        logInterval = null;
+      }
+
+      function clearLogs() {
+        document.getElementById('consoleLog').innerHTML = '';
+        logHistory = [];
+        document.getElementById('logCount').textContent = '0 строк';
+        addLog('system', 'Логи очищены');
+      }
+      function exportLogs() {
+        const content = logHistory.map((l) => `[${l.time}] ${l.message}`).join('\n');
+        downloadFile('agent-logs.txt', content);
+        showToast('Экспортировано', 'success');
+      }
+
+      // ==================== CHAT ====================
+      function updateChatStatus(text, active) {
+        document.getElementById('chatStatus').textContent = text;
+        const input = document.getElementById('chatInput'),
+          btn = document.getElementById('chatSendBtn');
+        input.disabled = !active;
+        btn.disabled = !active;
+        input.placeholder = active ? 'Введите сообщение...' : 'Сначала запустите агента';
+      }
+
+      function handleChatKey(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendChatMessage();
+        }
+      }
+
+      async function sendChatMessage() {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text || !agentState.running) return;
+
+        input.value = '';
+        addMessageToChat('user', text);
+
+        const typingId = addTypingIndicator();
+        try {
+          const resp = await apiFetch('/chat', { method: 'POST', body: JSON.stringify({ message: text }) });
+          removeTypingIndicator(typingId);
+          addMessageToChat('bot', resp.reply);
+          updateStatsUI(resp.stats);
+        } catch (e) {
+          removeTypingIndicator(typingId);
+          addMessageToChat('bot', `❌ Ошибка: ${e.message}`);
+        }
+      }
+
+      function addMessageToChat(role, text) {
+        const container = document.getElementById('chatMessages');
+        const status = container.querySelector('.chat-status');
+        if (status) status.remove();
+        const msg = document.createElement('div');
+        msg.className = `chat-msg ${role}`;
+        msg.innerHTML = `<div class="chat-avatar">${role === 'user' ? '👤' : '🤖'}</div><div class="chat-bubble">${escapeHtml(text)}</div>`;
+        container.appendChild(msg);
+        container.scrollTop = container.scrollHeight;
+        chatHistory.push({ role, text });
+      }
+      function addTypingIndicator() {
+        const container = document.getElementById('chatMessages');
+        const msg = document.createElement('div');
+        msg.className = 'chat-msg bot';
+        msg.id = 'typing-' + Date.now();
+        msg.innerHTML = `<div class="chat-avatar">🤖</div><div class="chat-bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+        container.appendChild(msg);
+        container.scrollTop = container.scrollHeight;
+        return msg.id;
+      }
+      function removeTypingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+      }
+
+      // ==================== UTILS ====================
+      function escapeHtml(t) {
+        const d = document.createElement('div');
+        d.textContent = t;
+        return d.innerHTML.replace(/\n/g, '<br>');
+      }
+      function sleep(ms) {
+        return new Promise((r) => setTimeout(r, ms));
+      }
+      function downloadFile(filename, content) {
+        const blob = new Blob([content], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      function showToast(message, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+        toast.innerHTML = `<span>${icons[type] || '📌'}</span><span>${message}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateX(60px)';
+          setTimeout(() => toast.remove(), 300);
+        }, 3000);
+      }
+
+      // ==================== TABS & UI ====================
+      function switchTab(btn, tabName) {
+        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach((t) => t.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+      }
+      function toggleTokenVisibility() {
+        const input = document.getElementById('settingToken'),
+          btn = document.querySelector('.token-toggle');
+        if (input.type === 'password') {
+          input.type = 'text';
+          btn.textContent = '🔒';
+        } else {
+          input.type = 'password';
+          btn.textContent = '👁️';
+        }
+      }
+      function adjustMaxTokens(delta) {
+        const input = document.getElementById('settingMaxTokens');
+        let val = parseInt(input.value) || 1024;
+        val = Math.max(256, Math.min(65536, val + delta));
+        input.value = val;
+      }
+      document.getElementById('settingTemperature').addEventListener('input', (e) => {
+        document.getElementById('tempValue').textContent = parseFloat(e.target.value).toFixed(2);
+      });
+      function saveQuickSettings() {
+        config.autoSave = document.getElementById('toggleAutoSave').checked;
+        config.verbose = document.getElementById('toggleVerbose').checked;
+        config.autoStart = document.getElementById('toggleAutoStart').checked;
+        config.notifications = document.getElementById('toggleNotif').checked;
+        config.showTokens = document.getElementById('toggleShowTokens').checked;
+        saveLocalConfig();
+        showToast('Сохранено', 'success');
+      }
+      function applyPreset(name) {
+        const presets = {
+          fast: { modelName: 'qwen2.5-coder:3b', maxTokens: 512, maxHistoryPairs: 4, temperature: 0.1 },
+          balanced: { modelName: 'qwen2.5-coder-7b-instruct', maxTokens: 2048, maxHistoryPairs: 8 },
+          quality: { modelName: 'qwen2.5-coder:14b', maxTokens: 4096, maxHistoryPairs: 12, temperature: 0.2 },
+          debug: { modelName: 'qwen2.5-coder-7b-instruct', maxTokens: 512, temperature: 0, verbose: true },
+        };
+        const p = presets[name];
+        if (!p || !confirm(`Применить "${name}"?`)) return;
+        Object.assign(config, p);
+        updateUIFromConfig();
+        saveLocalConfig();
+        apiFetch('/config', { method: 'POST', body: JSON.stringify(p) }).catch(() => {});
+        addLog('info', `🔧 Пресет: ${name}`);
+        showToast(`Пресет "${name}" применён`, 'success');
+      }
+      function exportConfig() {
+        saveLocalConfig();
+        downloadFile('agent-config.json', JSON.stringify(config, null, 2));
+        showToast('Экспортировано', 'success');
+      }
+      function importConfig() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            try {
+              const imported = JSON.parse(ev.target.result);
+              config = { ...DEFAULT_CONFIG, ...imported };
+              updateUIFromConfig();
+              saveLocalConfig();
+              apiFetch('/config', { method: 'POST', body: JSON.stringify(config) }).catch(() => {});
+              updatePromptCharCount();
+              showToast('Импортировано', 'success');
+              addLog('success', '📥 Конфиг загружен');
+            } catch {
+              showToast('Ошибка JSON', 'error');
+            }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      }
+    </script>
+  </body>
+</html>
