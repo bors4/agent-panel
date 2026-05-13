@@ -166,7 +166,7 @@ onUnmounted(() => {
     border-radius: var(--radius);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
-    z-index: 1000;
+    z-index: 10000;
     animation: slideDown 0.2s ease;
 }
 

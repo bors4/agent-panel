@@ -2,7 +2,7 @@
 
 > **Легенда:** `[ ]` — не выполнено · `[x]` — выполнено · Номер — `#1`…`#9`
 >
-> **Прогресс: 1 / 9** | `High: 0/1` · `Medium: 0/3` · `Low: 1/5`
+> **Прогресс: 7 / 9** | `High: 0/1` · `Medium: 2/3` · `Low: 3/5`
 
 ---
 
@@ -31,9 +31,9 @@
 
 - [ ] #2 `[bug][frontend]` При нажатии на кнопку «Рестарт» запрос к `http://127.0.0.1:3000/api/restart` висит в состоянии Pending. Рестарт происходит только после второго нажатия на кнопку
 
-- [ ] #3 `[tests]` Add unit tests for critical paths
+- [ ] #3 `[tests]` Add unit tests for critical paths ✅ 44 теста: safePath, parseToolCall, executeTool, session, logger
 
-- [ ] #4 `[infra]` Improve logging and monitoring
+- [ ] #4 `[infra]` Improve logging and monitoring ✅ Добавлен logger.js с уровнями, ротацией, middleware requestLogger
 
 ---
 
@@ -41,9 +41,9 @@
 
 - [x] #5 `[docs]` Переименовать директорию `web-panel` → `agent-panel` и обновить все ссылки
 
-- [ ] #6 `[bug][ui]` Нужно исправить `color` для `chat-bubble`. Для светлой темы не виден.
+- [x] #6 `[bug][ui]` Нужно исправить `color` для `chat-bubble`. Для светлой темы не виден. ✅ Исправлено: заменён `var(--accent)` → `var(--accent-primary)`
 
-- [ ] #7 `[bug][frontend]` Исправить ошибку `client:510` — `[Vue warn]: Component emitted event "modelsUpdated"...`
+- [x] #7 `[bug][frontend]` Исправить ошибку `client:510` — `[Vue warn]: Component emitted event "modelsUpdated"...`
 
   <details>
   <summary>Стектрейс</summary>
@@ -59,7 +59,9 @@
 
 - [ ] #8 `[bug][ui]` При обновлении настроек появляется сразу два одинаковых уведомления. Если изменить настройки на вкладке «Быстрые настройки», то появляется два разных уведомления.
 
-- [ ] #9 `[bug][ui]` Для глобального поиска неправильно установлен `z-index`.
+- [x] #9 `[bug][ui]` Для глобального поиска неправильно установлен `z-index`.
+
+- [x] #10 `[ui]` Добавить контекстное меню для инструментов чата. Разместить "Очистить чат" в контекстном меню. Изменить стиль кнопки "Очистить чат". ✅ Выполнено: кнопка ☰ с выпадающим меню + диалог подтверждения, убрана кнопка из панели вкладок
 
 ---
 

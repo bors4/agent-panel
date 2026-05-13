@@ -43,22 +43,13 @@
                     @click="activeTab = tab.id"
                 >
                     <span aria-hidden="true">{{ tab.icon }}</span>
-                    {{ tab.label }}
-                </button>
-                <button
-                    v-if="activeTab === 'chat'"
-                    class="btn"
-                    aria-label="Очистить историю чата"
-                    @click="clearChat"
-                    style="margin-left: auto; font-size: 10px"
-                >
-                    🗑️ Очистить чат
-                </button>
-            </div>
+{{ tab.label }}
+                 </button>
+             </div>
 
-            <PromptTab
-                v-if="activeTab === 'prompt'"
-                v-model="systemPrompt"
+             <PromptTab
+                 v-if="activeTab === 'prompt'"
+                 v-model="systemPrompt"
                 role="tabpanel"
                 id="panel-prompt"
                 aria-label="Редактор системного промпта"
@@ -512,22 +503,14 @@ const handleQuickSettingsSave = (newSettings) => {
 };
 
 const chatTabRef = ref(null);
-
-const clearChat = () => {
-    if (confirm("Очистить историю чата?")) {
-        chatTabRef.value?.clearChatHistory?.();
-        success("История очищена");
-    }
-};
 </script>
 
 <style>
 @import "@/styles/main.css";
 
 .app-container {
-    position: relative;
-    z-index: 1;
-    max-width: 1440px;
+     position: relative;
+     max-width: 1440px;
     margin: 0 auto;
     padding: 24px;
     display: grid;

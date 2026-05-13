@@ -30,18 +30,18 @@ defineEmits(["navigate"]);
 
 <style scoped>
 .header {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 24px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    backdrop-filter: blur(10px);
-    position: relative;
-    overflow: hidden;
-}
+     grid-column: 1 / -1;
+     display: flex;
+     align-items: center;
+     justify-content: space-between;
+     padding: 16px 24px;
+     background: var(--bg-card);
+     border: 1px solid var(--border);
+     border-radius: var(--radius);
+     backdrop-filter: blur(10px);
+     position: relative;
+     z-index: 50;
+ }
 
 .header::before {
     content: "";
@@ -63,12 +63,11 @@ defineEmits(["navigate"]);
 }
 
 .header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    position: relative;
-    z-index: 1;
-}
+     display: flex;
+     align-items: center;
+     gap: 12px;
+     position: relative;
+ }
 
 .logo {
     width: 42px;

@@ -37,11 +37,13 @@ const chatHistories = new Map();
 const pendingApprovals = new Map();
 
 function addLog(message, type = "info") {
-  const entry = { time: new Date().toISOString(), message, type };
-  agentLogs.push(entry);
-  if (agentLogs.length > 200) agentLogs.shift();
-  console.log(`[${type.toUpperCase()}] ${message}`);
-}
+   const entry = { time: new Date().toISOString(), message, type };
+   agentLogs.push(entry);
+   if (agentLogs.length > 200) agentLogs.shift();
+   if (type === "error") logError(message);
+   else if (type === "warning" || type === "warn") logWarn(message);
+   else logInfo(message);
+ }
 
 function updateStatus(newStatus, message = "") {
   botStatus = newStatus;
@@ -56,6 +58,7 @@ function updateStatus(newStatus, message = "") {
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use(requestLogger);
 
 import {
   agentLoopStep,
@@ -69,6 +72,7 @@ import {
   TOOLS,
   formatValue,
 } from "./lib/agent/executeTool.js";
+import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 
 function updateConfig(newConfig) {
   Object.assign(config, newConfig);

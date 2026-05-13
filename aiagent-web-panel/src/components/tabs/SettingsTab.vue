@@ -336,7 +336,7 @@ const removeApiBase = (index) => {
 
 const syncApiBases = () => {
     autoSave();
-    emit("modelsUpdated");
+    emit("models-updated");
 };
 
 const adjustTokens = (delta) => {
