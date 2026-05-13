@@ -48,6 +48,13 @@ export function addToHistory(session, role, content) {
 }
 
 /**
+ * Очистить все сессии (для тестов).
+ */
+export function clearSessions() {
+  sessions.clear();
+}
+
+/**
  * Очистить старые неактивные сессии.
  * @param {number} maxAgeMs - Максимальный возраст сессии в миллисекундах (по умолчанию 1 час)
  */
