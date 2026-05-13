@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: api/client.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: api/client.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * API клиент для взаимодействия с backend сервером.
+ */
+
+const BASE_URL = "http://127.0.0.1:3000/api";
+const API_KEY = import.meta.env.VITE_API_KEY || "agent-secret-key";
+
+/**
+ * Выполнить запрос к API с аутентификацией.
+ * @param {string} endpoint - Endpoint API
+ * @param {Object} options - Опции fetch (method, body, etc.)
+ * @returns {Promise&lt;Response>} Response от сервера
+ */
+async function apiFetch(endpoint, options = {}) {
+  const url = `${BASE_URL}${endpoint}`;
+  
+  const defaultHeaders = {
+    "Content-Type": "application/json",
+    "x-api-key": API_KEY,
+  };
+
+  const headers = {
+    ...defaultHeaders,
+    ...options.headers,
+  };
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: options.body ? headers : defaultHeaders,
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error ${response.status}: ${response.statusText}`);
+    }
+
+    return response;
+  } catch (error) {
+    console.error("API request failed:", error);
+    throw error;
+  }
+}
+
+/**
+ * Получить статус сервера.
+ * @returns {Promise&lt;Object>} Статус и статистика
+ */
+export async function getStatus() {
+  const response = await apiFetch("/status");
+  return response.json();
+}
+
+/**
+ * Получить последние логи агента.
+ * @param {number} limit - Количество записей (по умолчанию 50)
+ * @returns {Promise&lt;Array>} Массив логов
+ */
+export async function getLogs(limit = 50) {
+  const response = await apiFetch(`/logs?limit=${limit}`);
+  return response.json();
+}
+
+/**
+ * Обновить конфигурацию агента.
+ * @param {Object} config - Новая конфигурация { apiKey, serverUrl }
+ * @returns {Promise&lt;Object>} Результат обновления
+ */
+export async function updateConfig(config) {
+  const response = await apiFetch("/config", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+  return response.json();
+}
+
+/**
+ * Запустить Telegram бота.
+ * @returns {Promise&lt;Object>} Результат запуска
+ */
+export async function startBot() {
+  const response = await apiFetch("/start", { method: "POST" });
+  return response.json();
+}
+
+/**
+ * Остановить Telegram бота.
+ * @returns {Promise&lt;Object>} Результат остановки
+ */
+export async function stopBot() {
+  const response = await apiFetch("/stop", { method: "POST" });
+  return response.json();
+}
+
+/**
+ * Перезапустить Telegram бота.
+ * @returns {Promise&lt;Object>} Результат перезапуска
+ */
+export async function restartBot() {
+  const response = await apiFetch("/restart", { method: "POST" });
+  return response.json();
+}
+
+/**
+ * Прямой чат с AI (без цикла инструментов).
+ * @param {string} message - Сообщение пользователя
+ * @returns {Promise&lt;Object>} Ответ от AI
+ */
+export async function directChat(message) {
+  const response = await apiFetch("/chat", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+  return response.json();
+}
+
+/**
+ * Получить данные сессии.
+ * @param {number|string} chatId - ID чата Telegram
+ * @returns {Promise&lt;Object>} Данные сессии
+ */
+export async function getSession(chatId) {
+  const response = await apiFetch(`/session/${chatId}`);
+  return response.json();
+}
+
+/**
+ * Добавить сообщение в историю сессии.
+ * @param {number|string} chatId - ID чата Telegram
+ * @param {'user'|'assistant'} role - Роль отправителя
+ * @param {string} content - Контент сообщения
+ * @returns {Promise&lt;Object>} Результат добавления
+ */
+export async function addToSession(chatId, role, content) {
+  const response = await apiFetch(`/session/${chatId}`, {
+    method: "POST",
+    body: JSON.stringify({ role, content }),
+  });
+  return response.json();
+}
+
+/**
+ * Очистить старые неактивные сессии.
+ * @param {number} maxAgeMs - Максимальный возраст в миллисекундах (по умолчанию 1 час)
+ * @returns {Promise&lt;Object>} Статус очистки
+ */
+export async function cleanupSessions(maxAgeMs = 3600000) {
+  const response = await apiFetch("/session/cleanup", {
+    method: "POST",
+    body: JSON.stringify({ maxAgeMs }),
+  });
+  return response.json();
+}
+
+/**
+ * Выполнить один шаг цикла агента.
+ * @param {Object} agentState - Состояние агента
+ * @returns {Promise&lt;Object>} Результат шага
+ */
+export async function runAgentLoop(agentState) {
+  const response = await apiFetch("/agent/loop", {
+    method: "POST",
+    body: JSON.stringify(agentState),
+  });
+  return response.json();
+}
+
+/**
+ * Выполнить инструмент агента.
+ * @param {Object} toolCall - Вызов инструмента { name, args }
+ * @returns {Promise&lt;Object>} Результат выполнения
+ */
+export async function executeTool(toolCall) {
+  const response = await apiFetch("/agent/tool", {
+    method: "POST",
+    body: JSON.stringify({ toolCall }),
+  });
+  return response.json();
+}
+
+/**
+ * Получить все доступные инструменты.
+ * @returns {Promise&lt;Object>} Список инструментов
+ */
+export async function getTools() {
+  const response = await apiFetch("/tools");
+  return response.json();
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#BASE_URL">BASE_URL</a></li><li><a href="global.html#addToSession">addToSession</a></li><li><a href="global.html#apiFetch">apiFetch</a></li><li><a href="global.html#cleanupSessions">cleanupSessions</a></li><li><a href="global.html#directChat">directChat</a></li><li><a href="global.html#executeTool">executeTool</a></li><li><a href="global.html#getLogs">getLogs</a></li><li><a href="global.html#getSession">getSession</a></li><li><a href="global.html#getStatus">getStatus</a></li><li><a href="global.html#getTools">getTools</a></li><li><a href="global.html#restartBot">restartBot</a></li><li><a href="global.html#runAgentLoop">runAgentLoop</a></li><li><a href="global.html#startBot">startBot</a></li><li><a href="global.html#stopBot">stopBot</a></li><li><a href="global.html#updateConfig">updateConfig</a></li><li><a href="global.html#useAgent">useAgent</a></li><li><a href="global.html#useCounterStore">useCounterStore</a></li><li><a href="global.html#useToast">useToast</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Wed May 06 2026 16:55:33 GMT+0300 (Москва, стандартное время)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

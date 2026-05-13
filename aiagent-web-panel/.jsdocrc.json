@@ -1,0 +1,12 @@
+{
+  "source": {
+    "include": ["src"],
+    "exclude": ["node_modules", ".vscode"]
+  },
+  "opts": {
+    "destination": "../docs",
+    "template": "default",
+    "verbose": true,
+    "encoding": "utf8"
+  }
+}

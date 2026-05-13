@@ -1,0 +1,16 @@
+{
+  "name": "AI Agent Web Panel",
+  "entryPoints": [
+    "./src/api/client.js",
+    "./src/composables/useAgent.js",
+    "./src/composables/useToast.js",
+    "./src/stores/counter.js"
+  ],
+  "out": "../docs/typedoc",
+  "theme": "default",
+  "plugin": ["typedoc-plugin-markdown"],
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "includeVersion": true,
+  "readme": "README.md"
+}

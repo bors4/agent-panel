@@ -69,10 +69,18 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
+import { directChat } from "@/api/client";
 
 const props = defineProps({
     isActive: Boolean,
+    modelName: { type: String, default: "Qwen3.5-9B-OmniCoder-Claude-Polaris.i1-IQ4_NL" },
+    serverUrl: { type: String, default: "http://192.168.1.101:8080/v1" },
+    projectPath: { type: String, default: "E:\\Git\\web-panel\\aiagent-web" },
+    systemPrompt: { type: String, default: "" },
+    onLog: { type: Function, default: null }
 });
+
+const emit = defineEmits(["log"]);
 
 const messages = ref([]);
 const inputMessage = ref("");
@@ -129,24 +137,6 @@ function clearChatHistory() {
     localStorage.removeItem(CHAT_HISTORY_KEY);
 }
 
-// 🔥 API конфигурация
-const API_BASE = "http://127.0.0.1:3000/api";
-const API_KEY = "agent-secret-key";
-
-async function apiFetch(endpoint, options = {}) {
-    const headers = {
-        "Content-Type": "application/json",
-        "x-api-key": API_KEY,
-        ...options.headers,
-    };
-    const resp = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-    if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-    }
-    return resp.json();
-}
-
 // 🔥 Обработчики событий
 const handleKeypress = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -156,7 +146,7 @@ const handleKeypress = (e) => {
 };
 
 const sendMessage = async () => {
-    if (!inputMessage.value.trim() || !props.isActive) return;
+    if (!inputMessage.value.trim()) return;
 
     const text = inputMessage.value.trim();
     inputMessage.value = "";
@@ -168,9 +158,12 @@ const sendMessage = async () => {
     scrollToBottom();
 
     try {
-        const data = await apiFetch("/chat", {
-            method: "POST",
-            body: JSON.stringify({ message: text }),
+        const data = await directChat({
+            message: text,
+            modelName: props.modelName,
+            serverUrl: props.serverUrl,
+            projectPath: props.projectPath,
+            systemPrompt: props.systemPrompt
         });
 
         isTyping.value = false;
@@ -178,11 +171,20 @@ const sendMessage = async () => {
             role: "bot",
             content: data.reply || "Пустой ответ",
         });
+
+        emit("log", {
+            message: `Model response (${props.modelName}): ${data.reply?.substring(0, 100)}...`,
+            type: "success"
+        });
     } catch (error) {
         isTyping.value = false;
         messages.value.push({
             role: "bot",
             content: `❌ Ошибка: ${error.message}`,
+        });
+        emit("log", {
+            message: `Chat error: ${error.message}`,
+            type: "error"
         });
     }
 

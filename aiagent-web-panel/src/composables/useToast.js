@@ -1,31 +1,68 @@
+/**
+ * Composable для управления уведомлениями (Vue 3).
+ */
+
+import { ref } from "vue";
+
+const TOAST_DURATION = 4000;
+
+export const toasts = ref([]);
+
+/**
+ * Composable для отображения уведомлений.
+ * @returns {Object} Методы toast: info, success, error, warning
+ */
 export function useToast() {
-  function showToast(message, type = "success") {
-    const container = document.getElementById("toast-container");
-    if (!container) return;
-
-    const toast = document.createElement("div");
-    toast.className = `toast ${type}`;
-
-    const icons = {
-      success: "✅",
-      error: "❌",
-      warning: "⚠️",
-      info: "ℹ️",
-    };
-
-    toast.innerHTML = `
-      <span>${icons[type] || "📌"}</span>
-      <span>${message}</span>
-    `;
-
-    container.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transform = "translateX(60px)";
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
+  /**
+   * Добавить информационное уведомление.
+   * @param {string} message - Текст уведомления
+   */
+  function info(message) {
+    addToast("info", message);
   }
 
-  return { showToast };
+  /**
+   * Добавить успешное уведомление.
+   * @param {string} message - Текст уведомления
+   */
+  function success(message) {
+    addToast("success", message);
+  }
+
+  /**
+   * Добавить ошибочное уведомление.
+   * @param {string} message - Текст уведомления
+   */
+  function error(message) {
+    addToast("error", message);
+  }
+
+  /**
+   * Добавить предупреждающее уведомление.
+   * @param {string} message - Текст уведомления
+   */
+  function warning(message) {
+    addToast("warning", message);
+  }
+
+  function addToast(type, message) {
+    const id = Date.now().toString();
+    toasts.value.push({ id, type, message });
+    setTimeout(() => removeToast(id), TOAST_DURATION);
+  }
+
+  function removeToast(id) {
+    const index = toasts.value.findIndex((t) => t.id === id);
+    if (index !== -1) {
+      toasts.value.splice(index, 1);
+    }
+  }
+
+  return {
+    toasts,
+    info,
+    success,
+    error,
+    warning,
+  };
 }

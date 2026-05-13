@@ -1,0 +1,30 @@
+# Logs
+logs
+*.log
+*.err
+
+#Build
+node_modules
+.DS_Store
+dist
+dist-ssr
+coverage
+
+#Configs
+*vscode*
+**/package-lock.json
+
+#Env
+*.env
+
+# Vite
+*.timestamp-*-*.mjs
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated docs
+docs

@@ -24,42 +24,24 @@ import { ref } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { useToast } from "@/composables/useToast";
+import { getConfig } from "@/api/client";
 
-const { showToast } = useToast();
+const { success, error: showError } = useToast();
 const checking = ref(false);
 const statusText = ref("Нажмите для проверки");
 const statusColor = ref("var(--text-muted)");
 
 async function checkBot() {
     try {
-        // 🔥 Читаем токен из localStorage (где он сохраняется при настройке)
-        const savedConfig = localStorage.getItem("agent-config");
         let token = "";
 
-        if (savedConfig) {
-            try {
-                const parsed = JSON.parse(savedConfig);
-                token = parsed.token || "";
-            } catch {}
-        }
-
-        // Если не нашли в localStorage — пробуем получить из API (fallback)
-        if (!token) {
-            try {
-                const resp = await fetch("http://127.0.0.1:3000/api/config", {
-                    headers: { "x-api-key": "agent-secret-key" },
-                    method: "POST", // POST возвращает текущий конфиг после обновления
-                    body: JSON.stringify({}), // пустой запрос для получения текущего состояния
-                });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    token = data.config?.token || "";
-                }
-            } catch {}
-        }
+        try {
+            const data = await getConfig();
+            token = data.config?.token || "";
+        } catch {}
 
         if (!token) {
-            showToast("Укажите токен в настройках", "error");
+            showError("Укажите токен в настройках");
             statusText.value = "✗ Токен не найден";
             statusColor.value = "var(--error)";
             return;
@@ -78,14 +60,14 @@ async function checkBot() {
         if (data.ok) {
             statusText.value = `✓ ${data.result.first_name} (@${data.result.username})`;
             statusColor.value = "var(--success)";
-            showToast("Бот подключён", "success");
+            success("Бот подключён");
         } else {
             throw new Error(data.description);
         }
     } catch (e) {
         statusText.value = "✗ Ошибка подключения";
         statusColor.value = "var(--error)";
-        showToast(e.message || "Неизвестная ошибка", "error");
+        showError(e.message || "Неизвестная ошибка");
     } finally {
         checking.value = false;
     }

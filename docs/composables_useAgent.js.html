@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: composables/useAgent.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: composables/useAgent.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * Composable для управления AI агентом (Vue 3).
+ */
+
+import { ref, computed } from "vue";
+import { useToast } from "./useToast.js";
+import {
+  runAgentLoop,
+  executeTool,
+  getSession,
+  addToSession,
+} from "../api/client.js";
+
+/**
+ * Composable для работы с AI агентом.
+ * @returns {Object} Объект с методами и вычисляемыми свойствами
+ */
+export function useAgent() {
+  const isProcessing = ref(false);
+  const currentChatId = ref(null);
+  const pendingToolCall = ref(null);
+
+  const toast = useToast();
+
+  /**
+   * Запустить цикл агента.
+   * @param {Object} agentState - Состояние агента
+   * @returns {Promise&lt;Object>} Результат выполнения цикла
+   */
+  async function runLoop(agentState) {
+    if (isProcessing.value) return;
+
+    isProcessing.value = true;
+    pendingToolCall.value = null;
+
+    try {
+      const result = await runAgentLoop(agentState);
+
+      if (result.type === "await_tool") {
+        pendingToolCall.value = result.toolCall;
+        toast.info("Waiting for tool execution...");
+        return result;
+      } else if (result.type === "complete") {
+        toast.success(result.response);
+        return result;
+      } else if (result.type === "error") {
+        toast.error(result.message);
+        throw new Error(result.message);
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Agent loop error:", error);
+      toast.error(error.message || "Unknown error");
+      throw error;
+    } finally {
+      isProcessing.value = false;
+    }
+  }
+
+  /**
+   * Выполнить инструмент, который ожидает выполнения.
+   * @param {Object} toolCall - Вызов инструмента
+   * @returns {Promise&lt;Object>} Результат выполнения инструмента
+   */
+  async function executePendingTool(toolCall) {
+    if (!pendingToolCall.value || pendingToolCall.value.name !== toolCall.name) {
+      throw new Error("No pending tool to execute");
+    }
+
+    const result = await executeTool({ ...toolCall, args: pendingToolCall.value.args });
+
+    if (result.success) {
+      toast.success(`Tool ${toolCall.name} executed successfully`);
+    } else {
+      toast.error(`Tool ${toolCall.name} failed: ${result.error}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Добавить сообщение в текущую сессию.
+   * @param {'user'|'assistant'} role - Роль отправителя
+   * @param {string} content - Контент сообщения
+   */
+  async function addMessage(role, content) {
+    if (!currentChatId.value) return;
+
+    await addToSession(currentChatId.value, role, content);
+  }
+
+  /**
+   * Создать новую сессию чата.
+   * @returns {Promise&lt;number>} ID новой сессии
+   */
+  async function createNewSession() {
+    const chatId = Date.now().toString();
+    currentChatId.value = chatId;
+    return chatId;
+  }
+
+  /**
+   * Получить текущую сессию.
+   * @returns {Object|null} Объект сессии или null
+   */
+  function getCurrentSession() {
+    if (!currentChatId.value) return null;
+    return getSession(currentChatId.value);
+  }
+
+  return {
+    isProcessing,
+    currentChatId,
+    pendingToolCall,
+    runLoop,
+    executePendingTool,
+    addMessage,
+    createNewSession,
+    getCurrentSession,
+  };
+}</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#BASE_URL">BASE_URL</a></li><li><a href="global.html#addToSession">addToSession</a></li><li><a href="global.html#apiFetch">apiFetch</a></li><li><a href="global.html#cleanupSessions">cleanupSessions</a></li><li><a href="global.html#directChat">directChat</a></li><li><a href="global.html#executeTool">executeTool</a></li><li><a href="global.html#getLogs">getLogs</a></li><li><a href="global.html#getSession">getSession</a></li><li><a href="global.html#getStatus">getStatus</a></li><li><a href="global.html#getTools">getTools</a></li><li><a href="global.html#restartBot">restartBot</a></li><li><a href="global.html#runAgentLoop">runAgentLoop</a></li><li><a href="global.html#startBot">startBot</a></li><li><a href="global.html#stopBot">stopBot</a></li><li><a href="global.html#updateConfig">updateConfig</a></li><li><a href="global.html#useAgent">useAgent</a></li><li><a href="global.html#useCounterStore">useCounterStore</a></li><li><a href="global.html#useToast">useToast</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Wed May 06 2026 16:55:33 GMT+0300 (Москва, стандартное время)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

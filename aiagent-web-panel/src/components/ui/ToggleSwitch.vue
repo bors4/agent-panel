@@ -76,7 +76,7 @@ defineEmits(["update:modelValue"]);
 
 .toggle input:checked + .toggle-slider::before {
     transform: translateX(18px);
-    background: white;
+    background: var(--text-primary);
 }
 
 .toggle-divider {

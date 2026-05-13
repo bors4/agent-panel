@@ -1,0 +1,66 @@
+{
+  "name": "ai-agent-panel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Agent Control Panel with Vue frontend and Express backend",
+  "scripts": {
+    "frontend:dev": "cd aiagent-web-panel && npm run dev",
+    "frontend:build": "cd aiagent-web-panel && npm run build",
+    "frontend:preview": "cd aiagent-web-panel && npm run preview",
+    "frontend:test": "cd aiagent-web-panel && npm run test",
+    "backend:dev": "node aiagent-be/server.js",
+    "backend:start": "node aiagent-be/server.js",
+    "backend:test": "cd aiagent-be && npx vitest run",
+    "dev": "concurrently \"npm run frontend:dev\" \"npm run backend:dev\"",
+    "build": "npm run frontend:build",
+    "start": "npm run backend:start",
+    "test": "npm run backend:test",
+    "test:all": "npm run backend:test && npm run frontend:test",
+    "postinstall": "cd aiagent-web-panel && npm install"
+  },
+  "keywords": [
+    "ai",
+    "telegram-bot",
+    "vue3",
+    "express",
+    "llm"
+  ],
+  "author": "",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bors4/agent-panel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bors4/agent-panel/issues"
+  },
+  "homepage": "https://github.com/bors4/agent-panel#readme",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "grammy": "^1.42.0",
+    "openai": "^6.35.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.6",
+    "concurrently": "^9.2.1",
+    "vitest": "^4.1.6"
+  },
+  "overrides": {
+    "vue": "beta",
+    "@vue/compiler-core": "beta",
+    "@vue/compiler-dom": "beta",
+    "@vue/compiler-sfc": "beta",
+    "@vue/compiler-ssr": "beta",
+    "@vue/reactivity": "beta",
+    "@vue/runtime-core": "beta",
+    "@vue/runtime-dom": "beta",
+    "@vue/server-renderer": "beta",
+    "@vue/shared": "beta"
+  }
+}
