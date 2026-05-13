@@ -306,11 +306,11 @@ defineExpose({ clearChatHistory });
 }
 
 .chat-msg.user .chat-bubble {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-    border-bottom-right-radius: 4px;
-}
+     background: var(--accent-primary);
+     color: white;
+     border-color: var(--accent-primary);
+     border-bottom-right-radius: 4px;
+ }
 
 .chat-msg.bot .chat-bubble {
     background: var(--bg-tertiary);
