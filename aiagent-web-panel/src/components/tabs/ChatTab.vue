@@ -1,70 +1,123 @@
 <template>
-    <Card>
-        <template #header>
-            <h2>💬 Чат с агентом</h2>
-            <span style="font-size: 10px; color: var(--text-muted)">
-                {{ isActive ? "Агент запущен" : "Бот не запущен" }}
-            </span>
-        </template>
-        <div class="chat-container">
-            <div class="chat-messages" ref="chatContainer">
-                <div v-if="messages.length === 0" class="chat-placeholder">
-                    <div class="placeholder-icon">🤖</div>
-                    <div>
-                        {{
-                            isActive
-                                ? "Введите сообщение для начала диалога"
-                                : "Запустите агента для начала общения"
-                        }}
-                    </div>
-                </div>
-                <div
-                    v-for="(msg, index) in messages"
-                    :key="index"
-                    :class="['chat-msg', msg.role]"
-                >
-                    <div class="chat-avatar">
-                        {{ msg.role === "user" ? "👤" : "🤖" }}
-                    </div>
-                    <div class="chat-bubble">
-                        {{ msg.content }}
-                    </div>
-                </div>
-                <div v-if="isTyping" class="chat-msg bot">
-                    <div class="chat-avatar">🤖</div>
-                    <div class="chat-bubble">
-                        <div class="typing-indicator">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="chat-input-area">
-                <input
-                    v-model="inputMessage"
-                    type="text"
-                    class="chat-input"
-                    :disabled="!isActive"
-                    :placeholder="
-                        isActive
-                            ? 'Введите сообщение...'
-                            : 'Сначала запустите агента'
-                    "
-                    @keypress="handleKeypress"
-                />
-                <button
-                    class="chat-send"
-                    :disabled="!isActive || !inputMessage.trim()"
-                    @click="sendMessage"
-                >
-                    ➤
-                </button>
-            </div>
-        </div>
-    </Card>
-</template>
+     <Card>
+         <template #header>
+<div class="chat-header">
+                  <h2>💬 Чат с агентом</h2>
+                  <span style="font-size: 10px; color: var(--text-muted)">
+                      {{ isActive ? "Агент запущен" : "Бот не запущен" }}
+                  </span>
+              </div>
+         </template>
+         <div class="chat-container" @contextmenu.prevent="showContextMenu">
+             <div class="chat-messages" ref="chatContainer">
+                 <div v-if="messages.length === 0" class="chat-placeholder">
+                     <div class="placeholder-icon">🤖</div>
+                     <div>
+                         {{
+                             isActive
+                                 ? "Введите сообщение для начала диалога"
+                                 : "Запустите агента для начала общения"
+                         }}
+                     </div>
+                 </div>
+                 <div
+                     v-for="(msg, index) in messages"
+                     :key="index"
+                     :class="['chat-msg', msg.role]"
+                 >
+                     <div class="chat-avatar">
+                         {{ msg.role === "user" ? "👤" : "🤖" }}
+                     </div>
+                     <div class="chat-bubble">
+                         {{ msg.content }}
+                     </div>
+                 </div>
+                 <div v-if="isTyping" class="chat-msg bot">
+                     <div class="chat-avatar">🤖</div>
+                     <div class="chat-bubble">
+                         <div class="typing-indicator">
+                             <span></span>
+                             <span></span>
+                             <span></span>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+             <div class="chat-input-area">
+<div class="chat-tools-menu">
+                      <button
+                          class="chat-tools-btn"
+                          :class="{ active: toolsMenuOpen }"
+                          :disabled="!isActive"
+                          @click="toolsMenuOpen = !toolsMenuOpen"
+                          title="Инструменты чата"
+                      >
+                          <span class="dot dot-top"></span>
+                          <span class="dot dot-middle"></span>
+                          <span class="dot dot-bottom"></span>
+                      </button>
+                     <Transition name="tools-menu-fade">
+                         <div
+                             v-if="toolsMenuOpen"
+                             class="tools-dropdown"
+                             @click="toolsMenuOpen = false"
+                         >
+                             <div
+                                 class="tools-dropdown-item"
+                                 :class="{ disabled: messages.length === 0 }"
+                                 @click.stop="handleClearChat"
+                             >
+                                 🗑️ Очистить чат
+                             </div>
+                         </div>
+                     </Transition>
+                 </div>
+                 <input
+                     v-model="inputMessage"
+                     type="text"
+                     class="chat-input"
+                     :disabled="!isActive"
+                     :placeholder="
+                         isActive
+                             ? 'Введите сообщение...'
+                             : 'Сначала запустите агента'
+                     "
+                     @keypress="handleKeypress"
+                 />
+                 <button
+                     class="chat-send"
+                     :disabled="!isActive || !inputMessage.trim()"
+                     @click="sendMessage"
+                 >
+                     ➤
+                 </button>
+             </div>
+         </div>
+         <Transition name="contextmenu-fade">
+             <div
+                 v-if="contextMenuVisible"
+                 class="context-menu"
+                 :style="{ top: menuY + 'px', left: menuX + 'px' }"
+                 @contextmenu.prevent
+             >
+                 <div class="context-menu-item" @click="handleClearChat">
+                     🗑️ Очистить чат
+                 </div>
+             </div>
+         </Transition>
+         <Transition name="confirm-fade">
+             <div v-if="showConfirm" class="confirm-overlay" @click.self="showConfirm = false">
+                 <div class="confirm-dialog">
+                     <p>Очистить весь чат? История сообщений будет удалена.</p>
+                     <div class="confirm-actions">
+                         <button class="confirm-btn cancel" @click="showConfirm = false">Отмена</button>
+                         <button class="confirm-btn confirm" @click="confirmClearChat">Очистить</button>
+                     </div>
+                 </div>
+             </div>
+         </Transition>
+     </Card>
+ </template>
 
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
@@ -131,10 +184,37 @@ function saveChatHistory(history) {
     }
 }
 
+const showConfirm = ref(false);
+const contextMenuVisible = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
+const toolsMenuOpen = ref(false);
+
 // 🔥 Очистка истории
 function clearChatHistory() {
-    messages.value = [];
-    localStorage.removeItem(CHAT_HISTORY_KEY);
+     messages.value = [];
+     localStorage.removeItem(CHAT_HISTORY_KEY);
+}
+
+// 🎯 Контекстное меню
+function showContextMenu(e) {
+     contextMenuVisible.value = false;
+     nextTick(() => {
+         menuX.value = e.clientX;
+         menuY.value = e.clientY;
+         contextMenuVisible.value = true;
+     });
+}
+
+function handleClearChat() {
+     contextMenuVisible.value = false;
+     showConfirm.value = true;
+}
+
+function confirmClearChat() {
+     clearChatHistory();
+     showConfirm.value = false;
+     emit("log", { message: "Чат очищен", type: "success" });
 }
 
 // 🔥 Обработчики событий
@@ -223,10 +303,245 @@ defineExpose({ clearChatHistory });
 
 <style scoped>
 .chat-container {
-    display: flex;
-    flex-direction: column;
-    height: 480px;
-}
+     display: flex;
+     flex-direction: column;
+     height: 480px;
+ }
+
+ .chat-header {
+     display: flex;
+     justify-content: space-between;
+     align-items: center;
+     width: 100%;
+ }
+
+.chat-tools-menu {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      position: relative;
+  }
+
+.tools-btn {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        width: 38px;
+        height: 38px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        transition: var(--transition);
+        padding: 0;
+        position: relative;
+        transform: rotate(180deg);
+    }
+
+    .tools-btn:hover:not(:disabled) {
+        background: var(--bg-hover);
+    }
+
+    .tools-btn:hover:not(:disabled) .dot {
+        background: var(--accent-primary);
+    }
+
+    .tools-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--text-muted);
+        display: block;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Анимация в крестик */
+    .tools-btn.active .dot-top {
+        transform: translateY(5.5px) rotate(45deg);
+        background: var(--error);
+    }
+
+    .tools-btn.active .dot-middle {
+        opacity: 0;
+        transform: scale(0);
+    }
+
+    .tools-btn.active .dot-bottom {
+        transform: translateY(-5.5px) rotate(-45deg);
+        background: var(--error);
+    }
+
+  /* Tools dropdown — opens upward */
+  .tools-dropdown {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 0;
+      z-index: 10000;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-lg);
+      min-width: 180px;
+      overflow: hidden;
+      animation: menuSlideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes menuSlideUp {
+      from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.97);
+      }
+      to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+      }
+  }
+
+   .tools-dropdown-item {
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-primary);
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+  }
+
+  .tools-dropdown-item:hover {
+      background: var(--bg-hover);
+      color: var(--accent-primary);
+  }
+
+  .tools-dropdown-item.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+  }
+
+  /* Context menu (right-click) */
+  .context-menu {
+     position: fixed;
+     z-index: 9999;
+     background: var(--bg-card);
+     border: 1px solid var(--border);
+     border-radius: var(--radius-sm);
+     box-shadow: var(--shadow-lg);
+     min-width: 180px;
+     overflow: hidden;
+     animation: contextMenuIn 0.15s ease-out;
+ }
+
+ @keyframes contextMenuIn {
+     from {
+         opacity: 0;
+         transform: scale(0.95) translateY(-4px);
+     }
+     to {
+         opacity: 1;
+         transform: scale(1) translateY(0);
+     }
+ }
+
+ .context-menu-item {
+     padding: 10px 16px;
+     cursor: pointer;
+     font-size: 13px;
+     color: var(--text-primary);
+     transition: background 0.15s;
+     display: flex;
+     align-items: center;
+     gap: 8px;
+ }
+
+ .context-menu-item:hover {
+     background: var(--bg-hover);
+     color: var(--accent-primary);
+ }
+
+ /* Confirm dialog */
+ .confirm-overlay {
+     position: fixed;
+     inset: 0;
+     background: rgba(0, 0, 0, 0.5);
+     z-index: 10000;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     animation: fadeIn 0.2s ease;
+ }
+
+ .confirm-dialog {
+     background: var(--bg-card);
+     border: 1px solid var(--border);
+     border-radius: var(--radius);
+     padding: 24px;
+     max-width: 360px;
+     width: 90%;
+     box-shadow: var(--shadow-lg);
+     animation: dialogIn 0.2s ease;
+ }
+
+ .confirm-dialog p {
+     color: var(--text-primary);
+     margin-bottom: 20px;
+     font-size: 14px;
+     line-height: 1.5;
+ }
+
+ .confirm-actions {
+     display: flex;
+     justify-content: flex-end;
+     gap: 10px;
+ }
+
+ .confirm-btn {
+     padding: 8px 18px;
+     border-radius: var(--radius-sm);
+     border: 1px solid var(--border);
+     cursor: pointer;
+     font-size: 13px;
+     font-weight: 500;
+     transition: var(--transition);
+ }
+
+ .confirm-btn.cancel {
+     background: var(--bg-tertiary);
+     color: var(--text-secondary);
+ }
+
+ .confirm-btn.cancel:hover {
+     background: var(--bg-hover);
+     color: var(--text-primary);
+ }
+
+ .confirm-btn.confirm {
+     background: var(--error);
+     color: white;
+     border-color: var(--error);
+ }
+
+ .confirm-btn.confirm:hover {
+     background: #dc2626;
+ }
+
+ @keyframes dialogIn {
+     from {
+         opacity: 0;
+         transform: scale(0.95) translateY(-8px);
+     }
+     to {
+         opacity: 1;
+         transform: scale(1) translateY(0);
+     }
+ }
 
 .chat-messages {
     flex: 1;
@@ -319,12 +634,14 @@ defineExpose({ clearChatHistory });
 }
 
 .chat-input-area {
-    display: flex;
-    gap: 8px;
-    padding: 12px;
-    border-top: 1px solid var(--border);
-    background: var(--bg-card);
-}
+     display: flex;
+     gap: 8px;
+     padding: 12px;
+     border-top: 1px solid var(--border);
+     background: var(--bg-card);
+     position: relative;
+     overflow: visible;
+ }
 
 .chat-input {
     flex: 1;
