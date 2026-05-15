@@ -41,59 +41,140 @@ afterEach(() => {
 // safePath
 // ═════════════════════════════════════════════════════════════════
 describe("safePath", () => {
-  const projectRoot = "/home/user/project";
+   const projectRoot = "/home/user/project";
+   // Normalize an expected path for the current platform
+   const normalize = (p) => path.resolve(p).replace(/\\/g, "/");
 
-  it("allows relative paths within project", () => {
-    expect(safePath("src/index.js", projectRoot)).toBe(
-      "/home/user/project/src/index.js"
-    );
-  });
+   it("allows relative paths within project", () => {
+     expect(safePath("src/index.js", projectRoot)).toBe(
+       normalize("/home/user/project/src/index.js")
+     );
+   });
 
-  it("allows nested relative paths", () => {
-    expect(safePath("src/components/Button.vue", projectRoot)).toBe(
-      "/home/user/project/src/components/Button.vue"
-    );
-  });
+   it("allows nested relative paths", () => {
+     expect(safePath("src/components/Button.vue", projectRoot)).toBe(
+       normalize("/home/user/project/src/components/Button.vue")
+     );
+   });
 
-  it("rejects path traversal with ../", () => {
-    expect(() => safePath("../../../etc/passwd", projectRoot)).toThrow(
-      "Path outside project is forbidden"
-    );
-  });
+   it("rejects path traversal with ../", () => {
+     expect(() => safePath("../../../etc/passwd", projectRoot)).toThrow(
+       "Path outside project is forbidden"
+     );
+   });
 
-  it("rejects absolute paths outside project", () => {
-    expect(() => safePath("/etc/passwd", projectRoot)).toThrow(
-      "Path outside project is forbidden"
-    );
-  });
+   it("rejects absolute paths outside project", () => {
+     expect(() => safePath("/etc/passwd", projectRoot)).toThrow(
+       "Path outside project is forbidden"
+     );
+   });
 
-  it("allows absolute paths within project", () => {
-    expect(safePath("/home/user/project/src/file.js", projectRoot)).toBe(
-      "/home/user/project/src/file.js"
-    );
-  });
+   it("allows absolute paths within project", () => {
+     expect(safePath("/home/user/project/src/file.js", projectRoot)).toBe(
+       normalize("/home/user/project/src/file.js")
+     );
+   });
 
-  it("normalizes Windows-style backslashes", () => {
-    const result = safePath("src\\nested\\file.js", projectRoot);
-    expect(result).toBe("/home/user/project/src/nested/file.js");
-  });
+   it("normalizes Windows-style backslashes in input", () => {
+     // Use real backslash chars, not JS escape sequences
+     const backslashPath = ["src", "nested", "file.js"].join(path.sep);
+     const result = safePath(backslashPath, projectRoot);
+     expect(result.replace(/\\/g, "/")).toBe(
+       normalize("/home/user/project/src/nested/file.js")
+     );
+   });
 
-  it("handles dot-prefix paths", () => {
-    expect(safePath("./src/file.js", projectRoot)).toBe(
-      "/home/user/project/src/file.js"
-    );
-  });
+   it("handles dot-prefix paths", () => {
+     expect(safePath("./src/file.js", projectRoot)).toBe(
+       normalize("/home/user/project/src/file.js")
+     );
+   });
 
-  it("rejects null-byte injection", () => {
-    expect(() => safePath("src/file.js\0evil", projectRoot)).toThrow(
-      "null bytes"
-    );
-  });
+   it("rejects null-byte injection", () => {
+     expect(() => safePath("src/file.js\0evil", projectRoot)).toThrow(
+       "null bytes"
+     );
+   });
 
-  it("handles empty string path", () => {
-    expect(safePath("", projectRoot)).toBe(projectRoot);
-  });
-});
+   it("handles empty string path", () => {
+     expect(safePath("", projectRoot)).toBe(normalize("/home/user/project"));
+   });
+
+   // ── Windows-specific tests (skip on Unix) ─────────────────────────
+   describe("Windows paths", () => {
+     const isWin = process.platform === "win32";
+
+     it("handles trailing backslash in projectRoot", () => {
+       if (!isWin) return;
+       const rootWithSlash = "E:\\Git\\agent-panel\\";
+       const result = safePath("src", rootWithSlash);
+       expect(result.replace(/\\/g, "/")).toContain("agent-panel/src");
+     });
+
+     it("handles mixed slashes in projectRoot", () => {
+       if (!isWin) return;
+       const mixedRoot = "E:/Git\\agent-panel";
+       const result = safePath("src/file.js", mixedRoot);
+       const normalized = result.replace(/\\/g, "/").toLowerCase();
+       expect(normalized).toContain("agent-panel/src/file.js");
+     });
+
+     it("handles Windows drive-letter projectRoot", () => {
+       if (!isWin) return;
+       const winRoot = "E:\\Git\\agent-panel";
+       const result = safePath("src/index.js", winRoot);
+       expect(result.replace(/\\/g, "/")).toContain("agent-panel/src/index.js");
+     });
+
+     it("allows relative '.' path with Windows root", () => {
+       if (!isWin) return;
+       const winRoot = "E:\\Git\\agent-panel";
+       const result = safePath(".", winRoot);
+       expect(result.replace(/\\/g, "/")).toContain("agent-panel");
+     });
+
+     it("allows './src' path with Windows root", () => {
+       if (!isWin) return;
+       const winRoot = "E:\\Git\\agent-panel";
+       const result = safePath("./src", winRoot);
+       expect(result.replace(/\\/g, "/")).toContain("agent-panel/src");
+     });
+
+     it("blocks '../' outside Windows project root", () => {
+       if (!isWin) return;
+       const winRoot = "E:\\Git\\agent-panel";
+       expect(() => safePath("..", winRoot)).toThrow("Path outside project is forbidden");
+     });
+
+     it("blocks path traversal to completely different drive", () => {
+       if (!isWin) return;
+       const winRoot = "E:\\Git\\agent-panel";
+       expect(() => safePath("C:\\Windows\\system32", winRoot)).toThrow(
+         "Path outside project is forbidden"
+       );
+     });
+   });
+
+   // ── Additional edge cases ─────────────────────────────────────────
+   it("blocks absolute path outside Unix project", () => {
+     expect(() => safePath("/etc/passwd", "/home/user/project")).toThrow(
+       "Path outside project is forbidden"
+     );
+   });
+
+   it("allows absolute path inside Unix project", () => {
+     const result = safePath("/home/user/project/src/file.js", "/home/user/project");
+     expect(result.replace(/\\/g, "/")).toBe(
+       path.resolve("/home/user/project/src/file.js").replace(/\\/g, "/")
+     );
+   });
+
+   it("handles deeply nested relative path", () => {
+     expect(safePath("a/b/c/d/e.js", projectRoot)).toBe(
+       normalize("/home/user/project/a/b/c/d/e.js")
+     );
+   });
+ });
 
 // ═════════════════════════════════════════════════════════════════
 // parseToolCall

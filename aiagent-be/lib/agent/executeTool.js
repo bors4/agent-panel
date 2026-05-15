@@ -5,11 +5,8 @@
 
 import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { spawn } from "child_process";
 import { safePath } from "../utils.js";
-
-const execAsync = promisify(exec);
 
 // ============================================================================
 // DEFAULT CONFIGURATION
@@ -422,8 +419,32 @@ async function searchDirectory(
 
 export async function executeTool(toolCall, config = {}) {
   const { name, args = {} } = toolCall;
-  const projectPath = config.projectPath || process.env.PROJECT_PATH || ".";
+// Resolve projectPath: server passes it via config (from .env or API /api/config).
+   const rawPath = config.projectPath || "";
+  // If no project path is configured at all, return a clear error
+  if (!rawPath) {
+    return {
+      success: false,
+      error:
+        "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
+    };
+  }
+  const projectPath = path.resolve(rawPath);
   const maxResults = config.maxSearchResults || 15;
+
+  // Validate project directory exists
+  if (!fs.existsSync(projectPath)) {
+    return {
+      success: false,
+      error: `Project directory does not exist: ${projectPath}`,
+    };
+  }
+  if (!fs.statSync(projectPath).isDirectory()) {
+    return {
+      success: false,
+      error: `Project path is not a directory: ${projectPath}`,
+    };
+  }
 
   // Validate tool exists
   if (!TOOLS[name]) {
@@ -436,11 +457,21 @@ export async function executeTool(toolCall, config = {}) {
     return { success: false, error: permission.reason, requiresApproval: true };
   }
 
+  console.log(
+    `[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`,
+  );
+
   try {
     switch (name) {
       // ────────────────────────────────────────────────────────────────────
       case "read": {
         const filePath = safePath(args.filePath, projectPath);
+        if (!fs.existsSync(filePath)) {
+          return {
+            success: false,
+            error: `File not found: ${path.relative(projectPath, filePath)}`,
+          };
+        }
         const content = fs.readFileSync(filePath, "utf-8");
         const maxChars = config.maxFileChars || 2000;
         const truncated =
@@ -501,6 +532,13 @@ export async function executeTool(toolCall, config = {}) {
           : projectPath;
         const depth = Math.min(args.depth || 1, 3);
 
+        if (!fs.existsSync(dirPath)) {
+          return {
+            success: false,
+            error: `Directory not found: ${path.relative(projectPath, dirPath)}`,
+          };
+        }
+
         // Returns flat array: ["📁 src/", "  📄 file.js", ...]
         const tree = await listDirectoryFlat(dirPath, depth, 0);
 
@@ -513,45 +551,96 @@ export async function executeTool(toolCall, config = {}) {
         };
       }
 
-      // ────────────────────────────────────────────────────────────────────
-      case "execute": {
-        const timeout = (args.timeout || 30) * 1000;
-        const cwd = projectPath;
-        const isWin = process.platform === 'win32';
+// ────────────────────────────────────────────────────────────────────
+       case "execute": {
+         const timeout = (args.timeout || 30) * 1000;
+         const cwd = projectPath;
+         const isWin = process.platform === "win32";
+         const trimmedCmd = args.command.trimStart();
+         const isPwsh =
+           /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
 
-        const safeCmd = isWin
-          ? `cmd /c "${args.command.replace(/"/g, '\\"')}"`
-          : args.command;
+         try {
+           const result = await new Promise((resolve, reject) => {
+             let shell, shellArgs;
 
-        try {
-          const result = await execAsync(safeCmd, {
-            cwd,
-            timeout,
-            encoding: 'utf-8',
-            maxBuffer: 10 * 1024 * 1024,
-            shell: isWin ? 'cmd.exe' : '/bin/sh'
-          });
+             if (isWin) {
+               if (isPwsh) {
+                 // PowerShell: запускаем напрямую, минуя cmd.exe,
+                 // иначе | ; & > < перехватываются CMD как свои операторы.
+                 const pwshCmd = trimmedCmd
+                   .replace(/^(powershell|pwsh)\s+/i, "")
+                   .replace(/^(-command|-c)\s+/i, "")
+                   .trim()
+                   .replace(/^["'](.*)["']\s*$/, "$1");
+                 shell = "powershell.exe";
+                 shellArgs = [
+                   "-NoLogo",
+                   "-NoProfile",
+                   "-Command",
+                   pwshCmd,
+                 ];
+} else {
+                  // Остальные команды — через cmd.exe с UTF-8
+                  shell = "cmd.exe";
+                  shellArgs = ["/s", "/d", "/c", `chcp 65001 >nul & ${args.command}`];
+                }
+             } else {
+               shell = "/bin/sh";
+               shellArgs = ["-c", args.command];
+             }
 
-          return {
-            success: true,
-            data: {
-              stdout: result.stdout?.trim() || "",
-              stderr: result.stderr?.trim() || "",
-              exitCode: result.exitCode ?? 0,
-            },
-          };
-        } catch (e) {
-          return {
-            success: false,
-            error: e.message,
-            data: {
-              stdout: e.stdout?.trim() || "",
-              stderr: e.stderr?.trim() || "",
-              exitCode: e.code ?? 1,
-            },
-          };
-        }
-      }
+             const child = spawn(shell, shellArgs, {
+               cwd,
+               timeout,
+               encoding: "utf-8",
+               maxBuffer: 10 * 1024 * 1024,
+               windowsVerbatimArguments: isWin,
+             });
+
+             let stdout = "";
+             let stderr = "";
+
+             child.stdout.on("data", (data) => {
+               stdout += data.toString();
+             });
+             child.stderr.on("data", (data) => {
+               stderr += data.toString();
+             });
+
+             child.on("error", (err) => {
+               reject(err);
+             });
+
+             child.on("close", (code) => {
+               resolve({
+                 stdout: stdout.trim(),
+                 stderr: stderr.trim(),
+                 exitCode: code ?? 0,
+               });
+             });
+           });
+
+           return {
+             success: true,
+             data: {
+               stdout: result.stdout,
+               stderr: result.stderr,
+               exitCode: result.exitCode,
+             },
+           };
+         } catch (e) {
+           return {
+             success: false,
+             error: e.message,
+             data: {
+               stdout: e.stdout?.trim() || "",
+               stderr: e.stderr?.trim() || "",
+               exitCode: e.code ?? 1,
+             },
+           };
+         }
+       }
 
       // ────────────────────────────────────────────────────────────────────
       case "create_dir": {
@@ -563,6 +652,12 @@ export async function executeTool(toolCall, config = {}) {
       // ────────────────────────────────────────────────────────────────────
       case "delete": {
         const targetPath = safePath(args.path, projectPath);
+        if (!fs.existsSync(targetPath)) {
+          return {
+            success: false,
+            error: `Path not found: ${path.relative(projectPath, targetPath)}`,
+          };
+        }
         const stats = fs.statSync(targetPath);
 
         if (stats.isDirectory()) {
@@ -580,6 +675,12 @@ export async function executeTool(toolCall, config = {}) {
       // ────────────────────────────────────────────────────────────────────
       case "move": {
         const source = safePath(args.source, projectPath);
+        if (!fs.existsSync(source)) {
+          return {
+            success: false,
+            error: `Source not found: ${path.relative(projectPath, source)}`,
+          };
+        }
         const destination = safePath(args.destination, projectPath);
         // Ensure destination directory exists
         const destDir = path.dirname(destination);
@@ -593,8 +694,13 @@ export async function executeTool(toolCall, config = {}) {
       // ────────────────────────────────────────────────────────────────────
       case "copy": {
         const source = safePath(args.source, projectPath);
+        if (!fs.existsSync(source)) {
+          return {
+            success: false,
+            error: `Source not found: ${path.relative(projectPath, source)}`,
+          };
+        }
         const destination = safePath(args.destination, projectPath);
-        // Ensure destination directory exists
         const destDir = path.dirname(destination);
         if (!fs.existsSync(destDir)) {
           fs.mkdirSync(destDir, { recursive: true });

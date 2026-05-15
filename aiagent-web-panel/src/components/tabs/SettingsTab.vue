@@ -32,7 +32,7 @@
                 v-model="configCopy.projectPath"
                 type="text"
                 class="form-input"
-                placeholder="E:\Git\web-panel\aiagent-web"
+                placeholder="C:\path\to\project"
             />
         </div>
         <div class="form-group">
@@ -46,7 +46,11 @@
                     <span class="col-connect">Connect</span>
                     <button class="btn-add" @click="addApiBase">+</button>
                 </div>
-                <div v-for="(api, index) in apiBasesCopy" :key="index" class="table-row">
+                <div
+                    v-for="(api, index) in apiBasesCopy"
+                    :key="index"
+                    class="table-row"
+                >
                     <input
                         v-model="apiBasesCopy[index].url"
                         type="text"
@@ -55,23 +59,43 @@
                         @blur="syncApiBases"
                     />
                     <label class="col-connect">
-                        <input type="checkbox" v-model="apiBasesCopy[index].connected" @change="syncApiBases" />
+                        <input
+                            type="checkbox"
+                            v-model="apiBasesCopy[index].connected"
+                            @change="syncApiBases"
+                        />
                     </label>
-                    <button class="btn-remove" @click="removeApiBase(index)">×</button>
+                    <button class="btn-remove" @click="removeApiBase(index)">
+                        ×
+                    </button>
                 </div>
             </div>
         </div>
-        <div class="form-group">
-            <div class="form-label">
-                <label>MODEL_NAME</label>
-                <span class="hint">Выберите модель</span>
-            </div>
-            <select v-model="modelNameCopy" class="form-input">
-                <option v-for="model in availableModels" :key="model.id" :value="model.id">
-                    {{ model.id }} ({{ model.source }})
-                </option>
-            </select>
-        </div>
+<div class="form-group">
+             <div class="form-label">
+                 <label>MODEL_NAME</label>
+                 <span class="hint">Выберите модель</span>
+             </div>
+             <div class="model-name-row">
+                 <select v-model="modelNameCopy" class="form-input">
+                     <option
+                         v-for="model in availableModels"
+                         :key="model.id"
+                         :value="model.id"
+                     >
+                         {{ model.id }} ({{ model.source }})
+                     </option>
+                 </select>
+                 <Button
+                     class="btn-refresh-models"
+                     @click="handleRefreshModels"
+                     :disabled="loadingStates.models"
+                 >
+                     <span v-if="loadingStates.models" class="btn-loading"></span>
+                     <span v-else>🔄</span>
+                 </Button>
+             </div>
+         </div>
     </Card>
 
     <Card>
@@ -156,8 +180,11 @@
                 <div class="form-number-wrapper">
                     <Button
                         @click="adjustTokens(-4096)"
-                        style="border-radius: var(--radius-sm) 0 0 var(--radius-sm)"
-                    >−4K</Button>
+                        style="
+                            border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+                        "
+                        >−4K</Button
+                    >
                     <input
                         v-model.number="configCopy.maxTokens"
                         type="number"
@@ -165,12 +192,19 @@
                         min="256"
                         max="65536"
                         step="256"
-                        style="border-radius: 0; border-right: none; text-align: center"
+                        style="
+                            border-radius: 0;
+                            border-right: none;
+                            text-align: center;
+                        "
                     />
                     <Button
                         @click="adjustTokens(4096)"
-                        style="border-radius: 0 var(--radius-sm) var(--radius-sm) 0"
-                    >+4K</Button>
+                        style="
+                            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+                        "
+                        >+4K</Button
+                    >
                 </div>
             </div>
         </div>
@@ -189,26 +223,29 @@
             />
             <div class="range-labels">
                 <span>0</span>
-                <span class="range-value">{{ (configCopy.temperature ?? 0.1).toFixed(2) }}</span>
+                <span class="range-value">{{
+                    (configCopy.temperature ?? 0.1).toFixed(2)
+                }}</span>
                 <span>1</span>
             </div>
         </div>
-    </Card>
+</Card>
 
-    <div class="settings-actions">
-        <Button variant="primary" @click="handleSave" :disabled="loadingStates.save" style="flex: 1">
-            <span v-if="loadingStates.save" class="btn-loading"></span>
-            <span v-else>💾 Сохранить настройки</span>
-        </Button>
-        <Button @click="handleReset" :disabled="loadingStates.reset">
-            <span v-if="loadingStates.reset" class="btn-loading"></span>
-            <span v-else>↩️ Сброс</span>
-        </Button>
-        <Button @click="handleRefreshModels" :disabled="loadingStates.models">
-            <span v-if="loadingStates.models" class="btn-loading"></span>
-            <span v-else>🔄 Обновить модели</span>
-        </Button>
-    </div>
+     <div class="settings-actions">
+         <Button
+             variant="primary"
+             @click="handleSave"
+             :disabled="loadingStates.save"
+             style="flex: 1"
+         >
+             <span v-if="loadingStates.save" class="btn-loading"></span>
+             <span v-else>💾 Сохранить настройки</span>
+         </Button>
+         <Button @click="handleReset" :disabled="loadingStates.reset">
+             <span v-if="loadingStates.reset" class="btn-loading"></span>
+             <span v-else>↩️ Сброс</span>
+         </Button>
+     </div>
 </template>
 
 <script setup>
@@ -229,7 +266,7 @@ const emit = defineEmits(["save", "reset", "models-updated"]);
 // Копии для редактирования
 const configCopy = reactive({
     token: props.config.token || "",
-    projectPath: props.config.projectPath || "E:\\Git\\web-panel\\aiagent-web",
+    projectPath: props.config.projectPath || "C:\\",
     maxFileChars: props.config.maxFileChars || 2000,
     maxHistoryPairs: props.config.maxHistoryPairs || 5,
     maxSearchResults: props.config.maxSearchResults || 15,
@@ -258,39 +295,59 @@ const autoSave = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         pendingSave = true;
-        const model = props.availableModels.find(m => m.id === modelNameCopy.value);
+        const model = props.availableModels.find(
+            (m) => m.id === modelNameCopy.value,
+        );
         emit("save", {
             config: { ...configCopy },
             apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
             modelName: modelNameCopy.value,
-            serverUrl: model ? model.source : ""
+            serverUrl: model ? model.source : "",
         });
-        setTimeout(() => { pendingSave = false; }, 1000);
+        setTimeout(() => {
+            pendingSave = false;
+        }, 1000);
     }, 300);
 };
 
-watch(() => props.config, (val) => {
-    if (!val || pendingSave) return;
-    if (ignoreNextWatch) { ignoreNextWatch = false; return; }
-    ignoreNextWatch = true;
-    configCopy.token = val.token || "";
-    configCopy.projectPath = val.projectPath || "E:\\Git\\web-panel\\aiagent-web";
-    configCopy.maxFileChars = val.maxFileChars || 2000;
-    configCopy.maxHistoryPairs = val.maxHistoryPairs || 5;
-    configCopy.maxSearchResults = val.maxSearchResults || 15;
-    configCopy.maxFilesInPrompt = val.maxFilesInPrompt || 2;
-    configCopy.maxTokens = val.maxTokens || 1024;
-    configCopy.timeout = val.timeout || 120000;
-    configCopy.temperature = val.temperature ?? 0.1;
-    setTimeout(() => { ignoreNextWatch = false; }, 600);
-}, { deep: true });
+watch(
+    () => props.config,
+    (val) => {
+        if (!val || pendingSave) return;
+        if (ignoreNextWatch) {
+            ignoreNextWatch = false;
+            return;
+        }
+        ignoreNextWatch = true;
+        configCopy.token = val.token || "";
+        configCopy.projectPath = val.projectPath || "C:\\";
+        configCopy.maxFileChars = val.maxFileChars || 2000;
+        configCopy.maxHistoryPairs = val.maxHistoryPairs || 5;
+        configCopy.maxSearchResults = val.maxSearchResults || 15;
+        configCopy.maxFilesInPrompt = val.maxFilesInPrompt || 2;
+        configCopy.maxTokens = val.maxTokens || 1024;
+        configCopy.timeout = val.timeout || 120000;
+        configCopy.temperature = val.temperature ?? 0.1;
+        setTimeout(() => {
+            ignoreNextWatch = false;
+        }, 600);
+    },
+    { deep: true },
+);
 
-watch(() => props.modelName, (val) => {
-    if (!pendingSave) modelNameCopy.value = val;
-});
-watch(() => props.apiBases, (val) => {
-    if (!pendingSave) apiBasesCopy.value = JSON.parse(JSON.stringify(val));
-}, { deep: true });
+watch(
+    () => props.modelName,
+    (val) => {
+        if (!pendingSave) modelNameCopy.value = val;
+    },
+);
+watch(
+    () => props.apiBases,
+    (val) => {
+        if (!pendingSave) apiBasesCopy.value = JSON.parse(JSON.stringify(val));
+    },
+    { deep: true },
+);
 
 watch(configCopy, autoSave, { deep: true });
 watch(modelNameCopy, autoSave);
@@ -299,20 +356,26 @@ watch(apiBasesCopy, autoSave, { deep: true });
 // Обработчики с loading states
 const handleSave = () => {
     loadingStates.value.save = true;
-    const model = props.availableModels.find(m => m.id === modelNameCopy.value);
+    const model = props.availableModels.find(
+        (m) => m.id === modelNameCopy.value,
+    );
     emit("save", {
         config: { ...configCopy },
         apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
         modelName: modelNameCopy.value,
-        serverUrl: model ? model.source : ""
+        serverUrl: model ? model.source : "",
     });
-    setTimeout(() => { loadingStates.value.save = false; }, 500);
+    setTimeout(() => {
+        loadingStates.value.save = false;
+    }, 500);
 };
 
 const handleReset = () => {
     loadingStates.value.reset = true;
     emit("reset");
-    setTimeout(() => { loadingStates.value.reset = false; }, 500);
+    setTimeout(() => {
+        loadingStates.value.reset = false;
+    }, 500);
 };
 
 const handleRefreshModels = async () => {
@@ -320,7 +383,9 @@ const handleRefreshModels = async () => {
     try {
         emit("models-updated");
     } finally {
-        setTimeout(() => { loadingStates.value.models = false; }, 1000);
+        setTimeout(() => {
+            loadingStates.value.models = false;
+        }, 1000);
     }
 };
 
@@ -340,7 +405,10 @@ const syncApiBases = () => {
 };
 
 const adjustTokens = (delta) => {
-    configCopy.maxTokens = Math.max(256, Math.min(65536, configCopy.maxTokens + delta));
+    configCopy.maxTokens = Math.max(
+        256,
+        Math.min(65536, configCopy.maxTokens + delta),
+    );
 };
 </script>
 
@@ -368,9 +436,15 @@ const adjustTokens = (delta) => {
     gap: 8px;
     border-top: 1px solid var(--border);
 }
-.col-url { flex: 1; }
-.col-connect { width: 60px; text-align: center; }
-.btn-add, .btn-remove {
+.col-url {
+    flex: 1;
+}
+.col-connect {
+    width: 60px;
+    text-align: center;
+}
+.btn-add,
+.btn-remove {
     width: 28px;
     height: 28px;
     border: 1px solid var(--border);
@@ -385,13 +459,36 @@ const adjustTokens = (delta) => {
     transition: var(--transition);
     backdrop-filter: blur(10px);
 }
-.btn-add:hover, .btn-remove:hover {
+.btn-add:hover,
+.btn-remove:hover {
     background: var(--accent);
     color: white;
     border-color: var(--accent);
 }
-.form-group { margin-bottom: 14px; }
-.form-group:last-child { margin-bottom: 0; }
+.form-group {
+     margin-bottom: 14px;
+ }
+ .form-group:last-child {
+     margin-bottom: 0;
+ }
+ .model-name-row {
+     display: flex;
+     align-items: center;
+     gap: 8px;
+ }
+ .model-name-row .form-input {
+     flex: 1;
+ }
+ .btn-refresh-models {
+     flex-shrink: 0;
+     width: 36px;
+     height: 36px;
+     padding: 0;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     border-radius: var(--radius-sm);
+ }
 .form-label {
     display: flex;
     align-items: center;
@@ -403,7 +500,10 @@ const adjustTokens = (delta) => {
     font-weight: 600;
     color: var(--text-secondary);
 }
-.form-label .hint { font-size: 10px; color: var(--text-muted); }
+.form-label .hint {
+    font-size: 10px;
+    color: var(--text-muted);
+}
 .form-input {
     width: 100%;
     padding: 10px 12px;
@@ -421,13 +521,32 @@ const adjustTokens = (delta) => {
     border-color: var(--border-focus);
     box-shadow: 0 0 0 3px var(--accent-glow);
 }
-.form-input::placeholder { color: var(--text-muted); }
-select.form-input { cursor: pointer; }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-.form-number-wrapper { display: flex; align-items: center; }
-.token-input-wrapper { position: relative; }
-.token-input-wrapper .form-input { padding-right: 36px; }
+.form-input::placeholder {
+    color: var(--text-muted);
+}
+select.form-input {
+    cursor: pointer;
+}
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.form-row-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+}
+.form-number-wrapper {
+    display: flex;
+    align-items: center;
+}
+.token-input-wrapper {
+    position: relative;
+}
+.token-input-wrapper .form-input {
+    padding-right: 36px;
+}
 .token-toggle {
     position: absolute;
     right: 8px;
@@ -456,7 +575,10 @@ select.form-input { cursor: pointer; }
     color: var(--text-muted);
     margin-top: 3px;
 }
-.range-value { color: var(--accent-primary); font-weight: 600; }
+.range-value {
+    color: var(--accent-primary);
+    font-weight: 600;
+}
 
 /* Кнопки действий */
 .settings-actions {
@@ -482,7 +604,11 @@ select.form-input { cursor: pointer; }
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
 }
 </style>

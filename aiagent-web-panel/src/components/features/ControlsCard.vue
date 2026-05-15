@@ -4,24 +4,24 @@
             <h2>⚡ Управление</h2>
         </template>
         <div class="controls-grid">
-            <Button
-                variant="primary"
-                full-width
-                :disabled="isRunning"
-                @click="$emit('start')"
-            >
-                <span class="btn-icon">▶️</span> Запустить
-            </Button>
-            <Button
-                variant="danger"
-                :disabled="!isRunning"
-                @click="$emit('stop')"
-            >
-                <span class="btn-icon">⏹️</span> Стоп
-            </Button>
-            <Button :disabled="!isRunning" @click="$emit('restart')">
-                <span class="btn-icon">🔄</span> Рестарт
-            </Button>
+<Button
+                 variant="primary"
+                 full-width
+                 :disabled="isRunning || !projectPath"
+                 @click="$emit('start')"
+             >
+                 <span class="btn-icon">▶️</span> Запустить
+             </Button>
+             <Button
+                 variant="danger"
+                 :disabled="!isRunning || !projectPath"
+                 @click="$emit('stop')"
+             >
+                 <span class="btn-icon">⏹️</span> Стоп
+             </Button>
+             <Button :disabled="!isRunning || !projectPath" @click="$emit('restart')">
+                 <span class="btn-icon">🔄</span> Рестарт
+             </Button>
         </div>
     </Card>
 </template>
@@ -30,7 +30,7 @@
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 
-defineProps({ isRunning: Boolean });
+defineProps({ isRunning: Boolean, projectPath: String });
 defineEmits(["start", "stop", "restart"]);
 </script>
 

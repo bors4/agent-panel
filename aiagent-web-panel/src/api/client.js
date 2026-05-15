@@ -212,12 +212,16 @@ export async function runAgentLoop(agentState) {
 }
 
 export async function executeTool(toolCall) {
-  const response = await apiFetch("/agent/tool", {
-    method: "POST",
-    body: JSON.stringify({ toolCall }),
-  });
-  return response.json();
-}
+   const config = JSON.parse(localStorage.getItem("agent-config") || "{}");
+   const response = await apiFetch("/agent/tool", {
+     method: "POST",
+     body: JSON.stringify({
+       toolCall,
+       projectPath: config.projectPath || undefined,
+     }),
+   });
+   return response.json();
+ }
 
 export async function getTools() {
   const response = await apiFetch("/tools");
