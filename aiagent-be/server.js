@@ -286,14 +286,55 @@ const REPLY_OPTS = {
   parse_mode: "HTML",
   link_preview_options: { is_disabled: true },
 };
+
+// Telegram HTML поддерживает только: b, i, u, s, code, pre, tg-spoiler, a, strong, em.
+// Экранирует все остальные теги для предотвращения 400-ошибок Telegram API.
+function sanitizeTelegramHtml(text) {
+  return text.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (match, slash, tag) => {
+    const allowed = new Set([
+      "b", "i", "u", "s", "code", "pre", "tg-spoiler", "a", "strong", "em",
+    ]);
+    if (allowed.has(tag.toLowerCase())) return match;
+    // Для недопустимых тегов — экранируем угловые скобки
+    return `&lt;${slash}${tag}${match.slice(1 + slash.length + tag.length, match.length - 1)}&gt;`;
+  });
+}
+
+async function replyMsg(ctx, text, extra = {}) {
+  try {
+    const sent = await ctx.reply(sanitizeTelegramHtml(text), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      ...extra,
+    });
+    return sent.message_id;
+  } catch (e) {
+    // Fallback: если Telegram не смог распарсить HTML — отправляем plain text
+    if (e.message?.includes("can't parse entities") || e.message?.includes("Bad Request")) {
+      const plain = sanitizeTelegramHtml(text).replace(/<[^>]+>/g, "");
+      try {
+        const sent = await ctx.reply(plain, {
+          link_preview_options: { is_disabled: true },
+          ...extra,
+        });
+        return sent.message_id;
+      } catch (e2) {
+        console.error("[replyMsg] Fallback also failed:", e2.message);
+        return null;
+      }
+    }
+    console.error("[replyMsg] Error:", e.message);
+    return null;
+  }
+}
 const KEYBOARD_YES_NO = (toolName) =>
   new InlineKeyboard()
-    .text("✅ YES", `approve_${toolName}`) // ← callback_data
+    .text("✅ YES", `approve_${toolName}`)
     .text("❌ NO", `deny_${toolName}`);
 const KEYBOARD_EMPTY = () => ({ inline_keyboard: [] });
 
 async function sendDraft(ctx, text, extra = {}) {
-  const sent = await ctx.reply(text, { ...REPLY_OPTS, ...extra });
+  const sent = await ctx.reply(sanitizeTelegramHtml(text), { ...REPLY_OPTS, ...extra });
   return sent.message_id;
 }
 
@@ -305,7 +346,7 @@ async function sendTyping(ctx) {
 
 async function editMsg(ctx, msgId, text, extra = {}) {
   try {
-    await ctx.api.editMessageText(ctx.chat.id, msgId, text, {
+    await ctx.api.editMessageText(ctx.chat.id, msgId, sanitizeTelegramHtml(text), {
       ...REPLY_OPTS,
       ...extra,
     });
@@ -326,7 +367,7 @@ async function sendOrEdit(ctx, msgId, text, extra = {}) {
     await editMsg(ctx, msgId, text, extra);
     return msgId;
   }
-  const sent = await ctx.reply(text, { ...REPLY_OPTS, ...extra });
+  const sent = await ctx.reply(sanitizeTelegramHtml(text), { ...REPLY_OPTS, ...extra });
   return sent.message_id;
 }
 
@@ -511,10 +552,12 @@ async function continueAfterApproval(ctx, pending) {
       return;
     }
 
-    // 2. Формируем сообщение с результатом для модели
+// 2. Формируем сообщение с результатом для модели
+    // Экранируем HTML-сущности в tool-контенте, чтобы результат инструмента
+    // (например, содержимое файла с <details>/<summary>) не ломал Telegram
     const toolMessage = {
       role: "tool",
-      content: JSON.stringify(result),
+      content: JSON.stringify(result).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
     };
     if (pending.toolCallId) {
       toolMessage.tool_call_id = pending.toolCallId;
@@ -634,9 +677,13 @@ async function continueAfterApproval(ctx, pending) {
           toolCallId: tc.id,
           messages: newHistory,
         });
+        // Транкейция параметров: Telegram имеет лимит на длину сообщения
+        const paramStr = JSON.stringify(ta);
+        const displayParams =
+          paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
         await replyMsg(
           ctx,
-          `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${JSON.stringify(ta)}</code>`,
+          `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${displayParams}</code>`,
           { reply_markup: KEYBOARD_YES_NO(tn) },
         );
         return;
