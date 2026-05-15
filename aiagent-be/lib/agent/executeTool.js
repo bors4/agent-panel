@@ -552,23 +552,26 @@ const depth = Math.min(args.depth || 1, 3);
       }
 
       // ────────────────────────────────────────────────────────────────────
-      case "execute": {
-        const timeout = (args.timeout || 30) * 1000;
-        const cwd = projectPath;
-        const isWin = process.platform === 'win32';
+case "execute": {
+         const timeout = (args.timeout || 30) * 1000;
+         const cwd = projectPath;
+         const isWin = process.platform === 'win32';
 
-        const safeCmd = isWin
-          ? `cmd /c "${args.command.replace(/"/g, '\\"')}"`
-          : args.command;
+         // chcp 65001 switches Windows console to UTF-8, preventing mojibake
+         // On Unix/Mac this prefix is harmless (chcp won't exist, command runs normally via /bin/sh)
+         const prefix = isWin ? 'chcp 65001 >nul && ' : '';
+         const safeCmd = isWin
+           ? `${prefix}cmd /c "${args.command.replace(/"/g, '\\"')}"`
+           : `${prefix}${args.command}`;
 
-        try {
-          const result = await execAsync(safeCmd, {
-            cwd,
-            timeout,
-            encoding: 'utf-8',
-            maxBuffer: 10 * 1024 * 1024,
-            shell: isWin ? 'cmd.exe' : '/bin/sh'
-          });
+         try {
+           const result = await execAsync(safeCmd, {
+             cwd,
+             timeout,
+             encoding: 'utf-8',
+             maxBuffer: 10 * 1024 * 1024,
+             shell: isWin ? 'cmd.exe' : '/bin/sh'
+           });
 
           return {
             success: true,
