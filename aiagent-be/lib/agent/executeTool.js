@@ -422,8 +422,16 @@ async function searchDirectory(
 
 export async function executeTool(toolCall, config = {}) {
    const { name, args = {} } = toolCall;
-   // Always resolve to canonical absolute path — handles mixed slashes, trailing separators, relative refs
-   const projectPath = path.resolve(config.projectPath || process.env.PROJECT_PATH || ".");
+   // Resolve projectPath: explicit config > env > fallback
+   const rawPath = config.projectPath || process.env.PROJECT_PATH || "";
+   // If no project path is configured at all, return a clear error
+   if (!rawPath) {
+     return {
+       success: false,
+       error: "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
+     };
+   }
+   const projectPath = path.resolve(rawPath);
    const maxResults = config.maxSearchResults || 15;
 
    // Validate project directory exists
