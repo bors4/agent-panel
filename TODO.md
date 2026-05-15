@@ -23,7 +23,7 @@
 - [x] #1 `[ui][frontend]` Перенести кнопку "Обновить модели" и разместить возле поля "Model_Name" ✅
   - *Приоритет: P2*
 
-- [x] #4 `[infra]` Improve logging and monitoring ✅ Добавлен logger.js с уровнями, ротацией, middleware requestLogger
+- [x] #2 `[infra]` Improve logging and monitoring ✅ Добавлен logger.js с уровнями, ротацией, middleware requestLogger
 
 ---
 
