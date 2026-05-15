@@ -71,21 +71,31 @@
                 </div>
             </div>
         </div>
-        <div class="form-group">
-            <div class="form-label">
-                <label>MODEL_NAME</label>
-                <span class="hint">Выберите модель</span>
-            </div>
-            <select v-model="modelNameCopy" class="form-input">
-                <option
-                    v-for="model in availableModels"
-                    :key="model.id"
-                    :value="model.id"
-                >
-                    {{ model.id }} ({{ model.source }})
-                </option>
-            </select>
-        </div>
+<div class="form-group">
+             <div class="form-label">
+                 <label>MODEL_NAME</label>
+                 <span class="hint">Выберите модель</span>
+             </div>
+             <div class="model-name-row">
+                 <select v-model="modelNameCopy" class="form-input">
+                     <option
+                         v-for="model in availableModels"
+                         :key="model.id"
+                         :value="model.id"
+                     >
+                         {{ model.id }} ({{ model.source }})
+                     </option>
+                 </select>
+                 <Button
+                     class="btn-refresh-models"
+                     @click="handleRefreshModels"
+                     :disabled="loadingStates.models"
+                 >
+                     <span v-if="loadingStates.models" class="btn-loading"></span>
+                     <span v-else>🔄</span>
+                 </Button>
+             </div>
+         </div>
     </Card>
 
     <Card>
@@ -219,27 +229,23 @@
                 <span>1</span>
             </div>
         </div>
-    </Card>
+</Card>
 
-    <div class="settings-actions">
-        <Button
-            variant="primary"
-            @click="handleSave"
-            :disabled="loadingStates.save"
-            style="flex: 1"
-        >
-            <span v-if="loadingStates.save" class="btn-loading"></span>
-            <span v-else>💾 Сохранить настройки</span>
-        </Button>
-        <Button @click="handleReset" :disabled="loadingStates.reset">
-            <span v-if="loadingStates.reset" class="btn-loading"></span>
-            <span v-else>↩️ Сброс</span>
-        </Button>
-        <Button @click="handleRefreshModels" :disabled="loadingStates.models">
-            <span v-if="loadingStates.models" class="btn-loading"></span>
-            <span v-else>🔄 Обновить модели</span>
-        </Button>
-    </div>
+     <div class="settings-actions">
+         <Button
+             variant="primary"
+             @click="handleSave"
+             :disabled="loadingStates.save"
+             style="flex: 1"
+         >
+             <span v-if="loadingStates.save" class="btn-loading"></span>
+             <span v-else>💾 Сохранить настройки</span>
+         </Button>
+         <Button @click="handleReset" :disabled="loadingStates.reset">
+             <span v-if="loadingStates.reset" class="btn-loading"></span>
+             <span v-else>↩️ Сброс</span>
+         </Button>
+     </div>
 </template>
 
 <script setup>
@@ -460,11 +466,29 @@ const adjustTokens = (delta) => {
     border-color: var(--accent);
 }
 .form-group {
-    margin-bottom: 14px;
-}
-.form-group:last-child {
-    margin-bottom: 0;
-}
+     margin-bottom: 14px;
+ }
+ .form-group:last-child {
+     margin-bottom: 0;
+ }
+ .model-name-row {
+     display: flex;
+     align-items: center;
+     gap: 8px;
+ }
+ .model-name-row .form-input {
+     flex: 1;
+ }
+ .btn-refresh-models {
+     flex-shrink: 0;
+     width: 36px;
+     height: 36px;
+     padding: 0;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     border-radius: var(--radius-sm);
+ }
 .form-label {
     display: flex;
     align-items: center;
