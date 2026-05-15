@@ -132,7 +132,10 @@ app.post("/api/config", (req, res) => {
   const body = req.body || {};
   if (body.serverUrl) config.serverUrl = body.serverUrl;
   if (body.modelName) config.modelName = body.modelName;
-  if (body.projectPath) config.projectPath = body.projectPath;
+  if (body.projectPath) {
+     config.projectPath = path.resolve(body.projectPath);
+     addLog(`projectPath resolved to: ${config.projectPath}`, "info");
+   }
   if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
   if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
   if (body.temperature !== undefined)
