@@ -421,22 +421,20 @@ const importConfig = () => {
 };
 
 const handleSettingsSave = (data) => {
-    if (data.config) {
-        Object.assign(localConfig.value, data.config);
-    }
-    if (data.apiBases) {
-        apiBases.value = data.apiBases;
-    }
-    if (data.modelName) {
-        modelName.value = data.modelName;
-    }
-    if (data.serverUrl) {
-        serverUrl.value = data.serverUrl;
-    }
-    saveSettings();
-    success("Настройки сохранены");
-    addLog("Settings saved", "success");
-};
+     if (data.config) {
+         Object.assign(localConfig.value, data.config);
+     }
+     if (data.apiBases) {
+         apiBases.value = data.apiBases;
+     }
+     if (data.modelName) {
+         modelName.value = data.modelName;
+     }
+     if (data.serverUrl) {
+         serverUrl.value = data.serverUrl;
+     }
+     saveSettings();
+ };
 
 const resetSettings = () => {
     if (confirm("Сбросить настройки?")) {
@@ -496,11 +494,9 @@ const saveQuickSettings = (newSettings) => {
 };
 
 const handleQuickSettingsSave = (newSettings) => {
-    quickSettings.value = newSettings;
-    saveQuickSettings(newSettings);
-    success("Быстрые настройки сохранены");
-    addLog("Quick settings saved", "info");
-};
+     quickSettings.value = newSettings;
+     saveQuickSettings(newSettings);
+ };
 
 const chatTabRef = ref(null);
 </script>

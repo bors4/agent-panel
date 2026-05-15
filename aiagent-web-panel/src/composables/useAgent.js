@@ -62,41 +62,38 @@ export function useAgent() {
   // ─────────────────────────────────────────────────────
   // 🎮 Управление агентом (с ручной остановкой интервала)
   // ─────────────────────────────────────────────────────
-  async function startAgent() {
-    isProcessing.value = true;
-    try {
-      const result = await apiStartBot();
-      await refreshStatus(); // немедленное обновление
-      toast.success("Агент запущен");
-      return result;
-    } finally {
-      isProcessing.value = false;
-    }
-  }
+async function startAgent() {
+     isProcessing.value = true;
+     try {
+       const result = await apiStartBot();
+       await refreshStatus();
+       return result;
+     } finally {
+       isProcessing.value = false;
+     }
+   }
 
-  async function stopAgent() {
-    isProcessing.value = true;
-    try {
-      const result = await apiStopBot();
-      await refreshStatus();
-      toast.warning("Агент остановлен");
-      return result;
-    } finally {
-      isProcessing.value = false;
-    }
-  }
+   async function stopAgent() {
+     isProcessing.value = true;
+     try {
+       const result = await apiStopBot();
+       await refreshStatus();
+       return result;
+     } finally {
+       isProcessing.value = false;
+     }
+   }
 
-  async function restartAgent() {
-    isProcessing.value = true;
-    try {
-      const result = await apiRestartBot();
-      await refreshStatus();
-      toast.success("Агент перезапущен");
-      return result;
-    } finally {
-      isProcessing.value = false;
-    }
-  }
+   async function restartAgent() {
+     isProcessing.value = true;
+     try {
+       const result = await apiRestartBot();
+       await refreshStatus();
+       return result;
+     } finally {
+       isProcessing.value = false;
+     }
+   }
 
   // ─────────────────────────────────────────────────────
   // 🔄 Lifecycle: автозапуск интервала при монтировании
