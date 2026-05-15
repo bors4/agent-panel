@@ -1,6 +1,8 @@
 import path from "path";
 
 export function safePath(userPath, projectRoot) {
+   // Trim projectRoot to handle trailing whitespace/newlines from env
+   const trimmedRoot = projectRoot.trim();
    const cleanPath = userPath.replace(/^\.\//, "").trim();
 
    // Reject null bytes
@@ -8,16 +10,19 @@ export function safePath(userPath, projectRoot) {
      throw new Error("Path contains null bytes");
    }
 
-   const isAbsolute = /^([a-zA-Z]:[\\/]|\/|\\\\)/.test(cleanPath);
-   const joined = isAbsolute ? cleanPath : path.join(projectRoot, cleanPath);
+   // Use path.resolve to get canonical absolute paths
+   // This automatically resolves ., .., mixed slashes, trailing slashes
+   const resolvedRoot = path.resolve(trimmedRoot);
+   const resolvedPath = path.resolve(trimmedRoot, cleanPath);
 
-   const normalized = path.normalize(joined).replace(/\\/g, "/").toLowerCase();
-   const projectNorm = path.normalize(projectRoot).replace(/\\/g, "/").toLowerCase();
+   // Normalize to forward slashes for consistent comparison and output
+   const normalizedRoot = resolvedRoot.replace(/\\/g, "/").toLowerCase();
+   const normalizedPath = resolvedPath.replace(/\\/g, "/").toLowerCase();
 
-   if (normalized !== projectNorm && !normalized.startsWith(projectNorm + "/")) {
-     throw new Error(`Path outside project is forbidden: ${normalized}`);
+   if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(normalizedRoot + "/")) {
+     throw new Error(`Path outside project is forbidden: ${normalizedPath} (root: ${normalizedRoot})`);
    }
-   return path.normalize(joined).replace(/\\/g, "/");
+   return resolvedPath.replace(/\\/g, "/");
  }
 
 /**
