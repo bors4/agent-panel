@@ -4,16 +4,16 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low
 > Номер — `#1`… (отдельно в каждой группе). Ссылка: "P2 задача 4" = Low Priority → #4
 
-> **Прогресс: 9 / 10** | `P0: 0/1` · `P1: 3/3` · `P2: 6/6`
+> **Прогресс: 10 / 10** | `P0: 1/1` · `P1: 3/3` · `P2: 6/6`
 
 ---
 
 ## 🔴 High Priority (P0)
 
-- [ ] #1 `[bug][backend]` Когда модель пытается вызвать инструмент, например, `list_dir`, то бот отвечает как `qwen_test_bot: ❌ read failed: Path outside project is forbidden`
+- [x] #1 `[bug][backend]` Когда модель пытается вызвать инструмент, например, `list_dir`, то бот отвечает как `qwen_test_bot: ❌ read failed: Path outside project is forbidden` ✅ Исправлено: `path.resolve()` вместо `path.join()`, нормализация `projectPath` при старте, 15 новых тестов
 
   <details>
-  <summary>Стектрейс</summary>
+  <summary>Стектрейс (до исправления)</summary>
 
   ```
   [continueAfterApproval] Called: { toolName: 'list_dir', toolCallId: '998893157', args: { path: '.' } }
