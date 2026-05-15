@@ -128,7 +128,7 @@ const props = defineProps({
     isActive: Boolean,
     modelName: { type: String, default: "Qwen3.5-9B-OmniCoder-Claude-Polaris.i1-IQ4_NL" },
     serverUrl: { type: String, default: "http://192.168.1.101:8080/v1" },
-    projectPath: { type: String, default: "E:\\Git\\web-panel\\aiagent-web" },
+    projectPath: { type: String, default: "C:\\" },
     systemPrompt: { type: String, default: "" },
     onLog: { type: Function, default: null }
 });

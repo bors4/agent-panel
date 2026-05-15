@@ -5,6 +5,7 @@
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
+import path from "path";
 import pkg from "grammy";
 import { Bot, InlineKeyboard } from "grammy"; // ← InlineKeyboard вместо Keyboard
 import dotenv from "dotenv";
@@ -15,15 +16,15 @@ const app = express();
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 
 let config = {
-  serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
-  modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-  projectPath: process.env.PROJECT_PATH || "E:\\Git\\agent-panel",
-  systemPrompt: process.env.SYSTEM_PROMPT || "",
-  apiKey: process.env.API_KEY || "agent-secret-key",
-  maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
-  temperature: parseFloat(process.env.TEMPERATURE) || 0.1,
-  timeout: parseInt(process.env.TIMEOUT) || 120000,
-};
+   serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
+   modelName: process.env.MODEL_NAME || "qwen3.5-2b",
+   projectPath: path.resolve(process.env.PROJECT_PATH || "E:\\Git\\agent-panel"),
+   systemPrompt: process.env.SYSTEM_PROMPT || "",
+   apiKey: process.env.API_KEY || "agent-secret-key",
+   maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
+   temperature: parseFloat(process.env.TEMPERATURE) || 0.1,
+   timeout: parseInt(process.env.TIMEOUT) || 120000,
+ };
 
 let botStatus = "idle";
 let botStatusMessage = "";
