@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import path from "path";
+import fs from "fs";
 import pkg from "grammy";
 import { Bot, InlineKeyboard } from "grammy"; // ← InlineKeyboard вместо Keyboard
 import dotenv from "dotenv";
@@ -16,15 +17,17 @@ const app = express();
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 
 let config = {
-   serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
-   modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-   projectPath: path.resolve(process.env.PROJECT_PATH || "E:\\Git\\agent-panel"),
-   systemPrompt: process.env.SYSTEM_PROMPT || "",
-   apiKey: process.env.API_KEY || "agent-secret-key",
-   maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
-   temperature: parseFloat(process.env.TEMPERATURE) || 0.1,
-   timeout: parseInt(process.env.TIMEOUT) || 120000,
- };
+  serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
+  modelName: process.env.MODEL_NAME || "qwen3.5-2b",
+  // Путь ОПРЕДЕЛЯЕТСЯ только из .env (PROJECT_PATH) или через API (/api/config).
+  // Хардкод запрещён — путь зависит от окружения пользователя.
+  projectPath: path.resolve(process.env.PROJECT_PATH || ""),
+  systemPrompt: process.env.SYSTEM_PROMPT || "",
+  apiKey: process.env.API_KEY || "agent-secret-key",
+  maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
+  temperature: parseFloat(process.env.TEMPERATURE) || 0.1,
+  timeout: parseInt(process.env.TIMEOUT) || 120000,
+};
 
 let botStatus = "idle";
 let botStatusMessage = "";
@@ -37,14 +40,25 @@ const chatHistories = new Map();
 
 const pendingApprovals = new Map();
 
+// Мягкая проверка projectPath: не крашимся, а блокируем агента
+if (config.projectPath && fs.existsSync(config.projectPath)) {
+  addLog(`Project path: ${config.projectPath}`, "info");
+} else {
+  config.projectPath = "";
+  addLog(
+    "Project path is not configured. Agent blocked until path is set via API or .env",
+    "warning",
+  );
+}
+
 function addLog(message, type = "info") {
-   const entry = { time: new Date().toISOString(), message, type };
-   agentLogs.push(entry);
-   if (agentLogs.length > 200) agentLogs.shift();
-   if (type === "error") logError(message);
-   else if (type === "warning" || type === "warn") logWarn(message);
-   else logInfo(message);
- }
+  const entry = { time: new Date().toISOString(), message, type };
+  agentLogs.push(entry);
+  if (agentLogs.length > 200) agentLogs.shift();
+  if (type === "error") logError(message);
+  else if (type === "warning" || type === "warn") logWarn(message);
+  else logInfo(message);
+}
 
 function updateStatus(newStatus, message = "") {
   botStatus = newStatus;
@@ -132,7 +146,10 @@ app.post("/api/config", (req, res) => {
   const body = req.body || {};
   if (body.serverUrl) config.serverUrl = body.serverUrl;
   if (body.modelName) config.modelName = body.modelName;
-  if (body.projectPath) config.projectPath = body.projectPath;
+  if (body.projectPath) {
+    config.projectPath = path.resolve(body.projectPath);
+    addLog(`projectPath resolved to: ${config.projectPath}`, "info");
+  }
   if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
   if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
   if (body.temperature !== undefined)
@@ -165,6 +182,10 @@ app.get("/api/status", (req, res) => {
     status: botStatus,
     statusMessage: botStatusMessage,
     isRunning: botStatus === "running",
+    configRequired: !config.projectPath,
+    configMessage: !config.projectPath
+      ? "Project path is not configured. Set it in Settings or PROJECT_PATH in .env"
+      : undefined,
     stats: {
       uptime: Math.floor(uptimeMs / 1000),
       requests: stats.requests,
@@ -222,10 +243,10 @@ app.post("/api/restart", async (req, res) => {
       await bot.stop();
       await new Promise((r) => setTimeout(r, 1000));
     }
-bot.start();
-     updateStatus("running", "Работает");
-     addLog("Bot restarted", "success");
-     res.json({ success: true });
+    bot.start();
+    updateStatus("running", "Работает");
+    addLog("Bot restarted", "success");
+    res.json({ success: true });
   } catch (error) {
     updateStatus("error", "Ошибка Telegram");
     res.status(500).json({ error: "Failed to restart: " + error.message });
@@ -286,14 +307,73 @@ const REPLY_OPTS = {
   parse_mode: "HTML",
   link_preview_options: { is_disabled: true },
 };
+
+// Telegram HTML поддерживает только: b, i, u, s, code, pre, tg-spoiler, a, strong, em.
+// Экранирует все остальные теги для предотвращения 400-ошибок Telegram API.
+function sanitizeTelegramHtml(text) {
+  return text.replace(
+    /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g,
+    (match, slash, tag) => {
+      const allowed = new Set([
+        "b",
+        "i",
+        "u",
+        "s",
+        "code",
+        "pre",
+        "tg-spoiler",
+        "a",
+        "strong",
+        "em",
+      ]);
+      if (allowed.has(tag.toLowerCase())) return match;
+      // Для недопустимых тегов — экранируем угловые скобки
+      return `&lt;${slash}${tag}${match.slice(1 + slash.length + tag.length, match.length - 1)}&gt;`;
+    },
+  );
+}
+
+async function replyMsg(ctx, text, extra = {}) {
+  try {
+    const sent = await ctx.reply(sanitizeTelegramHtml(text), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      ...extra,
+    });
+    return sent.message_id;
+  } catch (e) {
+    // Fallback: если Telegram не смог распарсить HTML — отправляем plain text
+    if (
+      e.message?.includes("can't parse entities") ||
+      e.message?.includes("Bad Request")
+    ) {
+      const plain = sanitizeTelegramHtml(text).replace(/<[^>]+>/g, "");
+      try {
+        const sent = await ctx.reply(plain, {
+          link_preview_options: { is_disabled: true },
+          ...extra,
+        });
+        return sent.message_id;
+      } catch (e2) {
+        console.error("[replyMsg] Fallback also failed:", e2.message);
+        return null;
+      }
+    }
+    console.error("[replyMsg] Error:", e.message);
+    return null;
+  }
+}
 const KEYBOARD_YES_NO = (toolName) =>
   new InlineKeyboard()
-    .text("✅ YES", `approve_${toolName}`) // ← callback_data
+    .text("✅ YES", `approve_${toolName}`)
     .text("❌ NO", `deny_${toolName}`);
 const KEYBOARD_EMPTY = () => ({ inline_keyboard: [] });
 
 async function sendDraft(ctx, text, extra = {}) {
-  const sent = await ctx.reply(text, { ...REPLY_OPTS, ...extra });
+  const sent = await ctx.reply(sanitizeTelegramHtml(text), {
+    ...REPLY_OPTS,
+    ...extra,
+  });
   return sent.message_id;
 }
 
@@ -305,10 +385,15 @@ async function sendTyping(ctx) {
 
 async function editMsg(ctx, msgId, text, extra = {}) {
   try {
-    await ctx.api.editMessageText(ctx.chat.id, msgId, text, {
-      ...REPLY_OPTS,
-      ...extra,
-    });
+    await ctx.api.editMessageText(
+      ctx.chat.id,
+      msgId,
+      sanitizeTelegramHtml(text),
+      {
+        ...REPLY_OPTS,
+        ...extra,
+      },
+    );
   } catch (e) {
     const ignore = [
       "message is not modified",
@@ -326,7 +411,10 @@ async function sendOrEdit(ctx, msgId, text, extra = {}) {
     await editMsg(ctx, msgId, text, extra);
     return msgId;
   }
-  const sent = await ctx.reply(text, { ...REPLY_OPTS, ...extra });
+  const sent = await ctx.reply(sanitizeTelegramHtml(text), {
+    ...REPLY_OPTS,
+    ...extra,
+  });
   return sent.message_id;
 }
 
@@ -345,15 +433,6 @@ async function clearButtons(ctx) {
   }
 }
 
-async function replyMsg(ctx, text, extra = {}) {
-  const sent = await ctx.reply(text, {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-    ...extra,
-  });
-  return sent.message_id;
-}
-
 bot.on("message", async (ctx) => {
   const message = ctx.message?.text || ctx.message?.caption;
   if (!message) {
@@ -365,6 +444,14 @@ bot.on("message", async (ctx) => {
     return;
   }
   if (message === "YES" || message === "NO") {
+    return;
+  }
+
+  if (!config.projectPath) {
+    await replyMsg(
+      ctx,
+      "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env",
+    );
     return;
   }
 
@@ -512,9 +599,13 @@ async function continueAfterApproval(ctx, pending) {
     }
 
     // 2. Формируем сообщение с результатом для модели
+    // Экранируем HTML-сущности в tool-контенте, чтобы результат инструмента
+    // (например, содержимое файла с <details>/<summary>) не ломал Telegram
     const toolMessage = {
       role: "tool",
-      content: JSON.stringify(result),
+      content: JSON.stringify(result)
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;"),
     };
     if (pending.toolCallId) {
       toolMessage.tool_call_id = pending.toolCallId;
@@ -634,9 +725,15 @@ async function continueAfterApproval(ctx, pending) {
           toolCallId: tc.id,
           messages: newHistory,
         });
+        // Транкейция параметров: Telegram имеет лимит на длину сообщения
+        const paramStr = JSON.stringify(ta);
+        const displayParams =
+          paramStr.length > 300
+            ? paramStr.substring(0, 300) + "… [truncated]"
+            : paramStr;
         await replyMsg(
           ctx,
-          `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${JSON.stringify(ta)}</code>`,
+          `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${displayParams}</code>`,
           { reply_markup: KEYBOARD_YES_NO(tn) },
         );
         return;
