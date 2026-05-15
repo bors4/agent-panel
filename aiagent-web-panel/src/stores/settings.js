@@ -4,10 +4,10 @@ import { ref, watch } from 'vue';
 const STORAGE_KEY = 'agent-config';
 
 const defaultConfig = {
-    token: "",
-    projectPath: "E:\\Git\\web-panel",
+    token: "12234567890",
+    projectPath: "C:\\",
     serverUrl: "http://192.168.1.101:8080/v1",
-    modelName: "gemma-4-E4B-it-Q4_K_M.gguf",
+    modelName: "gemma-4.gguf",
     maxFileChars: 2000,
     maxHistoryPairs: 5,
     maxSearchResults: 15,

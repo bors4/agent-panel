@@ -126,9 +126,9 @@ import ToastContainer from "@/components/ui/ToastContainer.vue";
 // В начале setup(), после импортов:
 const defaultConfig = {
     token: "",
-    projectPath: "E:\\Git\\web-panel\\aiagent-web",
+    projectPath: "C:\\path\\to\\project",
     serverUrl: "http://192.168.1.101:8080/v1",
-    modelName: "gemma-4-E4B-it-Q4_K_M.gguf",
+    modelName: "gemma-4.gguf",
     maxFileChars: 2000,
     maxHistoryPairs: 5,
     maxSearchResults: 15,
@@ -271,7 +271,7 @@ onMounted(async () => {
         } catch {}
     } else {
         // Set default projectPath if no saved config
-        localConfig.value.projectPath = "E:\\Git\\web-panel\\aiagent-web";
+        localConfig.value.projectPath = "C:\\";
     }
 
     await loadApiBases();

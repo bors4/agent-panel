@@ -425,16 +425,18 @@ export async function executeTool(toolCall, config = {}) {
   const projectPath = config.projectPath || process.env.PROJECT_PATH || ".";
   const maxResults = config.maxSearchResults || 15;
 
-  // Validate tool exists
-  if (!TOOLS[name]) {
-    return { success: false, error: `Unknown tool: ${name}` };
-  }
+// Validate tool exists
+   if (!TOOLS[name]) {
+     return { success: false, error: `Unknown tool: ${name}` };
+   }
 
-  // Check permissions
-  const permission = checkToolPermission(name, args, projectPath);
-  if (!permission.allowed) {
-    return { success: false, error: permission.reason, requiresApproval: true };
-  }
+   // Check permissions
+   const permission = checkToolPermission(name, args, projectPath);
+   if (!permission.allowed) {
+     return { success: false, error: permission.reason, requiresApproval: true };
+   }
+
+   console.log(`[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`);
 
   try {
     switch (name) {
