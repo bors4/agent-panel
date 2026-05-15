@@ -3,12 +3,13 @@
         <Header :status="status" :active-tab="activeTab" @navigate="handleNavigate" />
 
         <aside class="sidebar">
-            <ControlsCard
-                :is-running="isRunning"
-                @start="handleStart"
-                @stop="handleStop"
-                @restart="handleRestart"
-            />
+<ControlsCard
+                 :is-running="isRunning"
+                 :project-path="localConfig.projectPath"
+                 @start="handleStart"
+                 @stop="handleStop"
+                 @restart="handleRestart"
+             />
             <StatsCard :uptime="uptime" :stats="stats" />
             <BotCheckCard />
             <div class="quick-actions">
@@ -125,18 +126,18 @@ import ToastContainer from "@/components/ui/ToastContainer.vue";
 
 // В начале setup(), после импортов:
 const defaultConfig = {
-    token: "",
-    projectPath: "C:\\path\\to\\project",
-    serverUrl: "http://192.168.1.101:8080/v1",
-    modelName: "gemma-4.gguf",
-    maxFileChars: 2000,
-    maxHistoryPairs: 5,
-    maxSearchResults: 15,
-    maxFilesInPrompt: 2,
-    maxTokens: 1024,
-    timeout: 120000,
-    temperature: 0.1,
-};
+     token: "",
+     projectPath: "",
+     serverUrl: "http://192.168.1.101:8080/v1",
+     modelName: "gemma-4.gguf",
+     maxFileChars: 2000,
+     maxHistoryPairs: 5,
+     maxSearchResults: 15,
+     maxFilesInPrompt: 2,
+     maxTokens: 1024,
+     timeout: 120000,
+     temperature: 0.1,
+ };
 
 const localConfig = ref({ ...defaultConfig });
 
@@ -269,10 +270,9 @@ onMounted(async () => {
             if (parsed.modelName) modelName.value = parsed.modelName;
             if (parsed.serverUrl) serverUrl.value = parsed.serverUrl;
         } catch {}
-    } else {
-        // Set default projectPath if no saved config
-        localConfig.value.projectPath = "C:\\";
-    }
+} else {
+         warning("Путь к проекту не указан. Укажите его в разделе Параметры.");
+     }
 
     await loadApiBases();
 });

@@ -6,6 +6,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import path from "path";
+import fs from "fs";
 import pkg from "grammy";
 import { Bot, InlineKeyboard } from "grammy"; // ← InlineKeyboard вместо Keyboard
 import dotenv from "dotenv";
@@ -18,7 +19,9 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 let config = {
    serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
    modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-   projectPath: path.resolve(process.env.PROJECT_PATH || "E:\\Git\\agent-panel"),
+   // Путь ОПРЕДЕЛЯЕТСЯ только из .env (PROJECT_PATH) или через API (/api/config).
+   // Хардкод запрещён — путь зависит от окружения пользователя.
+   projectPath: path.resolve(process.env.PROJECT_PATH || ""),
    systemPrompt: process.env.SYSTEM_PROMPT || "",
    apiKey: process.env.API_KEY || "agent-secret-key",
    maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
@@ -36,6 +39,14 @@ const agentLogs = [];
 const chatHistories = new Map();
 
 const pendingApprovals = new Map();
+
+// Мягкая проверка projectPath: не крашимся, а блокируем агента
+if (config.projectPath && fs.existsSync(config.projectPath)) {
+   addLog(`Project path: ${config.projectPath}`, "info");
+ } else {
+   config.projectPath = "";
+   addLog("Project path is not configured. Agent blocked until path is set via API or .env", "warning");
+ }
 
 function addLog(message, type = "info") {
    const entry = { time: new Date().toISOString(), message, type };
@@ -162,21 +173,25 @@ app.get("/api/models", async (req, res) => {
 });
 
 app.get("/api/status", (req, res) => {
-  const uptimeMs = startTime ? Date.now() - startTime : 0;
-  res.json({
-    success: true,
-    status: botStatus,
-    statusMessage: botStatusMessage,
-    isRunning: botStatus === "running",
-    stats: {
-      uptime: Math.floor(uptimeMs / 1000),
-      requests: stats.requests,
-      tools: stats.tools,
-      errors: stats.errors,
-    },
-    uptime: Math.floor(uptimeMs / 1000),
-  });
-});
+   const uptimeMs = startTime ? Date.now() - startTime : 0;
+   res.json({
+     success: true,
+     status: botStatus,
+     statusMessage: botStatusMessage,
+     isRunning: botStatus === "running",
+     configRequired: !config.projectPath,
+     configMessage: !config.projectPath
+       ? "Project path is not configured. Set it in Settings or PROJECT_PATH in .env"
+       : undefined,
+     stats: {
+       uptime: Math.floor(uptimeMs / 1000),
+       requests: stats.requests,
+       tools: stats.tools,
+       errors: stats.errors,
+     },
+     uptime: Math.floor(uptimeMs / 1000),
+   });
+ });
 
 app.get("/api/logs", (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
@@ -399,13 +414,21 @@ bot.on("message", async (ctx) => {
   if (message === "✅ YES" || message === "❌ NO") {
     return;
   }
-  if (message === "YES" || message === "NO") {
-    return;
-  }
+if (message === "YES" || message === "NO") {
+     return;
+   }
 
-  const chatId = ctx.chat.id.toString();
-  addLog(
-    `Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`,
+   if (!config.projectPath) {
+     await replyMsg(
+       ctx,
+       "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env"
+     );
+     return;
+   }
+
+   const chatId = ctx.chat.id.toString();
+   addLog(
+     `Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`,
     "info",
   );
   addLog(
