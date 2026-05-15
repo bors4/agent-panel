@@ -5,11 +5,8 @@
 
 import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { spawn } from "child_process";
 import { safePath } from "../utils.js";
-
-const execAsync = promisify(exec);
 
 // ============================================================================
 // DEFAULT CONFIGURATION
@@ -554,46 +551,96 @@ export async function executeTool(toolCall, config = {}) {
         };
       }
 
-      // ────────────────────────────────────────────────────────────────────
-      case "execute": {
-        const timeout = (args.timeout || 30) * 1000;
-        const cwd = projectPath;
-        const isWin = process.platform === "win32";
+// ────────────────────────────────────────────────────────────────────
+       case "execute": {
+         const timeout = (args.timeout || 30) * 1000;
+         const cwd = projectPath;
+         const isWin = process.platform === "win32";
+         const trimmedCmd = args.command.trimStart();
+         const isPwsh =
+           /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
 
-        // chcp 65001 switches Windows console to UTF-8, preventing mojibake.
-        // exec() already wraps with cmd.exe on Windows, so only prefix is needed.
-        const prefix = isWin ? "chcp 65001 >nul & " : "";
-        const safeCmd = `${prefix}${args.command}`;
+         try {
+           const result = await new Promise((resolve, reject) => {
+             let shell, shellArgs;
 
-        try {
-          const result = await execAsync(safeCmd, {
-            cwd,
-            timeout,
-            encoding: "utf-8",
-            maxBuffer: 10 * 1024 * 1024,
-            shell: isWin ? "cmd.exe" : "/bin/sh",
-          });
+             if (isWin) {
+               if (isPwsh) {
+                 // PowerShell: запускаем напрямую, минуя cmd.exe,
+                 // иначе | ; & > < перехватываются CMD как свои операторы.
+                 const pwshCmd = trimmedCmd
+                   .replace(/^(powershell|pwsh)\s+/i, "")
+                   .replace(/^(-command|-c)\s+/i, "")
+                   .trim()
+                   .replace(/^["'](.*)["']\s*$/, "$1");
+                 shell = "powershell.exe";
+                 shellArgs = [
+                   "-NoLogo",
+                   "-NoProfile",
+                   "-Command",
+                   pwshCmd,
+                 ];
+} else {
+                  // Остальные команды — через cmd.exe с UTF-8
+                  shell = "cmd.exe";
+                  shellArgs = ["/s", "/d", "/c", `chcp 65001 >nul & ${args.command}`];
+                }
+             } else {
+               shell = "/bin/sh";
+               shellArgs = ["-c", args.command];
+             }
 
-          return {
-            success: true,
-            data: {
-              stdout: result.stdout?.trim() || "",
-              stderr: result.stderr?.trim() || "",
-              exitCode: result.exitCode ?? 0,
-            },
-          };
-        } catch (e) {
-          return {
-            success: false,
-            error: e.message,
-            data: {
-              stdout: e.stdout?.trim() || "",
-              stderr: e.stderr?.trim() || "",
-              exitCode: e.code ?? 1,
-            },
-          };
-        }
-      }
+             const child = spawn(shell, shellArgs, {
+               cwd,
+               timeout,
+               encoding: "utf-8",
+               maxBuffer: 10 * 1024 * 1024,
+               windowsVerbatimArguments: isWin,
+             });
+
+             let stdout = "";
+             let stderr = "";
+
+             child.stdout.on("data", (data) => {
+               stdout += data.toString();
+             });
+             child.stderr.on("data", (data) => {
+               stderr += data.toString();
+             });
+
+             child.on("error", (err) => {
+               reject(err);
+             });
+
+             child.on("close", (code) => {
+               resolve({
+                 stdout: stdout.trim(),
+                 stderr: stderr.trim(),
+                 exitCode: code ?? 0,
+               });
+             });
+           });
+
+           return {
+             success: true,
+             data: {
+               stdout: result.stdout,
+               stderr: result.stderr,
+               exitCode: result.exitCode,
+             },
+           };
+         } catch (e) {
+           return {
+             success: false,
+             error: e.message,
+             data: {
+               stdout: e.stdout?.trim() || "",
+               stderr: e.stderr?.trim() || "",
+               exitCode: e.code ?? 1,
+             },
+           };
+         }
+       }
 
       // ────────────────────────────────────────────────────────────────────
       case "create_dir": {
