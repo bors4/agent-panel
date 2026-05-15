@@ -421,58 +421,61 @@ async function searchDirectory(
 // ============================================================================
 
 export async function executeTool(toolCall, config = {}) {
-   const { name, args = {} } = toolCall;
-   // Resolve projectPath: explicit config > env > fallback
-   const rawPath = config.projectPath || process.env.PROJECT_PATH || "";
-   // If no project path is configured at all, return a clear error
-   if (!rawPath) {
-     return {
-       success: false,
-       error: "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
-     };
-   }
-   const projectPath = path.resolve(rawPath);
-   const maxResults = config.maxSearchResults || 15;
+  const { name, args = {} } = toolCall;
+// Resolve projectPath: server passes it via config (from .env or API /api/config).
+   const rawPath = config.projectPath || "";
+  // If no project path is configured at all, return a clear error
+  if (!rawPath) {
+    return {
+      success: false,
+      error:
+        "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
+    };
+  }
+  const projectPath = path.resolve(rawPath);
+  const maxResults = config.maxSearchResults || 15;
 
-   // Validate project directory exists
-   if (!fs.existsSync(projectPath)) {
-     return {
-       success: false,
-       error: `Project directory does not exist: ${projectPath}`,
-     };
-   }
-   if (!fs.statSync(projectPath).isDirectory()) {
-     return {
-       success: false,
-       error: `Project path is not a directory: ${projectPath}`,
-     };
-   }
+  // Validate project directory exists
+  if (!fs.existsSync(projectPath)) {
+    return {
+      success: false,
+      error: `Project directory does not exist: ${projectPath}`,
+    };
+  }
+  if (!fs.statSync(projectPath).isDirectory()) {
+    return {
+      success: false,
+      error: `Project path is not a directory: ${projectPath}`,
+    };
+  }
 
-// Validate tool exists
-   if (!TOOLS[name]) {
-     return { success: false, error: `Unknown tool: ${name}` };
-   }
+  // Validate tool exists
+  if (!TOOLS[name]) {
+    return { success: false, error: `Unknown tool: ${name}` };
+  }
 
-   // Check permissions
-   const permission = checkToolPermission(name, args, projectPath);
-   if (!permission.allowed) {
-     return { success: false, error: permission.reason, requiresApproval: true };
-   }
+  // Check permissions
+  const permission = checkToolPermission(name, args, projectPath);
+  if (!permission.allowed) {
+    return { success: false, error: permission.reason, requiresApproval: true };
+  }
 
-   console.log(`[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`);
+  console.log(
+    `[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`,
+  );
 
   try {
     switch (name) {
       // ────────────────────────────────────────────────────────────────────
-case "read": {
-         const filePath = safePath(args.filePath, projectPath);
-         if (!fs.existsSync(filePath)) {
-           return {
-             success: false,
-             error: `File not found: ${path.relative(projectPath, filePath)}`,
-           };
-         }
-         const content = fs.readFileSync(filePath, "utf-8");
+      case "read": {
+        const filePath = safePath(args.filePath, projectPath);
+        if (!fs.existsSync(filePath)) {
+          return {
+            success: false,
+            error: `File not found: ${path.relative(projectPath, filePath)}`,
+          };
+        }
+        const content = fs.readFileSync(filePath, "utf-8");
         const maxChars = config.maxFileChars || 2000;
         const truncated =
           content.length > maxChars
@@ -530,16 +533,16 @@ case "read": {
         const dirPath = args.path
           ? safePath(args.path, projectPath)
           : projectPath;
-const depth = Math.min(args.depth || 1, 3);
+        const depth = Math.min(args.depth || 1, 3);
 
-         if (!fs.existsSync(dirPath)) {
-           return {
-             success: false,
-             error: `Directory not found: ${path.relative(projectPath, dirPath)}`,
-           };
-         }
+        if (!fs.existsSync(dirPath)) {
+          return {
+            success: false,
+            error: `Directory not found: ${path.relative(projectPath, dirPath)}`,
+          };
+        }
 
-         // Returns flat array: ["📁 src/", "  📄 file.js", ...]
+        // Returns flat array: ["📁 src/", "  📄 file.js", ...]
         const tree = await listDirectoryFlat(dirPath, depth, 0);
 
         return {
@@ -552,26 +555,24 @@ const depth = Math.min(args.depth || 1, 3);
       }
 
       // ────────────────────────────────────────────────────────────────────
-case "execute": {
-         const timeout = (args.timeout || 30) * 1000;
-         const cwd = projectPath;
-         const isWin = process.platform === 'win32';
+      case "execute": {
+        const timeout = (args.timeout || 30) * 1000;
+        const cwd = projectPath;
+        const isWin = process.platform === "win32";
 
-         // chcp 65001 switches Windows console to UTF-8, preventing mojibake
-         // On Unix/Mac this prefix is harmless (chcp won't exist, command runs normally via /bin/sh)
-         const prefix = isWin ? 'chcp 65001 >nul && ' : '';
-         const safeCmd = isWin
-           ? `${prefix}cmd /c "${args.command.replace(/"/g, '\\"')}"`
-           : `${prefix}${args.command}`;
+        // chcp 65001 switches Windows console to UTF-8, preventing mojibake.
+        // exec() already wraps with cmd.exe on Windows, so only prefix is needed.
+        const prefix = isWin ? "chcp 65001 >nul & " : "";
+        const safeCmd = `${prefix}${args.command}`;
 
-         try {
-           const result = await execAsync(safeCmd, {
-             cwd,
-             timeout,
-             encoding: 'utf-8',
-             maxBuffer: 10 * 1024 * 1024,
-             shell: isWin ? 'cmd.exe' : '/bin/sh'
-           });
+        try {
+          const result = await execAsync(safeCmd, {
+            cwd,
+            timeout,
+            encoding: "utf-8",
+            maxBuffer: 10 * 1024 * 1024,
+            shell: isWin ? "cmd.exe" : "/bin/sh",
+          });
 
           return {
             success: true,
@@ -602,15 +603,15 @@ case "execute": {
       }
 
       // ────────────────────────────────────────────────────────────────────
-case "delete": {
-         const targetPath = safePath(args.path, projectPath);
-         if (!fs.existsSync(targetPath)) {
-           return {
-             success: false,
-             error: `Path not found: ${path.relative(projectPath, targetPath)}`,
-           };
-         }
-         const stats = fs.statSync(targetPath);
+      case "delete": {
+        const targetPath = safePath(args.path, projectPath);
+        if (!fs.existsSync(targetPath)) {
+          return {
+            success: false,
+            error: `Path not found: ${path.relative(projectPath, targetPath)}`,
+          };
+        }
+        const stats = fs.statSync(targetPath);
 
         if (stats.isDirectory()) {
           if (args.recursive) {
@@ -625,31 +626,41 @@ case "delete": {
       }
 
       // ────────────────────────────────────────────────────────────────────
-case "move": {
-         const source = safePath(args.source, projectPath);
-         if (!fs.existsSync(source)) {
-           return { success: false, error: `Source not found: ${path.relative(projectPath, source)}` };
-         }
-         const destination = safePath(args.destination, projectPath);
-         // Ensure destination directory exists
-         const destDir = path.dirname(destination);
-         if (!fs.existsSync(destDir)) {
-           fs.mkdirSync(destDir, { recursive: true });
-         }
-         fs.renameSync(source, destination);
-         return { success: true, data: { source, destination } };
-       }
+      case "move": {
+        const source = safePath(args.source, projectPath);
+        if (!fs.existsSync(source)) {
+          return {
+            success: false,
+            error: `Source not found: ${path.relative(projectPath, source)}`,
+          };
+        }
+        const destination = safePath(args.destination, projectPath);
+        // Ensure destination directory exists
+        const destDir = path.dirname(destination);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        fs.renameSync(source, destination);
+        return { success: true, data: { source, destination } };
+      }
 
       // ────────────────────────────────────────────────────────────────────
-case "copy": {
-         const source = safePath(args.source, projectPath);
-         if (!fs.existsSync(source)) { return { success: false, error: `Source not found: ${path.relative(projectPath, source)}` }; }
-         const destination = safePath(args.destination, projectPath);
-         const destDir = path.dirname(destination);
-         if (!fs.existsSync(destDir)) { fs.mkdirSync(destDir, { recursive: true }); }
-         fs.copyFileSync(source, destination);
-         return { success: true, data: { source, destination } };
-       }
+      case "copy": {
+        const source = safePath(args.source, projectPath);
+        if (!fs.existsSync(source)) {
+          return {
+            success: false,
+            error: `Source not found: ${path.relative(projectPath, source)}`,
+          };
+        }
+        const destination = safePath(args.destination, projectPath);
+        const destDir = path.dirname(destination);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        fs.copyFileSync(source, destination);
+        return { success: true, data: { source, destination } };
+      }
 
       // ────────────────────────────────────────────────────────────────────
       default:
