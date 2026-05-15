@@ -386,15 +386,6 @@ async function clearButtons(ctx) {
   }
 }
 
-async function replyMsg(ctx, text, extra = {}) {
-  const sent = await ctx.reply(text, {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-    ...extra,
-  });
-  return sent.message_id;
-}
-
 bot.on("message", async (ctx) => {
   const message = ctx.message?.text || ctx.message?.caption;
   if (!message) {
