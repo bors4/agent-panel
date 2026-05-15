@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 import { spawn } from "child_process";
 import { safePath } from "../utils.js";
+import { checkAccountToolPermission } from "../accounts.js";
 
 // ============================================================================
 // DEFAULT CONFIGURATION
@@ -211,7 +212,10 @@ export function getToolConfig() {
 // PERMISSION CHECK
 // ============================================================================
 
-function checkToolPermission(toolName, args, projectPath) {
+function checkToolPermission(toolName, args, projectPath, account) {
+  const accountCheck = checkAccountToolPermission(account, toolName, args, projectPath);
+  if (!accountCheck.allowed) return accountCheck;
+
   const config = toolConfig[toolName] || DEFAULT_TOOL_CONFIG;
 
   if (!config.enabled) {
@@ -419,8 +423,9 @@ async function searchDirectory(
 
 export async function executeTool(toolCall, config = {}) {
   const { name, args = {} } = toolCall;
-// Resolve projectPath: server passes it via config (from .env or API /api/config).
-   const rawPath = config.projectPath || "";
+  // Resolve projectPath: server passes it via config (from .env or API /api/config).
+  const rawPath = config.projectPath || "";
+  const account = config.account;
   // If no project path is configured at all, return a clear error
   if (!rawPath) {
     return {
@@ -452,7 +457,7 @@ export async function executeTool(toolCall, config = {}) {
   }
 
   // Check permissions
-  const permission = checkToolPermission(name, args, projectPath);
+  const permission = checkToolPermission(name, args, projectPath, account);
   if (!permission.allowed) {
     return { success: false, error: permission.reason, requiresApproval: true };
   }
@@ -554,7 +559,9 @@ export async function executeTool(toolCall, config = {}) {
 // ────────────────────────────────────────────────────────────────────
        case "execute": {
          const timeout = (args.timeout || 30) * 1000;
-         const cwd = projectPath;
+         const cwd = account?.include_paths?.length > 0
+           ? path.resolve(account.include_paths[0])
+           : projectPath;
          const isWin = process.platform === "win32";
          const trimmedCmd = args.command.trimStart();
          const isPwsh =

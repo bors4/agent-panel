@@ -3,12 +3,15 @@
         <Card>
             <template #header>
                 <div class="header-row">
-                    <h2>Инструменты агента</h2>
+                    <div class="header-left" @click="toolsExpanded = !toolsExpanded">
+                        <span class="arrow">{{ toolsExpanded ? "▼" : "▶" }}</span>
+                        <h2>Инструменты агента</h2>
+                    </div>
                     <span class="badge">{{ enabledCount }} / {{ toolsCount }} активны</span>
                 </div>
             </template>
 
-            <div class="tools-list">
+            <div v-show="toolsExpanded" class="tools-list">
                 <div v-for="(tool, name) in tools" :key="name" class="tool-item" :class="{ disabled: !config[name]?.enabled }">
                     <div class="tool-header">
                         <div class="tool-info">
@@ -84,21 +87,140 @@
                 </div>
             </div>
         </Card>
+
+        <Card>
+            <template #header>
+                <div class="header-row">
+                    <div class="header-left" @click="accountsExpanded = !accountsExpanded">
+                        <span class="arrow">{{ accountsExpanded ? "▼" : "▶" }}</span>
+                        <h2>Управление аккаунтами</h2>
+                    </div>
+                    <div class="header-actions">
+                        <input
+                            v-show="accountsExpanded"
+                            type="text"
+                            :value="accountSearch"
+                            placeholder="Поиск по username..."
+                            class="search-input"
+                            @input="accountSearch = $event.target.value"
+                        />
+                        <button class="btn btn-secondary" @click="importAccounts">Импортировать</button>
+                        <input
+                            ref="importFileInput"
+                            type="file"
+                            accept=".json"
+                            style="display: none"
+                            @change="handleImportFile"
+                        />
+                    </div>
+                </div>
+            </template>
+
+            <div v-show="accountsExpanded">
+                <div class="accounts-list">
+                    <div v-for="(acct, idx) in filteredAccounts" :key="idx" class="account-card">
+                        <div class="account-header">
+                            <div class="account-fields">
+                                <div class="field">
+                                    <label>Username:</label>
+                                    <input
+                                        type="text"
+                                        :value="acct.username"
+                                        placeholder="@username"
+                                        @input="acct.username = $event.target.value"
+                                    />
+                                </div>
+                                <div class="field">
+                                    <label>Role:</label>
+                                    <select
+                                        :value="acct.role"
+                                        @change="onRoleChange(getAccountIndex(acct), $event.target.value)"
+                                    >
+                                        <option value="system">system</option>
+                                        <option value="user">user</option>
+                                        <option value="guest">guest</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button class="btn btn-danger btn-sm" @click="removeAccount(getAccountIndex(acct))">Удалить</button>
+                        </div>
+
+                        <div class="account-permissions">
+                            <label class="perm-label">Доступные инструменты:</label>
+                            <div class="perm-grid">
+                                <label v-for="toolName in allToolNames" :key="toolName" class="perm-check">
+                                    <input
+                                        type="checkbox"
+                                        :checked="acct.permissions?.[toolName] === true"
+                                        @change="toggleAccountTool(getAccountIndex(acct), toolName, $event.target.checked)"
+                                    />
+                                    <span>{{ toolName }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="account-paths">
+                            <label class="perm-label">Include paths:</label>
+                            <div v-for="(p, pi) in acct.include_paths" :key="pi" class="path-row">
+                                <input
+                                    type="text"
+                                    :value="p"
+                                    placeholder="E:\path\to\allowed\dir"
+                                    @input="acct.include_paths[pi] = $event.target.value"
+                                />
+                                <button class="btn btn-icon" @click="removePath(getAccountIndex(acct), pi)">✕</button>
+                            </div>
+                            <button class="btn btn-link" @click="addPath(getAccountIndex(acct))">+ Add path</button>
+                        </div>
+                    </div>
+                    <div v-if="filteredAccounts.length === 0" class="no-results">
+                        {{ accountSearch ? "Аккаунты не найдены" : "Нет аккаунтов. Нажмите «+ Добавить аккаунт»" }}
+                    </div>
+                </div>
+
+                <div class="accounts-actions">
+                    <button class="btn btn-primary" @click="addAccount">+ Добавить аккаунт</button>
+                    <button class="btn btn-primary" @click="saveAccounts">Сохранить</button>
+                </div>
+            </div>
+        </Card>
     </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted } from "vue";
 import Card from "../ui/Card.vue";
 import { getTools, updateTools } from "@/api/client";
 
 const tools = ref({});
 const config = ref({});
+const accounts = ref([]);
+const toolsExpanded = ref(false);
+const accountsExpanded = ref(false);
+const accountSearch = ref("");
+const allToolNames = ["read", "write", "search", "list_dir", "execute", "create_dir", "delete", "move", "copy"];
+const importFileInput = ref(null);
 
 const toolsCount = computed(() => Object.keys(tools.value).length);
 const enabledCount = computed(() =>
     Object.keys(config.value).filter(k => config.value[k]?.enabled).length
 );
+
+const filteredAccounts = computed(() => {
+    if (!accountSearch.value) return accounts.value;
+    const q = accountSearch.value.toLowerCase().replace(/^@/, "");
+    return accounts.value.filter(a => a.username.toLowerCase().replace(/^@/, "").includes(q));
+});
+
+const ROLE_DEFAULTS = {
+    system: { read: true, write: true, search: true, list_dir: true, execute: true, create_dir: true, delete: true, move: true, copy: true },
+    user:   { read: true, write: true, list_dir: true, search: true, create_dir: true },
+    guest:  { read: true },
+};
+
+function getAccountIndex(acct) {
+    return accounts.value.indexOf(acct);
+}
 
 const fetchTools = async () => {
     try {
@@ -151,8 +273,118 @@ const saveConfig = async (name) => {
     }
 };
 
+const fetchAccounts = async () => {
+    try {
+        const res = await fetch("http://127.0.0.1:3000/api/accounts", {
+            headers: { "x-api-key": "agent-secret-key" },
+        });
+        const data = await res.json();
+        if (data.success) {
+            accounts.value = data.accounts;
+        }
+    } catch (error) {
+        console.error("Failed to fetch accounts:", error);
+    }
+};
+
+const addAccount = () => {
+    accounts.value.push({
+        username: "",
+        role: "guest",
+        permissions: { ...ROLE_DEFAULTS.guest },
+        include_paths: [],
+    });
+};
+
+const removeAccount = (idx) => {
+    if (confirm("Удалить этот аккаунт?")) {
+        accounts.value.splice(idx, 1);
+    }
+};
+
+const onRoleChange = (idx, role) => {
+    accounts.value[idx].role = role;
+    accounts.value[idx].permissions = { ...ROLE_DEFAULTS[role] };
+};
+
+const toggleAccountTool = (idx, toolName, checked) => {
+    if (!accounts.value[idx].permissions) {
+        accounts.value[idx].permissions = {};
+    }
+    accounts.value[idx].permissions[toolName] = checked;
+};
+
+const addPath = (idx) => {
+    accounts.value[idx].include_paths.push("");
+};
+
+const removePath = (idx, pi) => {
+    accounts.value[idx].include_paths.splice(pi, 1);
+};
+
+const saveAccounts = async () => {
+    try {
+        const res = await fetch("http://127.0.0.1:3000/api/accounts", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-api-key": "agent-secret-key",
+            },
+            body: JSON.stringify({ accounts: accounts.value }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            accounts.value = data.accounts;
+            alert("Аккаунты сохранены");
+        } else {
+            alert("Ошибка: " + (data.error || "Неизвестная ошибка"));
+        }
+    } catch (error) {
+        console.error("Failed to save accounts:", error);
+        alert("Ошибка сохранения: " + error.message);
+    }
+};
+
+const importAccounts = () => {
+    importFileInput.value?.click();
+};
+
+const handleImportFile = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const imported = parsed.accounts || [];
+        if (!Array.isArray(imported)) {
+            alert("Неверный формат: ожидается массив accounts");
+            return;
+        }
+        const res = await fetch("http://127.0.0.1:3000/api/accounts/import", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-api-key": "agent-secret-key",
+            },
+            body: JSON.stringify({ accounts: imported }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            accounts.value = data.accounts;
+            alert(`Импортировано ${accounts.value.length} аккаунтов`);
+        } else {
+            alert("Ошибка импорта: " + (data.error || "Неизвестная ошибка"));
+        }
+    } catch (error) {
+        console.error("Failed to import accounts:", error);
+        alert("Ошибка импорта: " + error.message);
+    }
+    event.target.value = "";
+};
+
 onMounted(async () => {
     await fetchTools();
+    await fetchAccounts();
 
     const saved = localStorage.getItem("agent-tool-config");
     if (saved) {
@@ -181,6 +413,46 @@ onMounted(async () => {
     justify-content: space-between;
 }
 
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.header-left:hover h2 {
+    color: var(--accent);
+}
+
+.arrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.search-input {
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: "JetBrains Mono", monospace;
+    width: 180px;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 .badge {
     background: var(--accent);
     color: white;
@@ -194,6 +466,8 @@ onMounted(async () => {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    height: 300px;
+    overflow-y: auto;
 }
 
 .tool-item {
@@ -382,5 +656,199 @@ onMounted(async () => {
 
 .param li {
     margin-bottom: 4px;
+}
+
+.accounts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    height: 300px;
+    overflow-y: auto;
+}
+
+.no-results {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 40px 0;
+}
+
+.account-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+}
+
+.account-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.account-fields {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.account-fields .field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.account-fields .field label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.account-fields .field input,
+.account-fields .field select {
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.account-fields .field input {
+    width: 180px;
+}
+
+.account-permissions {
+    margin-bottom: 12px;
+}
+
+.perm-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.perm-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.perm-check {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.perm-check input[type="checkbox"] {
+    accent-color: var(--accent-primary);
+}
+
+.account-paths {
+    margin-bottom: 8px;
+}
+
+.path-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.path-row input {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.accounts-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: var(--transition);
+}
+
+.btn-primary {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.btn-secondary:hover {
+    border-color: var(--accent);
+}
+
+.btn-danger {
+    background: transparent;
+    color: #ef4444;
+    border-color: #ef4444;
+}
+
+.btn-danger:hover {
+    background: #ef444420;
+}
+
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 11px;
+}
+
+.btn-icon {
+    background: transparent;
+    color: #ef4444;
+    border: none;
+    padding: 4px 8px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.btn-icon:hover {
+    background: #ef444420;
+    border-radius: var(--radius-sm);
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 0;
+}
+
+.btn-link:hover {
+    text-decoration: underline;
 }
 </style>

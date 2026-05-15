@@ -11,7 +11,7 @@
                  @restart="handleRestart"
              />
             <StatsCard :uptime="uptime" :stats="stats" />
-            <BotCheckCard />
+            <BotCheckCard :token="localConfig.token" />
             <div class="quick-actions">
                 <button class="quick-action-btn" @click="activeTab = 'prompt'">
                     <span class="icon">📝</span>

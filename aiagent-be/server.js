@@ -43,6 +43,8 @@ const pendingApprovals = new Map();
 // Мягкая проверка projectPath: не крашимся, а блокируем агента
 if (config.projectPath && fs.existsSync(config.projectPath)) {
   addLog(`Project path: ${config.projectPath}`, "info");
+  loadAccounts(config.projectPath);
+  addLog(`Accounts loaded: ${getAccounts().length}`, "info");
 } else {
   config.projectPath = "";
   addLog(
@@ -87,6 +89,14 @@ import {
   TOOLS,
   formatValue,
 } from "./lib/agent/executeTool.js";
+import {
+  loadAccounts,
+  saveAccounts,
+  getAccounts,
+  getAccountByUsername,
+  getRoleDefaultPermissions,
+  isToolEnabledForAccount,
+} from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 
 function updateConfig(newConfig) {
@@ -115,6 +125,26 @@ app.post("/api/tools", (req, res) => {
     return res.status(404).json({ error: `Tool '${name}' not found` });
   updateToolConfig(name, settings);
   res.json({ success: true, config: getToolConfig()[name] });
+});
+
+app.get("/api/accounts", (req, res) => {
+  res.json({ success: true, accounts: getAccounts() });
+});
+
+app.post("/api/accounts", (req, res) => {
+  const { accounts } = req.body;
+  if (!Array.isArray(accounts))
+    return res.status(400).json({ error: "accounts array required" });
+  saveAccounts(config.projectPath, accounts);
+  res.json({ success: true, accounts: getAccounts() });
+});
+
+app.post("/api/accounts/import", (req, res) => {
+  const { accounts } = req.body;
+  if (!Array.isArray(accounts))
+    return res.status(400).json({ error: "accounts array required" });
+  saveAccounts(config.projectPath, accounts);
+  res.json({ success: true, accounts: getAccounts() });
 });
 
 app.post("/api/agent/tool", async (req, res) => {
@@ -455,6 +485,16 @@ bot.on("message", async (ctx) => {
     return;
   }
 
+  const username = ctx.chat.username;
+  const account = getAccountByUsername(username);
+  if (!account) {
+    await replyMsg(
+      ctx,
+      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered. Contact the administrator.`,
+    );
+    return;
+  }
+
   const chatId = ctx.chat.id.toString();
   addLog(
     `Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`,
@@ -471,7 +511,7 @@ bot.on("message", async (ctx) => {
     const draft = await sendDraft(ctx, "⏳ Analyzing request...");
 
     let history = chatHistories.get(chatId) || [];
-    let result = await agentLoopStep(message, chatId, history);
+    let result = await agentLoopStep(message, chatId, history, 5, account);
     addLog(
       `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
       "info",
@@ -481,8 +521,9 @@ bot.on("message", async (ctx) => {
       pendingApprovals.set(chatId, {
         toolName: result.toolName,
         args: result.args,
-        toolCallId: result.toolCallId, // ← ДОБАВИТЬ
+        toolCallId: result.toolCallId,
         messages: result.messages,
+        account,
       });
       chatHistories.set(chatId, result.messages.slice(-20));
       await replyMsg(
@@ -517,7 +558,7 @@ bot.on("message", async (ctx) => {
 
     if (result.response === "continue" || result.messages) {
       history = result.messages || history;
-      result = await agentLoopStep("", chatId, history);
+      result = await agentLoopStep("", chatId, history, 5, account);
       addLog(
         `agentLoopStep (retry): requiresApproval=${result.requiresApproval}`,
         "info",
@@ -527,6 +568,7 @@ bot.on("message", async (ctx) => {
           toolName: result.toolName,
           args: result.args,
           messages: result.messages,
+          account,
         });
         chatHistories.set(chatId, result.messages.slice(-20));
         await replyMsg(
@@ -576,12 +618,13 @@ async function continueAfterApproval(ctx, pending) {
 
   stats.tools++;
   const chatId = ctx.chat.id.toString();
+  const account = pending.account;
 
   try {
     // 1. Выполняем инструмент
     const result = await executeTool(
       { name: pending.toolName, args: pending.args },
-      { projectPath: config.projectPath },
+      { projectPath: config.projectPath, account },
     );
 
     await ctx.answerCallbackQuery(result.success ? "Done!" : "Error");
@@ -613,7 +656,7 @@ async function continueAfterApproval(ctx, pending) {
 
     // 3. Подготовка определения инструментов
     const toolsDef = Object.values(TOOLS)
-      .filter((t) => getToolConfig()[t.name]?.enabled !== false)
+      .filter((t) => isToolEnabledForAccount(account, t.name, getToolConfig()))
       .map((t) => ({
         type: "function",
         function: {
@@ -717,6 +760,20 @@ async function continueAfterApproval(ctx, pending) {
       }
 
       const ts = getToolConfig()[tn] || {};
+      if (!getToolConfig()[tn]?.enabled) {
+        await replyMsg(
+          ctx,
+          `❌ <b>${tn}</b> is disabled globally.`,
+        );
+        return;
+      }
+      if (account && account.permissions?.[tn] === false) {
+        await replyMsg(
+          ctx,
+          `❌ <b>${tn}</b> is not available for your account.`,
+        );
+        return;
+      }
       if (ts.permission === "ask") {
         // Требуется подтверждение — сохраняем и показываем кнопки
         pendingApprovals.set(chatId, {
@@ -724,6 +781,7 @@ async function continueAfterApproval(ctx, pending) {
           args: ta,
           toolCallId: tc.id,
           messages: newHistory,
+          account,
         });
         // Транкейция параметров: Telegram имеет лимит на длину сообщения
         const paramStr = JSON.stringify(ta);
@@ -745,6 +803,7 @@ async function continueAfterApproval(ctx, pending) {
         args: ta,
         toolCallId: tc.id,
         messages: newHistory,
+        account,
       });
       return;
     }
@@ -840,14 +899,31 @@ bot.command("clear", (ctx) => {
   ctx.reply("🗑️ History cleared!", REPLY_OPTS);
 });
 
-bot.command("tools", (ctx) => {
-  const toolList = Object.entries(TOOLS)
-    .map(([name, tool]) => `• <b>${name}</b>: ${tool.description}`)
-    .join("\n");
-  ctx.reply(`📦 Available tools:\n\n${toolList}`, {
-    ...REPLY_OPTS,
-    parse_mode: "HTML",
-  });
+bot.command("tools", async (ctx) => {
+  const username = ctx.chat.username;
+  const account = getAccountByUsername(username);
+  let toolList;
+  if (account) {
+    toolList = Object.entries(TOOLS)
+      .map(([name, tool]) => {
+        const enabled = account.permissions?.[name] !== false;
+        const icon = enabled ? "✅" : "❌";
+        return `${icon} <b>${name}</b>: ${tool.description}`;
+      })
+      .join("\n");
+    ctx.reply(`📦 Tools for @${username} (${account.role}):\n\n${toolList}`, {
+      ...REPLY_OPTS,
+      parse_mode: "HTML",
+    });
+  } else {
+    toolList = Object.entries(TOOLS)
+      .map(([name, tool]) => `• <b>${name}</b>: ${tool.description}`)
+      .join("\n");
+    ctx.reply(`📦 Available tools:\n\n${toolList}`, {
+      ...REPLY_OPTS,
+      parse_mode: "HTML",
+    });
+  }
 });
 
 bot.catch((err, ctx) => {

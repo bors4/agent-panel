@@ -360,7 +360,10 @@ const handleSave = () => {
         (m) => m.id === modelNameCopy.value,
     );
     emit("save", {
-        config: { ...configCopy },
+        config: {
+            ...configCopy,
+            token: configCopy.token.trim().replace(/[^\x00-\x7F]/g, ""),
+        },
         apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
         modelName: modelNameCopy.value,
         serverUrl: model ? model.source : "",

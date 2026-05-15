@@ -1,0 +1,76 @@
+import path from "path";
+import fs from "fs";
+
+const ALL_TOOLS = [
+  "read", "write", "search", "list_dir", "execute",
+  "create_dir", "delete", "move", "copy",
+];
+
+const ROLE_DEFAULTS = {
+  system: ALL_TOOLS.reduce((m, t) => ({ ...m, [t]: true }), {}),
+  user:   { read: true, write: true, list_dir: true, search: true, create_dir: true },
+  guest:  { read: true },
+};
+
+let accounts = [];
+
+export function loadAccounts(projectPath) {
+  if (!projectPath) return;
+  const filePath = path.join(projectPath, "accounts.json");
+  if (fs.existsSync(filePath)) {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    accounts = parsed.accounts || [];
+  }
+}
+
+export function saveAccounts(projectPath, data) {
+  if (!projectPath) return;
+  const filePath = path.join(projectPath, "accounts.json");
+  fs.writeFileSync(filePath, JSON.stringify({ accounts: data }, null, 2), "utf-8");
+  accounts = data;
+}
+
+export function getAccounts() {
+  return [...accounts];
+}
+
+export function getAccountByUsername(username) {
+  if (!username) return null;
+  const normalized = username.replace(/^@/, "");
+  return accounts.find(a => (a.username || "").replace(/^@/, "") === normalized) || null;
+}
+
+export function getRoleDefaultPermissions(role) {
+  return { ...(ROLE_DEFAULTS[role] || ROLE_DEFAULTS.guest) };
+}
+
+export function checkAccountToolPermission(account, toolName, args, projectPath) {
+  if (!account) return { allowed: true };
+
+  if (account.permissions && account.permissions[toolName] === false) {
+    return { allowed: false, reason: `Tool '${toolName}' is not available for your account` };
+  }
+
+  if (toolName !== "execute" && account.include_paths?.length > 0) {
+    const toolPath = args.filePath || args.path || args.source || args.destination || "";
+    if (toolPath) {
+      const resolved = path.resolve(projectPath, toolPath);
+      const allowed = account.include_paths.some(p => {
+        const norm = path.resolve(p);
+        return resolved === norm || resolved.startsWith(norm + path.sep);
+      });
+      if (!allowed) {
+        return { allowed: false, reason: "Path not in allowed directories" };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
+export function isToolEnabledForAccount(account, toolName, globalToolConfig) {
+  const globalEnabled = globalToolConfig?.[toolName]?.enabled !== false;
+  const accountEnabled = account ? account.permissions?.[toolName] !== false : true;
+  return globalEnabled && accountEnabled;
+}

@@ -1,5 +1,6 @@
 import { executeTool, getToolConfig, TOOLS } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
+import { isToolEnabledForAccount } from "../accounts.js";
 
 export let config = {
   serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
@@ -15,21 +16,33 @@ export function getAgentConfig() {
   return { ...config };
 }
 
-function buildToolsDescription() {
-  return Object.values(TOOLS)
-    .map((t) => {
-      const params = Object.entries(t.input_schema?.properties || {})
-        .map(([name, info]) => "  " + name + ": " + (info.description || name))
-        .join("\n");
-      return t.name + ": " + t.description + "\n" + params;
-    })
-    .join("\n\n");
+function buildToolsDescription(account, globalToolConfig) {
+  const enabled = [];
+  const disabled = [];
+  for (const t of Object.values(TOOLS)) {
+    const desc = t.name + ": " + t.description;
+    if (isToolEnabledForAccount(account, t.name, globalToolConfig)) {
+      enabled.push(desc);
+    } else {
+      disabled.push(t.name);
+    }
+  }
+  let result = "";
+  if (enabled.length > 0) {
+    result += "Available tools:\n" + enabled.join("\n");
+  }
+  if (disabled.length > 0) {
+    if (result) result += "\n\n";
+    result += "Unavailable tools (restricted):\n" + disabled.join(", ");
+  }
+  return result;
 }
 
 export function buildSystemMessage(
   projectPath,
   systemPrompt,
   useFunctionCalling,
+  account = null,
 ) {
   let ctx =
     "You are AI assistant in: " +
@@ -50,9 +63,16 @@ export function buildSystemMessage(
     "- Do NOT use jq. Use PowerShell: curl ... | ConvertFrom-Json\n" +
     "- Prefer PowerShell for complex pipes\n";
 
+  if (account) {
+    ctx += "\n\nYour role: " + account.role + "\n";
+    if (account.include_paths?.length > 0) {
+      ctx += "Allowed directories: " + account.include_paths.join(", ") + "\n";
+    }
+  }
+
   if (systemPrompt) ctx += "\n" + systemPrompt;
 
-  const td = buildToolsDescription();
+  const td = buildToolsDescription(account, getToolConfig());
   if (useFunctionCalling) {
     return ctx + td + "\n\nUse function calling.";
   } else {
@@ -74,6 +94,7 @@ export async function agentLoopStep(
   chatId,
   history = [],
   maxIterations = 5,
+  account = null,
 ) {
   const toolConfig = getToolConfig();
   let messages = [
@@ -83,6 +104,7 @@ export async function agentLoopStep(
         config.projectPath,
         config.systemPrompt,
         true,
+        account,
       ),
     },
     ...history,
@@ -103,7 +125,7 @@ export async function agentLoopStep(
       };
       if (useFC) {
         body.tools = Object.values(TOOLS)
-          .filter((t) => toolConfig[t.name]?.enabled !== false)
+          .filter((t) => isToolEnabledForAccount(account, t.name, toolConfig))
           .map((t) => ({
             type: "function",
             function: {
@@ -128,6 +150,7 @@ export async function agentLoopStep(
           config.projectPath,
           config.systemPrompt,
           false,
+          account,
         );
         continue;
       }
@@ -169,7 +192,7 @@ export async function agentLoopStep(
           }
           const r = await executeTool(
             { name: tn, args: ta },
-            { projectPath: config.projectPath },
+            { projectPath: config.projectPath, account },
           );
           messages.push({
             role: "tool",
@@ -190,7 +213,7 @@ export async function agentLoopStep(
             args: tc.args,
             messages,
           };
-        const r = await executeTool(tc, { projectPath: config.projectPath });
+        const r = await executeTool(tc, { projectPath: config.projectPath, account });
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -203,7 +226,7 @@ export async function agentLoopStep(
       if (bash && !useFC) {
         const r = await executeTool(
           { name: "execute", args: { command: bash } },
-          { projectPath: config.projectPath },
+          { projectPath: config.projectPath, account },
         );
         messages.push({
           role: "tool",
