@@ -221,10 +221,10 @@ app.post("/api/restart", async (req, res) => {
       await bot.stop();
       await new Promise((r) => setTimeout(r, 1000));
     }
-    await bot.start();
-    updateStatus("running", "Работает");
-    addLog("Bot restarted", "success");
-    res.json({ success: true });
+bot.start();
+     updateStatus("running", "Работает");
+     addLog("Bot restarted", "success");
+     res.json({ success: true });
   } catch (error) {
     updateStatus("error", "Ошибка Telegram");
     res.status(500).json({ error: "Failed to restart: " + error.message });
