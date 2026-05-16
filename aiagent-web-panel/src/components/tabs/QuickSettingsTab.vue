@@ -1,3 +1,11 @@
+<!--
+  QuickSettingsTab
+  - autoSave: при false — success-уведомления скрыты, localStorage пишется всегда
+  - verbose: при true — ChatTab логирует тайминги и полные ответы в LogsTab
+  - autoStart: при true + token + projectPath — агент запускается при загрузке
+  - showTokens: StatsCard (диаграмма + мини-бары), ChatTab (токены под ответами)
+  Удалено: notifications (не было логики потребления)
+-->
 <template>
     <Card>
         <template #header>
@@ -6,34 +14,28 @@
         <ToggleSwitch
             :model-value="settings.autoSave"
             @update:model-value="updateSetting('autoSave', $event)"
-            label="Auto-save промпт"
+            label="Автосохранение"
         />
         <ToggleSwitch
             :model-value="settings.verbose"
             @update:model-value="updateSetting('verbose', $event)"
-            label="Verbose логи"
+            label="Подробный режим"
         />
         <ToggleSwitch
             :model-value="settings.autoStart"
             @update:model-value="updateSetting('autoStart', $event)"
-            label="Автостарт при загрузке"
-        />
-        <ToggleSwitch
-            :model-value="settings.notifications"
-            @update:model-value="updateSetting('notifications', $event)"
-            label="Уведомления в Telegram"
+            label="Автозапуск агента"
         />
         <ToggleSwitch
             :model-value="settings.showTokens"
             @update:model-value="updateSetting('showTokens', $event)"
-            label="Показывать токены в логах"
+            label="Показ токенов"
         />
     </Card>
 </template>
 
 <script setup>
 import Card from "../ui/Card.vue";
-import Button from "../ui/Button.vue";
 import ToggleSwitch from "../ui/ToggleSwitch.vue";
 
 const props = defineProps({
