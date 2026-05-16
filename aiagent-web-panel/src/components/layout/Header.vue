@@ -1,3 +1,6 @@
+<!--
+  Шапка приложения с логотипом, статусом и навигацией.
+-->
 <template>
     <header class="header">
         <div class="header-left">

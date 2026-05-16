@@ -1,6 +1,7 @@
 /**
  * API клиент для взаимодействия с backend сервером.
  * С поддержкой экспоненциальной задержки при потере соединения.
+ * @module api/client
  */
 
 const BASE_URL = "http://127.0.0.1:3000/api";
@@ -134,6 +135,11 @@ export async function getStatus() {
 
 export async function getLogs(limit = 50) {
   const response = await apiFetch(`/logs?limit=${limit}`);
+  return response.json();
+}
+
+export async function clearLogs() {
+  const response = await apiFetch("/logs", { method: "DELETE" });
   return response.json();
 }
 

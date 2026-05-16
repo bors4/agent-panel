@@ -1,3 +1,9 @@
+/**
+ * Управление аккаунтами пользователей и правами доступа к инструментам.
+ * Аккаунты хранятся в accounts.json в корне проекта.
+ * @module accounts
+ */
+
 import path from "path";
 import fs from "fs";
 
@@ -45,6 +51,14 @@ export function getRoleDefaultPermissions(role) {
   return { ...(ROLE_DEFAULTS[role] || ROLE_DEFAULTS.guest) };
 }
 
+/**
+ * Проверить разрешение инструмента для аккаунта.
+ * @param {Object} account - Аккаунт пользователя
+ * @param {string} toolName - Название инструмента
+ * @param {Object} args - Аргументы инструмента
+ * @param {string} projectPath - Путь к проекту
+ * @returns {{allowed: boolean, reason?: string}}
+ */
 export function checkAccountToolPermission(account, toolName, args, projectPath) {
   if (!account) return { allowed: true };
 

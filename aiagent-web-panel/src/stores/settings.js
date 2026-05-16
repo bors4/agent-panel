@@ -1,3 +1,9 @@
+/**
+ * Pinia store для управления настройками приложения.
+ * Сохраняет конфигурацию в localStorage.
+ * @module stores/settings
+ */
+
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 
@@ -21,7 +27,6 @@ const defaultQuickSettings = {
     autoSave: true,
     verbose: false,
     autoStart: false,
-    notifications: true,
     showTokens: true,
 };
 
@@ -65,7 +70,6 @@ export const useSettingsStore = defineStore('settings', () => {
                 autoSave: saved.autoSave !== false,
                 verbose: saved.verbose === true,
                 autoStart: saved.autoStart === true,
-                notifications: saved.notifications !== false,
                 showTokens: saved.showTokens !== false,
             };
 

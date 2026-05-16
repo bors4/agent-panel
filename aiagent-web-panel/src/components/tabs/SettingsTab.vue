@@ -464,9 +464,9 @@ const adjustTokens = (delta) => {
 }
 .btn-add:hover,
 .btn-remove:hover {
-    background: var(--accent);
+    background: var(--accent-primary);
     color: white;
-    border-color: var(--accent);
+    border-color: var(--accent-primary);
 }
 .form-group {
      margin-bottom: 14px;

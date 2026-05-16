@@ -3,33 +3,15 @@
         <Header :status="status" :active-tab="activeTab" @navigate="handleNavigate" />
 
         <aside class="sidebar">
-<ControlsCard
+            <ControlsCard
                  :is-running="isRunning"
                  :project-path="localConfig.projectPath"
                  @start="handleStart"
                  @stop="handleStop"
                  @restart="handleRestart"
              />
-            <StatsCard :uptime="uptime" :stats="stats" />
+            <StatsCard :uptime="uptime" :stats="stats" :token-usage="tokenUsage" :max-tokens="localConfig.maxTokens" :show-tokens="quickSettings.showTokens" />
             <BotCheckCard :token="localConfig.token" />
-            <div class="quick-actions">
-                <button class="quick-action-btn" @click="activeTab = 'prompt'">
-                    <span class="icon">📝</span>
-                    <span>Промпт</span>
-                </button>
-                <button class="quick-action-btn" @click="activeTab = 'settings'">
-                    <span class="icon">⚙️</span>
-                    <span>Настройки</span>
-                </button>
-                <button class="quick-action-btn" @click="activeTab = 'chat'">
-                    <span class="icon">💬</span>
-                    <span>Чат</span>
-                </button>
-                <button class="quick-action-btn" @click="activeTab = 'logs'">
-                    <span class="icon">🖥️</span>
-                    <span>Логи</span>
-                </button>
-            </div>
         </aside>
 
         <main class="main-content">
@@ -86,7 +68,10 @@
                 :server-url="serverUrl"
                 :project-path="localConfig.projectPath"
                 :system-prompt="systemPrompt"
+                :verbose="quickSettings.verbose"
+                :show-tokens="quickSettings.showTokens"
                 @log="addLog"
+                @token-usage="handleTokenUsage"
                 ref="chatTabRef"
             />
 
@@ -148,10 +133,12 @@ const {
     stats,
     uptime,
     logs,
+    tokenUsage,
     refreshStatus,
     startAgent,
     stopAgent,
     restartAgent,
+    clearLogs,
 } = useAgent();
 
 const { info, success, error, warning } = useToast();
@@ -163,7 +150,6 @@ const quickSettings = ref({
     autoSave: true,
     verbose: false,
     autoStart: false,
-    notifications: true,
     showTokens: true,
 });
 
@@ -185,9 +171,13 @@ const addLog = (message, type = "info") => {
     if (logs.value.length > 200) logs.value.shift();
 };
 
-const handleClearLogs = () => {
-    logs.value = [];
-    success("Логи очищены");
+const handleClearLogs = async () => {
+    try {
+        await clearLogs();
+        success("Логи очищены");
+    } catch {
+        error("Не удалось очистить логи");
+    }
 };
 
 const tabs = [
@@ -262,7 +252,6 @@ onMounted(async () => {
                 autoSave: parsed.autoSave !== false,
                 verbose: parsed.verbose === true,
                 autoStart: parsed.autoStart === true,
-                notifications: parsed.notifications !== false,
                 showTokens: parsed.showTokens !== false,
             };
 
@@ -275,6 +264,10 @@ onMounted(async () => {
      }
 
     await loadApiBases();
+
+    if (quickSettings.value.autoStart && localConfig.value.token && localConfig.value.projectPath) {
+        await handleStart();
+    }
 });
 
 onUnmounted(() => {
@@ -351,7 +344,7 @@ const savePrompt = async () => {
                 serverUrl: serverUrl.value,
             }),
         );
-        success("Промпт сохранён");
+        if (quickSettings.value.autoSave) success("Промпт сохранён");
         addLog("Prompt saved", "success");
     } catch (e) {
         error(e.message);
@@ -463,13 +456,20 @@ const saveSettings = async () => {
                 modelName: modelName.value,
                 serverUrl: serverUrl.value,
                 projectPath: localConfig.value.projectPath,
-                systemPrompt: systemPrompt.value
+                systemPrompt: systemPrompt.value,
+                maxFileChars: localConfig.value.maxFileChars,
+                maxHistoryPairs: localConfig.value.maxHistoryPairs,
+                maxSearchResults: localConfig.value.maxSearchResults,
+                maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
+                maxTokens: localConfig.value.maxTokens,
+                timeout: localConfig.value.timeout,
+                temperature: localConfig.value.temperature,
             });
             addLog(`Config updated: ${modelName.value}`, "info");
         } catch (e) {
             console.error("Failed to update backend config:", e);
         }
-        success("Настройки сохранены");
+        if (quickSettings.value.autoSave) success("Настройки сохранены");
     } catch (e) {
         error(e.message);
     }
@@ -490,13 +490,23 @@ const saveQuickSettings = (newSettings) => {
             serverUrl: serverUrl.value,
         }),
     );
-    success("Сохранено");
+    if (quickSettings.value.autoSave) success("Сохранено");
 };
 
 const handleQuickSettingsSave = (newSettings) => {
      quickSettings.value = newSettings;
      saveQuickSettings(newSettings);
  };
+
+const handleTokenUsage = (usage) => {
+    if (!usage) return;
+    tokenUsage.value.prompt += usage.prompt_tokens || 0;
+    tokenUsage.value.completion += usage.completion_tokens || 0;
+    tokenUsage.value.total += usage.total_tokens || 0;
+    if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
+        tokenUsage.value.cached += usage.prompt_tokens_details.cached_tokens;
+    }
+};
 
 const chatTabRef = ref(null);
 </script>
@@ -547,42 +557,6 @@ const chatTabRef = ref(null);
 .sidebar-card:hover {
     border-color: var(--border-hover);
     transform: translateX(2px);
-}
-
-.quick-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    background: var(--gradient-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    backdrop-filter: blur(10px);
-}
-
-.quick-action-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    font-size: 11px;
-    cursor: pointer;
-    transition: var(--transition);
-}
-
-.quick-action-btn:hover {
-    background: var(--bg-hover);
-    border-color: var(--accent-primary);
-    color: var(--text-primary);
-    transform: translateX(4px);
-}
-
-.quick-action-btn .icon {
-    font-size: 14px;
 }
 
 .main-content {
@@ -707,44 +681,6 @@ const chatTabRef = ref(null);
     100% { transform: translateX(100%); }
 }
 
-.tab {
-    padding: 9px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-    transition: var(--transition);
-    font-family: inherit;
-    white-space: nowrap;
-}
-
-.tab:hover:not(.active) {
-    color: var(--text-secondary);
-    background: var(--bg-hover);
-}
-
-.tab.active {
-    background: var(--gradient-accent);
-    color: white;
-    box-shadow: 0 2px 12px var(--accent-glow);
-    position: relative;
-    overflow: hidden;
-}
-
-.tab.active::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
-    animation: shimmer 2s infinite;
-}
-
 @media (max-width: 1024px) {
     .app-container {
         grid-template-columns: 1fr;
@@ -757,15 +693,6 @@ const chatTabRef = ref(null);
     }
     .sidebar::before {
         display: none;
-    }
-    .quick-actions {
-        grid-column: 1 / -1;
-        flex-direction: row;
-        flex-wrap: wrap;
-    }
-    .quick-action-btn {
-        flex: 1;
-        justify-content: center;
     }
 }
 
@@ -790,12 +717,6 @@ const chatTabRef = ref(null);
         padding: 8px 12px;
         font-size: 11px;
     }
-    .quick-actions {
-        flex-direction: column;
-    }
-    .quick-action-btn {
-        justify-content: flex-start;
-    }
 }
 
 .btn-loading {
@@ -811,23 +732,5 @@ const chatTabRef = ref(null);
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
-}
-
-@media (max-width: 640px) {
-    .sidebar {
-        grid-template-columns: 1fr;
-    }
-    .header {
-        flex-direction: column;
-        gap: 10px;
-        text-align: center;
-    }
-    .header-left {
-        flex-direction: column;
-    }
-    .tabs {
-        overflow-x: auto;
-        flex-wrap: nowrap;
-    }
 }
 </style>

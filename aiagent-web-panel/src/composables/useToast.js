@@ -1,5 +1,6 @@
 /**
  * Composable для управления уведомлениями (Vue 3).
+ * @module composables/useToast
  */
 
 import { ref } from "vue";

@@ -75,6 +75,12 @@ const clearLogs = () => {
 watch(
     () => props.logs,
     (newLogs) => {
+        // Если логи очищены — сбрасываем историю
+        if (newLogs.length === 0) {
+            logHistory.value = [];
+            searchQuery.value = "";
+            return;
+        }
         newLogs.forEach((log) => {
             if (
                 !logHistory.value.some(

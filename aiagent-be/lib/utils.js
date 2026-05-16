@@ -1,5 +1,18 @@
+/**
+ * Утилиты для безопасной работы с путями и парсинга вызовов инструментов.
+ * @module utils
+ */
+
 import path from "path";
 
+/**
+ * Безопасно разрешить пользовательский путь относительно корня проекта.
+ * Предотвращает path traversal атаки.
+ * @param {string} userPath - Путь от пользователя (относительный или абсолютный)
+ * @param {string} projectRoot - Корневой путь проекта
+ * @returns {string} Разрешённый абсолютный путь (с forward slashes)
+ * @throws {Error} Если путь выходит за пределы проекта или содержит null bytes
+ */
 export function safePath(userPath, projectRoot) {
    // Trim projectRoot to handle trailing whitespace/newlines from env
    const trimmedRoot = projectRoot.trim();
@@ -44,6 +57,12 @@ function extractJsonBlock(str, startIdx) {
   return null; // unmatched braces
 }
 
+/**
+ * Распознать вызов инструмента из текста ответа модели.
+ * Поддерживает три формата: XML function tags, JSON objects, и tool tags.
+ * @param {string|null} text - Текст от модели
+ * @returns {{name: string, args: Object, id?: string}|null} Распознанный вызов или null
+ */
 export function parseToolCall(text) {
   if (!text) return null;
 
