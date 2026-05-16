@@ -1,5 +1,6 @@
 /**
  * Модуль управления сессиями пользователей и историей сообщений.
+ * @module session
  */
 
 const MAX_HISTORY_PAIRS = 5;
@@ -9,7 +10,7 @@ const sessions = new Map();
 /**
  * Получить или создать сессию для указанного чата.
  * @param {number|string} chatId - Уникальный идентификатор чата Telegram
- * @returns {Object} Объект сессии с историей и pending actions
+ * @returns {{history: Array, pendingActions: Map}} Объект сессии
  */
 export function getSession(chatId) {
   if (!sessions.has(chatId)) {

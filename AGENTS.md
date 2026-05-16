@@ -3,8 +3,10 @@
 ## Architecture
 
 **Monorepo (single package.json at root):**
-- `aiagent-be/server.js` — Express + GrammY backend
-- `aiagent-web-panel/` — Vue 3 frontend (Vite)
+- `aiagent-be/server.js` — Express + GrammY backend entry point
+- `aiagent-be/routes/api.js` — API route handlers (extracted from server.js)
+- `aiagent-be/lib/` — Core modules (agent, tools, accounts, logger, sessions, utils)
+- `aiagent-web-panel/` — Vue 3 frontend (Vite + Pinia)
 
 ## Dev Commands
 
@@ -14,6 +16,9 @@ npm run frontend:dev # Frontend only (port 5173, /api proxies to :3000)
 npm run backend:dev  # Backend only
 npm run build        # Build frontend
 npm start            # Start backend only
+npm run test:all     # Run all tests
+npm run backend:test # Backend tests only
+npm run frontend:test # Frontend tests only
 ```
 
 ## Important Quirks
@@ -28,6 +33,7 @@ npm start            # Start backend only
 - File: `aiagent-web-panel/src/api/client.js`
 - Auth header: `x-api-key: agent-secret-key`
 - All settings persisted to `localStorage` as `agent-config`
+- Built-in exponential backoff reconnect on connection loss
 
 ## Key Endpoints
 
@@ -44,6 +50,9 @@ npm start            # Start backend only
 | POST | `/api/chat` | Direct chat with AI |
 | GET | `/api/tools` | List tools with config (enabled, permission, exclude_paths) |
 | POST | `/api/tools` | Update tool config (enabled, permission, exclude_paths) |
+| GET | `/api/accounts` | List user accounts |
+| POST | `/api/accounts` | Save user accounts |
+| POST | `/api/accounts/import` | Import accounts from JSON |
 | POST | `/api/agent/tool` | Direct tool call by agent (name, args, projectPath) |
 
 ## Backend State
@@ -60,13 +69,19 @@ npm start            # Start backend only
 
 Every AI request includes:
 ```
-You are an AI assistant in: {projectPath}
+You are AI assistant in: {projectPath}
+IMPORTANT: Use ONLY RELATIVE paths!
+  GOOD: "test.txt", "src/app.js"
+  BAD: "E:\Git\test_project\file.txt"
 
-INSTRUCTIONS:
-- Do NOT use absolute paths like "E:\..."
-- Only access files relative to project path
+Commands:
+  write - create file (filePath RELATIVE, content)
+  read - read file (filePath RELATIVE)
+  ...
 
-{custom systemPrompt if set}
+WINDOWS RULES:
+- Wrap URLs with & in quotes
+- Do NOT use jq. Use PowerShell
 ```
 
 ## Agent Tool Loop
@@ -104,9 +119,35 @@ Tool configuration per tool:
 - `permission` — "ask" (inline keyboard), "always" (auto), "deny"
 - `exclude_paths` — ["node_modules", ".git", etc.]
 
+## Account System
+
+Users are authenticated by Telegram username. Accounts stored in `accounts.json` at project root.
+
+**Roles:**
+- `system` — full access to all tools
+- `user` — read, write, search, list_dir, create_dir
+- `guest` — read only
+
+**Account fields:**
+- `username` — Telegram username (with or without @)
+- `role` — system/user/guest
+- `permissions` — per-tool overrides
+- `include_paths` — restrict file operations to specific directories
+
 ## Bot Commands
 
 `/start`, `/help`, `/model`, `/clear`, `/tools`
+
+## Testing
+
+- **Backend**: Vitest in `aiagent-be/tests/` — 88 tests
+  - `server.test.js` — safePath, parseToolCall, executeTool, session, logger
+  - `accounts.test.js` — account management, permissions, roles
+  - `agentLoop.test.js` — config, system message building
+- **Frontend**: Vitest in `aiagent-web-panel/src/` — 17 tests
+  - `useToast.test.js` — toast notifications
+  - `settings.test.js` — Pinia store
+  - `client.test.js` — API client connection state
 
 ## Node Version
 
