@@ -3,8 +3,9 @@
          <template #header>
 <div class="chat-header">
                   <h2>💬 Чат с агентом</h2>
-                  <span style="font-size: 10px; color: var(--text-muted)">
-                      {{ isActive ? "Агент запущен" : "Бот не запущен" }}
+                  <span class="status-badge" :class="{ active: isActive }">
+                      <span class="status-dot"></span>
+                      {{ isActive ? "Агент запущен" : "Агент не запущен" }}
                   </span>
               </div>
          </template>
@@ -20,18 +21,25 @@
                          }}
                      </div>
                  </div>
-                 <div
-                     v-for="(msg, index) in messages"
-                     :key="index"
-                     :class="['chat-msg', msg.role]"
-                 >
-                     <div class="chat-avatar">
-                         {{ msg.role === "user" ? "👤" : "🤖" }}
-                     </div>
-                     <div class="chat-bubble">
-                         {{ msg.content }}
-                     </div>
-                 </div>
+                  <div
+                      v-for="(msg, index) in messages"
+                      :key="index"
+                      :class="['chat-msg', msg.role]"
+                  >
+                      <div class="chat-avatar">
+                          {{ msg.role === "user" ? "👤" : "🤖" }}
+                      </div>
+                      <div class="chat-msg-col">
+                          <div class="chat-bubble">
+                              {{ msg.content }}
+                          </div>
+                          <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
+                              <span>⚡ {{ msg.usage.total_tokens }} tokens</span>
+                              <span class="token-detail">(p:{{ msg.usage.prompt_tokens }}, c:{{ msg.usage.completion_tokens }})</span>
+                              <span v-if="msg.usage.prompt_tokens_details?.cached_tokens !== undefined" class="token-detail">cached:{{ msg.usage.prompt_tokens_details.cached_tokens }}</span>
+                          </div>
+                      </div>
+                  </div>
                  <div v-if="isTyping" class="chat-msg bot">
                      <div class="chat-avatar">🤖</div>
                      <div class="chat-bubble">
@@ -48,7 +56,6 @@
                       <button
                           class="chat-tools-btn"
                           :class="{ active: toolsMenuOpen }"
-                          :disabled="!isActive"
                           @click="toolsMenuOpen = !toolsMenuOpen"
                           title="Инструменты чата"
                       >
@@ -119,6 +126,11 @@
      </Card>
  </template>
 
+<!--
+  Компонент чата для тестирования AI агента.
+  Поддерживает отправку сообщений, отображение истории, очистку чата.
+  История сохраняетсяется в localStorage.
+-->
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
@@ -130,10 +142,11 @@ const props = defineProps({
     serverUrl: { type: String, default: "http://192.168.1.101:8080/v1" },
     projectPath: { type: String, default: "C:\\" },
     systemPrompt: { type: String, default: "" },
-    onLog: { type: Function, default: null }
+    verbose: { type: Boolean, default: false },
+    showTokens: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(["log"]);
+const emit = defineEmits(["log", "token-usage"]);
 
 const messages = ref([]);
 const inputMessage = ref("");
@@ -237,6 +250,15 @@ const sendMessage = async () => {
     await nextTick();
     scrollToBottom();
 
+    const startTime = Date.now();
+
+    if (props.verbose) {
+        emit("log", {
+            message: `[VERBOSE] Request → model: ${props.modelName}, server: ${props.serverUrl}`,
+            type: "system"
+        });
+    }
+
     try {
         const data = await directChat({
             message: text,
@@ -246,24 +268,46 @@ const sendMessage = async () => {
             systemPrompt: props.systemPrompt
         });
 
+        const latency = Date.now() - startTime;
         isTyping.value = false;
-        messages.value.push({
+
+        const botMsg = {
             role: "bot",
             content: data.reply || "Пустой ответ",
-        });
+            usage: data.usage || null,
+        };
+        messages.value.push(botMsg);
 
-        emit("log", {
-            message: `Model response (${props.modelName}): ${data.reply?.substring(0, 100)}...`,
-            type: "success"
-        });
+        if (props.verbose) {
+            emit("log", {
+                message: `[VERBOSE] Response ← model (${latency}ms): ${data.reply || "empty"}`,
+                type: "success"
+            });
+            if (data.usage) {
+                emit("log", {
+                    message: `[VERBOSE] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}, cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
+                    type: "info"
+                });
+            }
+        } else {
+            emit("log", {
+                message: `Model response (${props.modelName}): ${data.reply?.substring(0, 100)}...`,
+                type: "success"
+            });
+        }
+
+        if (data.usage) {
+            emit("token-usage", data.usage);
+        }
     } catch (error) {
+        const latency = Date.now() - startTime;
         isTyping.value = false;
         messages.value.push({
             role: "bot",
             content: `❌ Ошибка: ${error.message}`,
         });
         emit("log", {
-            message: `Chat error: ${error.message}`,
+            message: `Chat error (${latency}ms): ${error.message}`,
             type: "error"
         });
     }
@@ -281,6 +325,7 @@ const scrollToBottom = () => {
 // 🔥 Lifecycle hooks
 onMounted(() => {
     loadChatHistory();
+    nextTick(() => scrollToBottom());
     window.addEventListener("storage", handleStorageChange);
 });
 
@@ -313,6 +358,45 @@ defineExpose({ clearChatHistory });
      justify-content: space-between;
      align-items: center;
      width: 100%;
+ }
+
+ .status-badge {
+     display: inline-flex;
+     align-items: center;
+     gap: 5px;
+     font-size: 10px;
+     font-weight: 600;
+     padding: 3px 8px;
+     border-radius: 10px;
+     background: var(--bg-tertiary);
+     color: var(--text-muted);
+     border: 1px solid var(--border);
+     transition: var(--transition);
+ }
+
+ .status-badge.active {
+     background: rgba(16, 185, 129, 0.1);
+     color: #10b981;
+     border-color: rgba(16, 185, 129, 0.3);
+ }
+
+ .status-dot {
+     width: 6px;
+     height: 6px;
+     border-radius: 50%;
+     background: var(--text-muted);
+     transition: var(--transition);
+ }
+
+ .status-badge.active .status-dot {
+     background: #10b981;
+     box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+     animation: pulse 2s infinite;
+ }
+
+ @keyframes pulse {
+     0%, 100% { opacity: 1; }
+     50% { opacity: 0.5; }
  }
 
 .chat-tools-menu {
@@ -574,6 +658,12 @@ defineExpose({ clearChatHistory });
     animation: fadeIn 0.2s ease;
 }
 
+.chat-msg-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .chat-msg.user {
     align-self: flex-end;
     flex-direction: row-reverse;
@@ -631,6 +721,20 @@ defineExpose({ clearChatHistory });
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border-bottom-left-radius: 4px;
+}
+
+.token-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 9px;
+    color: var(--text-muted);
+    font-family: "JetBrains Mono", monospace;
+    padding: 0 4px;
+}
+
+.token-detail {
+    opacity: 0.7;
 }
 
 .chat-input-area {
