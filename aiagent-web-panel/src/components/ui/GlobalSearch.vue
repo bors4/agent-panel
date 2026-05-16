@@ -41,9 +41,6 @@
                     <span class="result-category">{{ item.category }}</span>
                 </div>
             </div>
-            <div class="search-footer">
-                <span>Ctrl+K</span> открыть • <span>Esc</span> закрыть
-            </div>
         </div>
     </div>
 </template>
@@ -246,22 +243,5 @@ onUnmounted(() => {
     padding: 20px;
     color: var(--text-muted);
     font-size: 13px;
-}
-
-.search-footer {
-    padding: 10px 16px;
-    background: var(--bg-tertiary);
-    border-top: 1px solid var(--border);
-    font-size: 10px;
-    color: var(--text-muted);
-    text-align: center;
-}
-
-.search-footer span {
-    background: var(--bg-card);
-    padding: 2px 6px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    font-family: "JetBrains Mono", monospace;
 }
 </style>

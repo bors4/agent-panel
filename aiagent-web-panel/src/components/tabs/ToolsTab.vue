@@ -6,8 +6,28 @@
                     <div class="header-left" @click="toolsExpanded = !toolsExpanded">
                         <span class="arrow">{{ toolsExpanded ? "▼" : "▶" }}</span>
                         <h2>Инструменты агента</h2>
+                        <span class="info-trigger">?</span>
                     </div>
                     <span class="badge">{{ enabledCount }} / {{ toolsCount }} активны</span>
+                </div>
+
+                <div class="params-tooltip">
+                    <div class="param">
+                        <h4>enabled</h4>
+                        <p>Включить/выключить инструмент</p>
+                    </div>
+                    <div class="param">
+                        <h4>permission</h4>
+                        <ul>
+                            <li><b>ask</b> — запросить подтверждение (inline keyboard в Telegram)</li>
+                            <li><b>always</b> — выполнять автоматически</li>
+                            <li><b>deny</b> — заблокировать выполнение</li>
+                        </ul>
+                    </div>
+                    <div class="param">
+                        <h4>exclude_paths</h4>
+                        <p>Пути, к которым инструмент не имеет доступа (node_modules, .git и т.д.)</p>
+                    </div>
                 </div>
             </template>
 
@@ -60,30 +80,6 @@
                             <li v-for="(example, i) in tool.examples" :key="i">{{ example }}</li>
                         </ul>
                     </div>
-                </div>
-            </div>
-        </Card>
-
-        <Card>
-            <template #header>
-                <h2>Описание параметров</h2>
-            </template>
-            <div class="params-info">
-                <div class="param">
-                    <h4>enabled</h4>
-                    <p>Включить/выключить инструмент</p>
-                </div>
-                <div class="param">
-                    <h4>permission</h4>
-                    <ul>
-                        <li><b>ask</b> — запросить подтверждение у пользователя (inline keyboard в Telegram)</li>
-                        <li><b>always</b> — выполнять автоматически без подтверждения</li>
-                        <li><b>deny</b> — заблокировать выполнение</li>
-                    </ul>
-                </div>
-                <div class="param">
-                    <h4>exclude_paths</h4>
-                    <p>Пути, к которым инструмент не имеет доступа (node_modules, .git и т.д.)</p>
                 </div>
             </div>
         </Card>
@@ -187,10 +183,18 @@
     </div>
 </template>
 
+<!--
+  Компонент управления инструментами агента и аккаунтами пользователей.
+  Позволяет включать/выключать инструменты, настраивать права доступа,
+  управлять аккаунтами и их разрешениями.
+-->
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import Card from "../ui/Card.vue";
-import { getTools, updateTools } from "@/api/client";
+import { getTools, updateTools, getConfig } from "@/api/client";
+import { useToast } from "@/composables/useToast";
+
+const { success: toastSuccess, error: toastError } = useToast();
 
 const tools = ref({});
 const config = ref({});
@@ -258,24 +262,17 @@ const saveConfig = async (name) => {
         delete settings.category;
         delete settings.examples;
 
-        await fetch("http://127.0.0.1:3000/api/tools", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "x-api-key": "agent-secret-key"
-            },
-            body: JSON.stringify({ name, ...settings })
-        });
-
+        await updateTools({ name, ...settings });
         localStorage.setItem("agent-tool-config", JSON.stringify(config.value));
     } catch (error) {
         console.error("Failed to save tool config:", error);
+        toastError("Не удалось сохранить настройки инструмента");
     }
 };
 
 const fetchAccounts = async () => {
     try {
-        const res = await fetch("http://127.0.0.1:3000/api/accounts", {
+        const res = await fetch("/api/accounts", {
             headers: { "x-api-key": "agent-secret-key" },
         });
         const data = await res.json();
@@ -324,7 +321,7 @@ const removePath = (idx, pi) => {
 
 const saveAccounts = async () => {
     try {
-        const res = await fetch("http://127.0.0.1:3000/api/accounts", {
+        const res = await fetch("/api/accounts", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -335,13 +332,13 @@ const saveAccounts = async () => {
         const data = await res.json();
         if (data.success) {
             accounts.value = data.accounts;
-            alert("Аккаунты сохранены");
+            toastSuccess("Аккаунты сохранены");
         } else {
-            alert("Ошибка: " + (data.error || "Неизвестная ошибка"));
+            toastError("Ошибка: " + (data.error || "Неизвестная ошибка"));
         }
     } catch (error) {
         console.error("Failed to save accounts:", error);
-        alert("Ошибка сохранения: " + error.message);
+        toastError("Ошибка сохранения: " + error.message);
     }
 };
 
@@ -357,10 +354,10 @@ const handleImportFile = async (event) => {
         const parsed = JSON.parse(text);
         const imported = parsed.accounts || [];
         if (!Array.isArray(imported)) {
-            alert("Неверный формат: ожидается массив accounts");
+            toastError("Неверный формат: ожидается массив accounts");
             return;
         }
-        const res = await fetch("http://127.0.0.1:3000/api/accounts/import", {
+        const res = await fetch("/api/accounts/import", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -371,13 +368,13 @@ const handleImportFile = async (event) => {
         const data = await res.json();
         if (data.success) {
             accounts.value = data.accounts;
-            alert(`Импортировано ${accounts.value.length} аккаунтов`);
+            toastSuccess(`Импортировано ${accounts.value.length} аккаунтов`);
         } else {
-            alert("Ошибка импорта: " + (data.error || "Неизвестная ошибка"));
+            toastError("Ошибка импорта: " + (data.error || "Неизвестная ошибка"));
         }
     } catch (error) {
         console.error("Failed to import accounts:", error);
-        alert("Ошибка импорта: " + error.message);
+        toastError("Ошибка импорта: " + error.message);
     }
     event.target.value = "";
 };
@@ -419,16 +416,96 @@ onMounted(async () => {
     gap: 8px;
     cursor: pointer;
     user-select: none;
+    position: relative;
 }
 
 .header-left:hover h2 {
     color: var(--accent);
 }
 
+.header-left:hover .params-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
 .arrow {
     font-size: 12px;
     color: var(--text-muted);
     transition: transform 0.2s;
+}
+
+.info-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.info-trigger:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.params-tooltip {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    margin-top: 8px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    min-width: 320px;
+}
+
+.params-tooltip .param {
+    margin-bottom: 10px;
+}
+
+.params-tooltip .param:last-child {
+    margin-bottom: 0;
+}
+
+.params-tooltip h4 {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+    font-family: "JetBrains Mono", monospace;
+}
+
+.params-tooltip p, .params-tooltip li {
+    font-size: 10px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.params-tooltip ul {
+    margin: 0;
+    padding-left: 14px;
+}
+
+.params-tooltip li {
+    margin-bottom: 2px;
 }
 
 .header-actions {
@@ -463,10 +540,10 @@ onMounted(async () => {
 }
 
 .tools-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    height: 300px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    max-height: 400px;
     overflow-y: auto;
 }
 
@@ -515,7 +592,8 @@ onMounted(async () => {
 }
 
 .tool-category.file { background: #3b82f620; color: #3b82f6; }
-.tool-category.shell { background: #ef444420; color: #ef4444; }
+.tool-category.search { background: #f59e0b20; color: #f59e0b; }
+.tool-category.system { background: #ef444420; color: #ef4444; }
 
 .toggle {
     position: relative;
@@ -628,34 +706,6 @@ onMounted(async () => {
 
 .tool-examples li {
     margin-bottom: 3px;
-}
-
-.params-info {
-    display: grid;
-    gap: 16px;
-}
-
-.param h4 {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--accent);
-    margin-bottom: 6px;
-    font-family: "JetBrains Mono", monospace;
-}
-
-.param p, .param li {
-    font-size: 11px;
-    color: var(--text-secondary);
-    line-height: 1.5;
-}
-
-.param ul {
-    margin: 0;
-    padding-left: 16px;
-}
-
-.param li {
-    margin-bottom: 4px;
 }
 
 .accounts-list {
