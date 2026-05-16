@@ -1,5 +1,7 @@
 /**
  * Основной сервер приложения (Express + GrammY).
+ * Управляет Telegram ботом, REST API и агентным циклом.
+ * @module server
  */
 
 import express from "express";
@@ -7,20 +9,25 @@ import cors from "cors";
 import { createServer } from "http";
 import path from "path";
 import fs from "fs";
-import pkg from "grammy";
-import { Bot, InlineKeyboard } from "grammy"; // ← InlineKeyboard вместо Keyboard
+import { Bot, InlineKeyboard } from "grammy";
 import dotenv from "dotenv";
 
 dotenv.config();
 
+// ─── Инициализация Express и Telegram бота ─────────────────────────────────
+
 const app = express();
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 
-let config = {
+// ─── Состояние приложения ──────────────────────────────────────────────────
+
+/**
+ * Конфигурация приложения. Обновляется через API /api/config.
+ * @type {Object}
+ */
+const config = {
   serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
   modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-  // Путь ОПРЕДЕЛЯЕТСЯ только из .env (PROJECT_PATH) или через API (/api/config).
-  // Хардкод запрещён — путь зависит от окружения пользователя.
   projectPath: path.resolve(process.env.PROJECT_PATH || ""),
   systemPrompt: process.env.SYSTEM_PROMPT || "",
   apiKey: process.env.API_KEY || "agent-secret-key",
@@ -29,18 +36,99 @@ let config = {
   timeout: parseInt(process.env.TIMEOUT) || 120000,
 };
 
-let botStatus = "idle";
-let botStatusMessage = "";
-let startTime = null;
+/**
+ * Общее состояние приложения (передаётся по ссылке в routes/api.js).
+ * @type {{botStatus: "idle"|"running"|"error", botStatusMessage: string, startTime: number|null}}
+ */
+const state = {
+  botStatus: "idle",
+  botStatusMessage: "",
+  startTime: null,
+};
 
+/** @type {{requests: number, tools: number, errors: number}} */
 let stats = { requests: 0, tools: 0, errors: 0 };
 
+/** @type {{prompt: number, completion: number, total: number, cached: number}} */
+const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
+
+function resetStats() {
+  stats.requests = 0;
+  stats.tools = 0;
+  stats.errors = 0;
+}
+
+function resetTokenUsage() {
+  tokenUsage.prompt = 0;
+  tokenUsage.completion = 0;
+  tokenUsage.total = 0;
+  tokenUsage.cached = 0;
+}
+
+/** @type {{time: string, message: string, type: string}[]} */
 const agentLogs = [];
+
+/** @type {Map<string, Array<{role: string, content: string}>>} */
 const chatHistories = new Map();
 
+/** @type {Map<string, {toolName: string, args: Object, toolCallId?: string, messages: Array, account: Object}>} */
 const pendingApprovals = new Map();
 
-// Мягкая проверка projectPath: не крашимся, а блокируем агента
+// ─── Импорт модулей ────────────────────────────────────────────────────────
+
+import {
+  agentLoopStep,
+  updateAgentConfig,
+  buildSystemMessage,
+} from "./lib/agent/agentLoop.js";
+import {
+  executeTool,
+  getToolConfig,
+  TOOLS,
+} from "./lib/agent/executeTool.js";
+import {
+  loadAccounts,
+  getAccounts,
+  getAccountByUsername,
+  isToolEnabledForAccount,
+} from "./lib/accounts.js";
+import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
+import { createApiRouter } from "./routes/api.js";
+
+// ─── Утилиты логирования ───────────────────────────────────────────────────
+
+/**
+ * Добавить запись в журнал агента.
+ * @param {string} message - Текст сообщения
+ * @param {"info"|"error"|"warning"|"warn"|"success"|"system"} type - Тип записи
+ */
+function addLog(message, type = "info") {
+  const entry = { time: new Date().toISOString(), message, type };
+  agentLogs.push(entry);
+  if (agentLogs.length > 200) agentLogs.shift();
+  if (type === "error") logError(message);
+  else if (type === "warning" || type === "warn") logWarn(message);
+  else logInfo(message);
+}
+
+/**
+ * Обновить статус бота.
+ * @param {"idle"|"running"|"error"} newStatus - Новый статус
+ * @param {string} message - Описание изменения
+ */
+function updateStatus(newStatus, message = "") {
+  state.botStatus = newStatus;
+  state.botStatusMessage = message;
+  if (newStatus === "running") state.startTime = Date.now();
+  else state.startTime = null;
+  addLog(
+    `Status: ${message || newStatus}`,
+    newStatus === "error" ? "error" : "info",
+  );
+}
+
+// ─── Загрузка аккаунтов ────────────────────────────────────────────────────
+
 if (config.projectPath && fs.existsSync(config.projectPath)) {
   addLog(`Project path: ${config.projectPath}`, "info");
   loadAccounts(config.projectPath);
@@ -53,316 +141,68 @@ if (config.projectPath && fs.existsSync(config.projectPath)) {
   );
 }
 
-function addLog(message, type = "info") {
-  const entry = { time: new Date().toISOString(), message, type };
-  agentLogs.push(entry);
-  if (agentLogs.length > 200) agentLogs.shift();
-  if (type === "error") logError(message);
-  else if (type === "warning" || type === "warn") logWarn(message);
-  else logInfo(message);
-}
-
-function updateStatus(newStatus, message = "") {
-  botStatus = newStatus;
-  botStatusMessage = message;
-  if (newStatus === "running") startTime = Date.now();
-  else startTime = null;
-  addLog(
-    `Status: ${message || newStatus}`,
-    newStatus === "error" ? "error" : "info",
-  );
-}
+// ─── Middleware ─────────────────────────────────────────────────────────────
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(requestLogger);
 
-import {
-  agentLoopStep,
+// ─── API Routes ─────────────────────────────────────────────────────────────
+
+const apiRouter = createApiRouter({
+  config,
+  stats,
+  chatHistories,
+  pendingApprovals,
+  addLog,
   updateAgentConfig,
-  buildSystemMessage,
-} from "./lib/agent/agentLoop.js";
-import {
-  executeTool,
-  getToolConfig,
-  updateToolConfig,
-  TOOLS,
-  formatValue,
-} from "./lib/agent/executeTool.js";
-import {
-  loadAccounts,
-  saveAccounts,
-  getAccounts,
-  getAccountByUsername,
-  getRoleDefaultPermissions,
-  isToolEnabledForAccount,
-} from "./lib/accounts.js";
-import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
-
-function updateConfig(newConfig) {
-  Object.assign(config, newConfig);
-  updateAgentConfig(newConfig);
-}
-
-app.get("/api/tools", (req, res) => {
-  const toolDefs = {};
-  for (const [name, tool] of Object.entries(TOOLS)) {
-    toolDefs[name] = {
-      name: tool.name,
-      description: tool.description,
-      category: tool.category,
-      parameters: tool.input_schema,
-      examples: tool.examples,
-    };
-  }
-  res.json({ success: true, tools: toolDefs, config: getToolConfig() });
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
+  bot,
+  state,
+  agentLogs,
+  updateStatus,
+  tokenUsage,
+  resetStats,
+  resetTokenUsage,
 });
 
-app.post("/api/tools", (req, res) => {
-  const { name, ...settings } = req.body;
-  if (!name) return res.status(400).json({ error: "Tool name required" });
-  if (!TOOLS[name])
-    return res.status(404).json({ error: `Tool '${name}' not found` });
-  updateToolConfig(name, settings);
-  res.json({ success: true, config: getToolConfig()[name] });
-});
+app.use("/api", apiRouter);
 
-app.get("/api/accounts", (req, res) => {
-  res.json({ success: true, accounts: getAccounts() });
-});
+// ─── Telegram HTML Helpers ─────────────────────────────────────────────────
 
-app.post("/api/accounts", (req, res) => {
-  const { accounts } = req.body;
-  if (!Array.isArray(accounts))
-    return res.status(400).json({ error: "accounts array required" });
-  saveAccounts(config.projectPath, accounts);
-  res.json({ success: true, accounts: getAccounts() });
-});
-
-app.post("/api/accounts/import", (req, res) => {
-  const { accounts } = req.body;
-  if (!Array.isArray(accounts))
-    return res.status(400).json({ error: "accounts array required" });
-  saveAccounts(config.projectPath, accounts);
-  res.json({ success: true, accounts: getAccounts() });
-});
-
-app.post("/api/agent/tool", async (req, res) => {
-  try {
-    const { toolCall, projectPath } = req.body;
-    if (!toolCall?.name)
-      return res.status(400).json({ error: "toolCall.name required" });
-    const result = await executeTool(toolCall, {
-      projectPath: projectPath || config.projectPath,
-    });
-    res.json({
-      success: true,
-      result,
-      requiresApproval: result.requiresApproval,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/config", (req, res) => {
-  res.json({
-    success: true,
-    config: { ...config, token: process.env.TELEGRAM_BOT_TOKEN || "" },
-  });
-});
-
-app.post("/api/config", (req, res) => {
-  const body = req.body || {};
-  if (body.serverUrl) config.serverUrl = body.serverUrl;
-  if (body.modelName) config.modelName = body.modelName;
-  if (body.projectPath) {
-    config.projectPath = path.resolve(body.projectPath);
-    addLog(`projectPath resolved to: ${config.projectPath}`, "info");
-  }
-  if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
-  if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
-  if (body.temperature !== undefined)
-    config.temperature = parseFloat(body.temperature);
-  if (body.timeout) config.timeout = parseInt(body.timeout);
-  if (body.token) process.env.TELEGRAM_BOT_TOKEN = body.token;
-  updateConfig(config);
-  addLog(`Config updated: ${config.modelName}`, "info");
-  res.json({ success: true, config });
-});
-
-app.get("/api/models", async (req, res) => {
-  try {
-    const response = await fetch(`${config.serverUrl}/models`, {
-      headers: { Authorization: `Bearer ${config.apiKey}` },
-    });
-    if (!response.ok) throw new Error(`Server ${response.status}`);
-    const data = await response.json();
-    res.json({ success: true, models: data.data || [] });
-  } catch (error) {
-    addLog(`Failed to fetch models: ${error.message}`, "error");
-    res.status(500).json({ error: "Failed to fetch models" });
-  }
-});
-
-app.get("/api/status", (req, res) => {
-  const uptimeMs = startTime ? Date.now() - startTime : 0;
-  res.json({
-    success: true,
-    status: botStatus,
-    statusMessage: botStatusMessage,
-    isRunning: botStatus === "running",
-    configRequired: !config.projectPath,
-    configMessage: !config.projectPath
-      ? "Project path is not configured. Set it in Settings or PROJECT_PATH in .env"
-      : undefined,
-    stats: {
-      uptime: Math.floor(uptimeMs / 1000),
-      requests: stats.requests,
-      tools: stats.tools,
-      errors: stats.errors,
-    },
-    uptime: Math.floor(uptimeMs / 1000),
-  });
-});
-
-app.get("/api/logs", (req, res) => {
-  const limit = parseInt(req.query.limit) || 50;
-  res.json({
-    success: true,
-    logs: agentLogs
-      .slice(-limit)
-      .map((l) => ({ ...l, time: new Date(l.time).toLocaleTimeString() })),
-  });
-});
-
-app.post("/api/start", async (req, res) => {
-  try {
-    if (botStatus === "running")
-      return res.json({ success: true, message: "Bot already running" });
-    updateStatus("running", "Работает");
-    bot.start();
-    addLog("Telegram connected", "success");
-    res.json({ success: true, message: "Starting..." });
-  } catch (error) {
-    updateStatus("error", "Ошибка Telegram");
-    res.status(500).json({ error: "Failed to start: " + error.message });
-  }
-});
-
-app.post("/api/stop", async (req, res) => {
-  try {
-    if (botStatus === "running") {
-      await bot.stop();
-      await new Promise((r) => setTimeout(r, 800)); // ждём завершения polling
-    }
-    chatHistories.clear();
-    stats = { requests: 0, tools: 0, errors: 0 };
-    pendingApprovals.clear();
-    updateStatus("idle", "Отключен");
-    addLog("Bot stopped", "warning");
-    res.json({ success: true, message: "Bot stopped" });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to stop: " + error.message });
-  }
-});
-
-app.post("/api/restart", async (req, res) => {
-  try {
-    if (botStatus === "running") {
-      await bot.stop();
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    bot.start();
-    updateStatus("running", "Работает");
-    addLog("Bot restarted", "success");
-    res.json({ success: true });
-  } catch (error) {
-    updateStatus("error", "Ошибка Telegram");
-    res.status(500).json({ error: "Failed to restart: " + error.message });
-  }
-});
-
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { message, modelName, serverUrl, projectPath, systemPrompt } =
-      req.body;
-    if (!message) return res.status(400).json({ error: "Message required" });
-
-    const actualServerUrl = serverUrl || config.serverUrl;
-    const model = modelName || config.modelName;
-    const workPath = projectPath || config.projectPath;
-    const sysPrompt =
-      systemPrompt !== undefined ? systemPrompt : config.systemPrompt;
-
-    stats.requests++;
-
-    let systemContext = `Ты работаешь в проекте: ${workPath}. Все операции выполняй относительно этого пути.`;
-    if (sysPrompt) systemContext += `\n\n${sysPrompt}`;
-
-    const response = await fetch(`${actualServerUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: "system", content: systemContext },
-          { role: "user", content: message },
-        ],
-        max_tokens: 4096,
-        temperature: 0.1,
-      }),
-    });
-
-    if (!response.ok) {
-      stats.errors++;
-      throw new Error(`AI API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const reply =
-      data.choices?.[0]?.message?.content || "Пустой ответ от модели";
-    res.json({ success: true, reply });
-  } catch (error) {
-    stats.errors++;
-    addLog(`Chat error: ${error.message}`, "error");
-    res.status(500).json({ error: error.message });
-  }
-});
-
+/** Опции ответа по умолчанию для Telegram (HTML parse mode). */
 const REPLY_OPTS = {
   parse_mode: "HTML",
   link_preview_options: { is_disabled: true },
 };
 
-// Telegram HTML поддерживает только: b, i, u, s, code, pre, tg-spoiler, a, strong, em.
-// Экранирует все остальные теги для предотвращения 400-ошибок Telegram API.
+/**
+ * Экранирует недопустимые HTML-теги для Telegram API.
+ * Telegram поддерживает только: b, i, u, s, code, pre, tg-spoiler, a, strong, em.
+ * @param {string} text - Исходный текст с HTML
+ * @returns {string} Безопасный текст
+ */
 function sanitizeTelegramHtml(text) {
   return text.replace(
     /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g,
     (match, slash, tag) => {
       const allowed = new Set([
-        "b",
-        "i",
-        "u",
-        "s",
-        "code",
-        "pre",
-        "tg-spoiler",
-        "a",
-        "strong",
-        "em",
+        "b", "i", "u", "s", "code", "pre",
+        "tg-spoiler", "a", "strong", "em",
       ]);
       if (allowed.has(tag.toLowerCase())) return match;
-      // Для недопустимых тегов — экранируем угловые скобки
       return `&lt;${slash}${tag}${match.slice(1 + slash.length + tag.length, match.length - 1)}&gt;`;
     },
   );
 }
 
+/**
+ * Отправить сообщение в Telegram с fallback на plain text.
+ * @param {Object} ctx - GrammY контекст
+ * @param {string} text - Текст сообщения
+ * @param {Object} extra - Дополнительные опции
+ * @returns {Promise<number|null>} ID отправленного сообщения
+ */
 async function replyMsg(ctx, text, extra = {}) {
   try {
     const sent = await ctx.reply(sanitizeTelegramHtml(text), {
@@ -372,7 +212,6 @@ async function replyMsg(ctx, text, extra = {}) {
     });
     return sent.message_id;
   } catch (e) {
-    // Fallback: если Telegram не смог распарсить HTML — отправляем plain text
     if (
       e.message?.includes("can't parse entities") ||
       e.message?.includes("Bad Request")
@@ -393,36 +232,41 @@ async function replyMsg(ctx, text, extra = {}) {
     return null;
   }
 }
+
+/**
+ * Создать inline-клавиатуру с кнопками YES/NO.
+ * @param {string} toolName - Название инструмента
+ * @returns {InlineKeyboard}
+ */
 const KEYBOARD_YES_NO = (toolName) =>
   new InlineKeyboard()
     .text("✅ YES", `approve_${toolName}`)
     .text("❌ NO", `deny_${toolName}`);
-const KEYBOARD_EMPTY = () => ({ inline_keyboard: [] });
 
-async function sendDraft(ctx, text, extra = {}) {
-  const sent = await ctx.reply(sanitizeTelegramHtml(text), {
-    ...REPLY_OPTS,
-    ...extra,
-  });
-  return sent.message_id;
-}
-
+/**
+ * Отправить сообщение с индикатором набора текста.
+ * @param {Object} ctx - GrammY контекст
+ */
 async function sendTyping(ctx) {
   try {
     await ctx.replyWithChatAction("typing");
   } catch (_) {}
 }
 
+/**
+ * Редактировать существующее сообщение.
+ * @param {Object} ctx - GrammY контекст
+ * @param {number} msgId - ID сообщения
+ * @param {string} text - Новый текст
+ * @param {Object} extra - Дополнительные опции
+ */
 async function editMsg(ctx, msgId, text, extra = {}) {
   try {
     await ctx.api.editMessageText(
       ctx.chat.id,
       msgId,
       sanitizeTelegramHtml(text),
-      {
-        ...REPLY_OPTS,
-        ...extra,
-      },
+      { ...REPLY_OPTS, ...extra },
     );
   } catch (e) {
     const ignore = [
@@ -436,18 +280,10 @@ async function editMsg(ctx, msgId, text, extra = {}) {
   }
 }
 
-async function sendOrEdit(ctx, msgId, text, extra = {}) {
-  if (msgId !== null) {
-    await editMsg(ctx, msgId, text, extra);
-    return msgId;
-  }
-  const sent = await ctx.reply(sanitizeTelegramHtml(text), {
-    ...REPLY_OPTS,
-    ...extra,
-  });
-  return sent.message_id;
-}
-
+/**
+ * Убрать inline-кнопки из сообщения.
+ * @param {Object} ctx - GrammY контекст
+ */
 async function clearButtons(ctx) {
   try {
     await ctx.api.editMessageReplyMarkup(
@@ -463,6 +299,12 @@ async function clearButtons(ctx) {
   }
 }
 
+// ─── Обработка сообщений от пользователей ───────────────────────────────────
+
+/**
+ * Обработать входящее сообщение от пользователя Telegram.
+ * Маршрутизирует через agent loop и обрабатывает результат.
+ */
 bot.on("message", async (ctx) => {
   const message = ctx.message?.text || ctx.message?.caption;
   if (!message) {
@@ -470,10 +312,8 @@ bot.on("message", async (ctx) => {
     return;
   }
 
-  if (message === "✅ YES" || message === "❌ NO") {
-    return;
-  }
-  if (message === "YES" || message === "NO") {
+  // Игнорировать тексты кнопок подтверждения
+  if (message === "✅ YES" || message === "❌ NO" || message === "YES" || message === "NO") {
     return;
   }
 
@@ -500,115 +340,117 @@ bot.on("message", async (ctx) => {
     `Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`,
     "info",
   );
-  addLog(
-    `Pending approvals: ${[...pendingApprovals.keys()].join(", ") || "none"}`,
-    "info",
-  );
   stats.requests++;
 
   try {
     await sendTyping(ctx);
-    const draft = await sendDraft(ctx, "⏳ Analyzing request...");
+    await sendDraft(ctx, "⏳ Analyzing request...");
 
-    let history = chatHistories.get(chatId) || [];
-    let result = await agentLoopStep(message, chatId, history, 5, account);
+    const history = chatHistories.get(chatId) || [];
+    const result = await agentLoopStep(message, chatId, history, 5, account);
+    if (result.tokenUsage) {
+      tokenUsage.prompt += result.tokenUsage.prompt;
+      tokenUsage.completion += result.tokenUsage.completion;
+      tokenUsage.total += result.tokenUsage.total;
+      tokenUsage.cached += result.tokenUsage.cached;
+    }
     addLog(
       `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
       "info",
     );
 
-    if (result.requiresApproval) {
-      pendingApprovals.set(chatId, {
-        toolName: result.toolName,
-        args: result.args,
-        toolCallId: result.toolCallId,
-        messages: result.messages,
-        account,
-      });
-      chatHistories.set(chatId, result.messages.slice(-20));
-      await replyMsg(
-        ctx,
-        `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
-        { reply_markup: KEYBOARD_YES_NO(result.toolName) },
-      );
-      return;
-    }
-
-    if (result.error) {
-      // 🧹 Очищаем последние битые сообщения из истории
-      const cleanHistory = (chatHistories.get(chatId) || []).filter(
-        (m) =>
-          !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool",
-      );
-      chatHistories.set(chatId, cleanHistory.slice(-10));
-
-      await replyMsg(ctx, `❌ Error: ${result.error}`);
-      return;
-    }
-
-    if (result.response !== undefined && result.response !== "continue") {
-      if (result.messages)
-        chatHistories.set(chatId, result.messages.slice(-20));
-      const cleanResponse =
-        result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() ||
-        result.response;
-      await replyMsg(ctx, cleanResponse);
-      return;
-    }
-
-    if (result.response === "continue" || result.messages) {
-      history = result.messages || history;
-      result = await agentLoopStep("", chatId, history, 5, account);
-      addLog(
-        `agentLoopStep (retry): requiresApproval=${result.requiresApproval}`,
-        "info",
-      );
-      if (result.requiresApproval) {
-        pendingApprovals.set(chatId, {
-          toolName: result.toolName,
-          args: result.args,
-          messages: result.messages,
-          account,
-        });
-        chatHistories.set(chatId, result.messages.slice(-20));
-        await replyMsg(
-          ctx,
-          `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
-          { reply_markup: KEYBOARD_YES_NO(result.toolName) },
-        );
-        return;
-      }
-      if (result.error) {
-        // 🧹 Очищаем последние битые сообщения из истории
-        const cleanHistory = (chatHistories.get(chatId) || []).filter(
-          (m) =>
-            !m.content?.includes("[TOOL APPROVAL REQUIRED]") &&
-            m.role !== "tool",
-        );
-        chatHistories.set(chatId, cleanHistory.slice(-10));
-
-        await replyMsg(ctx, `❌ Error: ${result.error}`);
-        return;
-      }
-      if (result.response) {
-        if (result.messages)
-          chatHistories.set(chatId, result.messages.slice(-20));
-        const cleanResponse =
-          result.response
-            .replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "")
-            .trim() || result.response;
-        await replyMsg(ctx, cleanResponse);
-        return;
-      }
-    }
-
-    await replyMsg(ctx, "Iteration limit reached");
+    await handleAgentResult(ctx, chatId, result, account);
   } catch (error) {
     await replyMsg(ctx, `❌ Error: ${error.message}`);
     addLog(`Bot error: ${error.message}`, "error");
   }
 });
 
+/**
+ * Отправить черновик сообщения.
+ * @param {Object} ctx - GrammY контекст
+ * @param {string} text - Текст
+ * @param {Object} extra - Дополнительные опции
+ * @returns {Promise<number>}
+ */
+async function sendDraft(ctx, text, extra = {}) {
+  const sent = await ctx.reply(sanitizeTelegramHtml(text), {
+    ...REPLY_OPTS,
+    ...extra,
+  });
+  return sent.message_id;
+}
+
+/**
+ * Унифицированная обработка результата agent loop.
+ * Избегает дублирования кода для первичного и повторного вызовов.
+ * @param {Object} ctx - GrammY контекст
+ * @param {string} chatId - ID чата
+ * @param {Object} result - Результат agentLoopStep
+ * @param {Object} account - Аккаунт пользователя
+ * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен)
+ */
+async function handleAgentResult(ctx, chatId, result, account) {
+  // Требуется подтверждение
+  if (result.requiresApproval) {
+    pendingApprovals.set(chatId, {
+      toolName: result.toolName,
+      args: result.args,
+      toolCallId: result.toolCallId,
+      messages: result.messages,
+      account,
+    });
+    chatHistories.set(chatId, result.messages.slice(-20));
+    await replyMsg(
+      ctx,
+      `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
+      { reply_markup: KEYBOARD_YES_NO(result.toolName) },
+    );
+    return true;
+  }
+
+  // Ошибка
+  if (result.error) {
+    const cleanHistory = (chatHistories.get(chatId) || []).filter(
+      (m) =>
+        !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool",
+    );
+    chatHistories.set(chatId, cleanHistory.slice(-10));
+    await replyMsg(ctx, `❌ Error: ${result.error}`);
+    return true;
+  }
+
+  // Финальный ответ
+  if (result.response !== undefined && result.response !== "continue") {
+    if (result.messages) chatHistories.set(chatId, result.messages.slice(-20));
+    const cleanResponse =
+      result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() ||
+      result.response;
+    await replyMsg(ctx, cleanResponse);
+    return true;
+  }
+
+  // Продолжение (нужен ещё один шаг)
+  if (result.response === "continue") {
+    const history = result.messages || chatHistories.get(chatId) || [];
+    const retryResult = await agentLoopStep("", chatId, history, 5, account);
+    addLog(`agentLoopStep (retry): requiresApproval=${retryResult.requiresApproval}`, "info");
+    return await handleAgentResult(ctx, chatId, retryResult, account);
+  }
+
+  // Лимит итераций
+  await replyMsg(ctx, "Iteration limit reached");
+  return true;
+}
+
+// ─── Обработка подтверждений (callback queries) ─────────────────────────────
+
+/**
+ * Продолжить выполнение после подтверждения пользователем.
+ * Выполняет инструмент, отправляет результат модели и обрабатывает ответ.
+ * @param {Object} ctx - GrammY контекст
+ * @param {Object} pending - Ожидающий инструмент
+ */
 async function continueAfterApproval(ctx, pending) {
   console.log("[continueAfterApproval] Called:", {
     toolName: pending.toolName,
@@ -621,7 +463,6 @@ async function continueAfterApproval(ctx, pending) {
   const account = pending.account;
 
   try {
-    // 1. Выполняем инструмент
     const result = await executeTool(
       { name: pending.toolName, args: pending.args },
       { projectPath: config.projectPath, account },
@@ -634,16 +475,10 @@ async function continueAfterApproval(ctx, pending) {
     );
 
     if (!result.success) {
-      await replyMsg(
-        ctx,
-        `❌ <b>${pending.toolName}</b> failed: ${result.error}`,
-      );
+      await replyMsg(ctx, `❌ <b>${pending.toolName}</b> failed: ${result.error}`);
       return;
     }
 
-    // 2. Формируем сообщение с результатом для модели
-    // Экранируем HTML-сущности в tool-контенте, чтобы результат инструмента
-    // (например, содержимое файла с <details>/<summary>) не ломал Telegram
     const toolMessage = {
       role: "tool",
       content: JSON.stringify(result)
@@ -654,7 +489,6 @@ async function continueAfterApproval(ctx, pending) {
       toolMessage.tool_call_id = pending.toolCallId;
     }
 
-    // 3. Подготовка определения инструментов
     const toolsDef = Object.values(TOOLS)
       .filter((t) => isToolEnabledForAccount(account, t.name, getToolConfig()))
       .map((t) => ({
@@ -666,7 +500,6 @@ async function continueAfterApproval(ctx, pending) {
         },
       }));
 
-    // 4. Отправляем результат модели
     const history = chatHistories.get(chatId) || pending.messages || [];
 
     const response = await fetch(config.serverUrl + "/chat/completions", {
@@ -690,19 +523,24 @@ async function continueAfterApproval(ctx, pending) {
     }
 
     const data = await response.json();
-
-    // 🎯 ВАЖНО: объявляем nextMessage СРАЗУ после получения данных
     const nextMessage = data.choices?.[0]?.message;
     const finishReason = data.choices?.[0]?.finish_reason;
+    const usage = data.usage;
+    if (usage) {
+      tokenUsage.prompt += usage.prompt_tokens || 0;
+      tokenUsage.completion += usage.completion_tokens || 0;
+      tokenUsage.total += usage.total_tokens || 0;
+      if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
+        tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+      }
+    }
 
-    // 📊 Лог для отладки
     console.log("[agent] Model response:", {
       finishReason,
       hasToolCalls: !!nextMessage?.tool_calls?.length,
       contentLen: nextMessage?.content?.length,
     });
 
-    // 🛡️ Защита от пустых/обрезанных ответов
     if (
       !nextMessage ||
       (!nextMessage.content?.trim() && !nextMessage.tool_calls?.length)
@@ -722,33 +560,10 @@ async function continueAfterApproval(ctx, pending) {
       return;
     }
 
-    if (
-      (!nextMessage.content || nextMessage.content.trim() === "") &&
-      (!nextMessage.tool_calls || nextMessage.tool_calls.length === 0)
-    ) {
-      if (finishReason === "length") {
-        await replyMsg(
-          ctx,
-          "⚠️ Response was truncated (token limit). Try splitting the task or reducing file size.",
-        );
-      } else {
-        await replyMsg(
-          ctx,
-          "⚠️ Model failed to generate a valid response or tool call. Please try again.",
-        );
-      }
-      addLog(
-        `Model response empty/truncated. finish_reason: ${finishReason}`,
-        "warning",
-      );
-      return;
-    }
-
-    // Сохраняем в историю
     const newHistory = [...history, toolMessage, nextMessage].slice(-20);
     chatHistories.set(chatId, newHistory);
 
-    // Если модель вернула новый tool_call — обрабатываем
+    // Модель вернула новый tool_call
     if (nextMessage.tool_calls?.length > 0) {
       const tc = nextMessage.tool_calls[0];
       const tn = tc.function.name;
@@ -761,21 +576,14 @@ async function continueAfterApproval(ctx, pending) {
 
       const ts = getToolConfig()[tn] || {};
       if (!getToolConfig()[tn]?.enabled) {
-        await replyMsg(
-          ctx,
-          `❌ <b>${tn}</b> is disabled globally.`,
-        );
+        await replyMsg(ctx, `❌ <b>${tn}</b> is disabled globally.`);
         return;
       }
       if (account && account.permissions?.[tn] === false) {
-        await replyMsg(
-          ctx,
-          `❌ <b>${tn}</b> is not available for your account.`,
-        );
+        await replyMsg(ctx, `❌ <b>${tn}</b> is not available for your account.`);
         return;
       }
       if (ts.permission === "ask") {
-        // Требуется подтверждение — сохраняем и показываем кнопки
         pendingApprovals.set(chatId, {
           toolName: tn,
           args: ta,
@@ -783,7 +591,6 @@ async function continueAfterApproval(ctx, pending) {
           messages: newHistory,
           account,
         });
-        // Транкейция параметров: Telegram имеет лимит на длину сообщения
         const paramStr = JSON.stringify(ta);
         const displayParams =
           paramStr.length > 300
@@ -797,7 +604,7 @@ async function continueAfterApproval(ctx, pending) {
         return;
       }
 
-      // Авто-выполнение следующего инструмента (рекурсия)
+      // Авто-выполнение следующего инструмента
       await continueAfterApproval(ctx, {
         toolName: tn,
         args: ta,
@@ -808,7 +615,6 @@ async function continueAfterApproval(ctx, pending) {
       return;
     }
 
-    // Финальный текст от модели
     const finalText = nextMessage.content || "✅ Готово.";
     await replyMsg(ctx, finalText);
   } catch (error) {
@@ -818,6 +624,7 @@ async function continueAfterApproval(ctx, pending) {
   }
 }
 
+/** Обработка callback-запросов (inline keyboard). */
 bot.on("callback_query", async (ctx) => {
   console.log(
     `[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`,
@@ -839,10 +646,7 @@ bot.on("callback_query", async (ctx) => {
       return;
     }
 
-    addLog(
-      `Executing: ${toolName} with args=${JSON.stringify(pending.args)}`,
-      "success",
-    );
+    addLog(`Executing: ${toolName} with args=${JSON.stringify(pending.args)}`, "success");
     await clearButtons(ctx);
     pendingApprovals.delete(chatId);
     await sendTyping(ctx);
@@ -860,7 +664,7 @@ bot.on("callback_query", async (ctx) => {
         ...pending.messages,
         {
           role: "tool",
-          tool_call_id: pending.toolCallId, // ← добавить, если есть
+          tool_call_id: pending.toolCallId,
           content: JSON.stringify({ success: false, error: "denied by user" }),
         },
       ];
@@ -874,6 +678,8 @@ bot.on("callback_query", async (ctx) => {
     );
   }
 });
+
+// ─── Telegram Commands ─────────────────────────────────────────────────────
 
 bot.command("start", (ctx) => {
   updateStatus("running", "Работает");
@@ -932,6 +738,8 @@ bot.catch((err, ctx) => {
     ctx.reply(`❌ Error: ${err.message}`, REPLY_OPTS).catch(() => {});
   }
 });
+
+// ─── Запуск сервера ────────────────────────────────────────────────────────
 
 const PORT = process.env.API_PORT || 3000;
 const server = createServer(app);
