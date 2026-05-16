@@ -1,12 +1,19 @@
+/**
+ * Composable для управления состоянием агента (статус, статистика, логи).
+ * Автоматически обновляет статус каждые 5 секунд.
+ * @module composables/useAgent
+ */
+
 import { ref, onMounted, onUnmounted } from "vue";
 import { useToast } from "./useToast.js";
 import {
   getStatus as apiGetStatus,
   getLogs,
+  clearLogs as apiClearLogs,
   startBot as apiStartBot,
   stopBot as apiStopBot,
   restartBot as apiRestartBot,
-  isConnectionActive, // ← новая утилита из client.js
+  isConnectionActive,
 } from "../api/client.js";
 
 export function useAgent() {
@@ -18,6 +25,7 @@ export function useAgent() {
   const stats = ref({});
   const uptime = ref(0);
   const logs = ref([]);
+  const tokenUsage = ref({ prompt: 0, completion: 0, total: 0, cached: 0 });
 
   const toast = useToast();
 
@@ -26,6 +34,16 @@ export function useAgent() {
   // ─────────────────────────────────────────────────────
   let statusInterval = null;
   const REFRESH_INTERVAL = 5000; // 5 секунд
+
+  async function clearLogsAction() {
+    try {
+      await apiClearLogs();
+      logs.value = [];
+    } catch (e) {
+      console.error("[useAgent] Failed to clear logs:", e);
+      throw e;
+    }
+  }
 
   async function refreshStatus() {
     // 🛡️ Пропускаем запрос, если соединение потеряно
@@ -41,6 +59,9 @@ export function useAgent() {
       isRunning.value = statusData.isRunning || false;
       stats.value = statusData.stats || {};
       uptime.value = statusData.uptime || 0;
+      if (statusData.tokenUsage) {
+        tokenUsage.value = statusData.tokenUsage;
+      }
 
       // Логи загружаем отдельно — их ошибка не критична
       try {
@@ -123,11 +144,13 @@ async function startAgent() {
     stats,
     uptime,
     logs,
+    tokenUsage,
     isProcessing,
     currentChatId,
     refreshStatus, // для ручного обновления
     startAgent,
     stopAgent,
     restartAgent,
+    clearLogs: clearLogsAction,
   };
 }

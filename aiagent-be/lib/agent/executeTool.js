@@ -1,6 +1,24 @@
 /**
  * Tool execution engine for AI agent.
  * Handles file operations, search, and system commands.
+ * @module executeTool
+ */
+
+/**
+ * Конфигурация инструмента по умолчанию.
+ * @typedef {Object} ToolConfig
+ * @property {boolean} enabled - Включён ли инструмент
+ * @property {"ask"|"always"|"deny"} permission - Режим подтверждения
+ * @property {string[]} exclude_paths - Исключённые пути
+ */
+
+/**
+ * Результат выполнения инструмента.
+ * @typedef {Object} ToolResult
+ * @property {boolean} success - Успешность выполнения
+ * @property {Object} [data] - Данные результата
+ * @property {string} [error] - Текст ошибки
+ * @property {boolean} [requiresApproval] - Требуется ли подтверждение
  */
 
 import fs from "fs";
@@ -421,6 +439,19 @@ async function searchDirectory(
 // MAIN: EXECUTE TOOL
 // ============================================================================
 
+/**
+ * Выполнить инструмент AI агента.
+ * Выполняет файловые операции, поиск и системные команды с проверкой прав.
+ * @param {Object} toolCall - Вызов инструмента
+ * @param {string} toolCall.name - Название инструмента
+ * @param {Object} toolCall.args - Аргументы инструмента
+ * @param {Object} config - Конфигурация выполнения
+ * @param {string} config.projectPath - Путь к проекту
+ * @param {Object} [config.account] - Аккаунт пользователя
+ * @param {number} [config.maxSearchResults=15] - Макс. результатов поиска
+ * @param {number} [config.maxFileChars=2000] - Макс. символов при чтении файла
+ * @returns {Promise<ToolResult>} Результат выполнения
+ */
 export async function executeTool(toolCall, config = {}) {
   const { name, args = {} } = toolCall;
   // Resolve projectPath: server passes it via config (from .env or API /api/config).
@@ -671,6 +702,13 @@ export async function executeTool(toolCall, config = {}) {
           if (args.recursive) {
             fs.rmSync(targetPath, { recursive: true, force: true });
           } else {
+            const entries = fs.readdirSync(targetPath);
+            if (entries.length > 0) {
+              return {
+                success: false,
+                error: `Directory not empty: ${path.relative(projectPath, targetPath)}. Set recursive: true to delete.`,
+              };
+            }
             fs.rmdirSync(targetPath);
           }
         } else {

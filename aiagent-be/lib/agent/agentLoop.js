@@ -1,17 +1,40 @@
+/**
+ * Agent loop — основной цикл взаимодействия AI модели с инструментами.
+ * Поддерживает function calling и XML-style tool calls с fallback.
+ * @module agentLoop
+ */
+
 import { executeTool, getToolConfig, TOOLS } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
 
+/**
+ * Текущая конфигурация агента. Обновляется через updateAgentConfig().
+ * @type {Object}
+ */
 export let config = {
   serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
   modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-  projectPath: process.env.PROJECT_PATH || "E:\\Git\\agent-panel",
+  projectPath: process.env.PROJECT_PATH || "",
   apiKey: process.env.API_KEY || "agent-secret-key",
+  maxFileChars: 2000,
+  maxHistoryPairs: 5,
+  maxSearchResults: 15,
+  maxFilesInPrompt: 2,
 };
 
+/**
+ * Обновить конфигурацию агента.
+ * @param {Partial<typeof config>} newConfig - Новые значения конфигурации
+ */
 export function updateAgentConfig(newConfig) {
   Object.assign(config, newConfig);
 }
+
+/**
+ * Получить копию текущей конфигурации агента.
+ * @returns {Object} Копия конфигурации
+ */
 export function getAgentConfig() {
   return { ...config };
 }
@@ -89,6 +112,47 @@ function extractBash(content) {
   return m ? m[0].replace(/`[a-z]*\n?/g, "").trim() : null;
 }
 
+/**
+ * Обрезать историю чата до указанного количества пар сообщений.
+ * Сохраняет системное сообщение + последние N пар (user+assistant/tool).
+ * @param {Array} messages - Полный массив сообщений
+ * @param {number} maxPairs - Максимальное количество пар
+ * @returns {Array} Обрезанный массив
+ */
+function truncateHistory(messages, maxPairs) {
+  if (!maxPairs || maxPairs <= 0) return messages;
+  const systemMsg = messages.find((m) => m.role === "system");
+  const nonSystem = messages.filter((m) => m.role !== "system");
+  const maxMsgs = maxPairs * 2;
+  let startIdx = Math.max(0, nonSystem.length - maxMsgs);
+  while (startIdx < nonSystem.length && nonSystem[startIdx].role === "tool") {
+    startIdx++;
+  }
+  const truncated = nonSystem.slice(startIdx);
+  return systemMsg ? [systemMsg, ...truncated] : truncated;
+}
+
+function buildToolExecConfig(account) {
+  return {
+    projectPath: config.projectPath,
+    account,
+    maxFileChars: config.maxFileChars,
+    maxSearchResults: config.maxSearchResults,
+    maxHistoryPairs: config.maxHistoryPairs,
+    maxFilesInPrompt: config.maxFilesInPrompt,
+  };
+}
+
+/**
+ * Один шаг агентного цикла: отправляет запрос к AI модели и обрабатывает ответ.
+ * Поддерживает до maxIterations итераций с tool calls.
+ * @param {string} message - Сообщение пользователя
+ * @param {string} chatId - ID чата Telegram
+ * @param {Array} history - История сообщений
+ * @param {number} maxIterations - Максимальное число итераций (default: 5)
+ * @param {Object|null} account - Аккаунт пользователя
+ * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
+ */
 export async function agentLoopStep(
   message,
   chatId,
@@ -107,12 +171,13 @@ export async function agentLoopStep(
         account,
       ),
     },
-    ...history,
+    ...truncateHistory(history, config.maxHistoryPairs),
   ];
   if (message) messages.push({ role: "user", content: message });
   let iterations = 0,
     finalResponse = "",
-    useFC = true;
+    useFC = true,
+    accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
 
   while (iterations < maxIterations) {
     iterations++;
@@ -159,6 +224,15 @@ export async function agentLoopStep(
       const asst = data.choices?.[0]?.message;
       if (!asst) return { error: "Empty response" };
       const msg = data.choices?.[0]?.message;
+      const usage = data.usage;
+      if (usage) {
+        accumulatedUsage.prompt += usage.prompt_tokens || 0;
+        accumulatedUsage.completion += usage.completion_tokens || 0;
+        accumulatedUsage.total += usage.total_tokens || 0;
+        if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
+          accumulatedUsage.cached += usage.prompt_tokens_details.cached_tokens;
+        }
+      }
       messages.push(msg);
       const content = msg?.content || "";
 
@@ -192,7 +266,7 @@ export async function agentLoopStep(
           }
           const r = await executeTool(
             { name: tn, args: ta },
-            { projectPath: config.projectPath, account },
+            buildToolExecConfig(account),
           );
           messages.push({
             role: "tool",
@@ -213,7 +287,7 @@ export async function agentLoopStep(
             args: tc.args,
             messages,
           };
-        const r = await executeTool(tc, { projectPath: config.projectPath, account });
+        const r = await executeTool(tc, buildToolExecConfig(account));
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -226,11 +300,11 @@ export async function agentLoopStep(
       if (bash && !useFC) {
         const r = await executeTool(
           { name: "execute", args: { command: bash } },
-          { projectPath: config.projectPath, account },
+          buildToolExecConfig(account),
         );
         messages.push({
           role: "tool",
-          tool_call_id: tc?.id || `bash_${Date.now()}`,
+          tool_call_id: `bash_${Date.now()}`,
           content: JSON.stringify(r),
         });
         continue;
@@ -245,7 +319,7 @@ export async function agentLoopStep(
   const finalMessages = messages.filter(
     (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"),
   );
-  return { response: finalResponse, messages: finalMessages };
+  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage };
 }
 
 
