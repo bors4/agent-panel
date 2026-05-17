@@ -74,13 +74,13 @@ function resetTokenUsage() {
   tokenUsage.cached = 0;
 }
 
-/** @type {{time: string, message: string, type: string}[]} */
+/** @type {Array.<{time: string, message: string, type: string}>} */
 const agentLogs = [];
 
-/** @type {Map<string, Array<{role: string, content: string}>>} */
+/** @type {Map.<string, Array.<{role: string, content: string}>>} */
 const chatHistories = new Map();
 
-/** @type {Map<string, {toolName: string, args: Object, toolCallId?: string, messages: Array, account: Object}>} */
+/** @type {Map.<string, Object>} */
 const pendingApprovals = new Map();
 
 // ─── Импорт модулей ────────────────────────────────────────────────────────

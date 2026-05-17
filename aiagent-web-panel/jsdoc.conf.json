@@ -1,0 +1,23 @@
+{
+  "source": {
+    "include": [
+      "../aiagent-be/lib",
+      "../aiagent-be/routes",
+      "../aiagent-be/server.js",
+      "src"
+    ],
+    "includePattern": ".+\\.js(doc|x)?$",
+    "excludePattern": "(node_modules|docs|tests|test)"
+  },
+  "plugins": ["plugins/markdown"],
+  "opts": {
+    "destination": "../docs",
+    "recurse": true,
+    "verbose": false,
+    "encoding": "utf8"
+  },
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  }
+}

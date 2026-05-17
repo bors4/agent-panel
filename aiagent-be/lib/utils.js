@@ -67,7 +67,7 @@ function extractJsonBlock(str, startIdx) {
  * Распознать вызов инструмента из текста ответа модели.
  * Поддерживает три формата: XML function tags, JSON objects, и tool tags.
  * @param {string|null} text - Текст от модели
- * @returns {{name: string, args: Object, id?: string}|null} Распознанный вызов или null
+ * @returns {Object|null} Распознанный вызов {name: string, args: Object, id: string} или null
  */
 export function parseToolCall(text) {
   if (!text) return null;

@@ -57,7 +57,7 @@ export function getRoleDefaultPermissions(role) {
  * @param {string} toolName - Название инструмента
  * @param {Object} args - Аргументы инструмента
  * @param {string} projectPath - Путь к проекту
- * @returns {{allowed: boolean, reason?: string}}
+ * @returns {Object} {allowed: boolean, reason?: string}
  * @description
  *   Проверяет:
  *   1. Явный запрет инструмента в account.permissions
