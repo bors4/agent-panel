@@ -589,50 +589,36 @@ export async function executeTool(toolCall, config = {}) {
 
 // ────────────────────────────────────────────────────────────────────
        case "execute": {
-         const timeout = (args.timeout || 30) * 1000;
-         const cwd = account?.include_paths?.length > 0
-           ? path.resolve(account.include_paths[0])
-           : projectPath;
+         const timeoutSec = args.timeout || 30;
          const isWin = process.platform === "win32";
          const trimmedCmd = args.command.trimStart();
-         const isPwsh =
-           /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
+         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
 
          try {
            const result = await new Promise((resolve, reject) => {
              let shell, shellArgs;
 
-             if (isWin) {
-               if (isPwsh) {
-                 // PowerShell: запускаем напрямую, минуя cmd.exe,
-                 // иначе | ; & > < перехватываются CMD как свои операторы.
-                 const pwshCmd = trimmedCmd
-                   .replace(/^(powershell|pwsh)\s+/i, "")
-                   .replace(/^(-command|-c)\s+/i, "")
-                   .trim()
-                   .replace(/^["'](.*)["']\s*$/, "$1");
-                 shell = "powershell.exe";
-                 shellArgs = [
-                   "-NoLogo",
-                   "-NoProfile",
-                   "-Command",
-                   pwshCmd,
-                 ];
-} else {
-                  // Остальные команды — через cmd.exe с UTF-8
-                  shell = "cmd.exe";
-                  shellArgs = ["/s", "/d", "/c", `chcp 65001 >nul & ${args.command}`];
-                }
+             if (isWin && isPwsh) {
+               const pwshCmd = trimmedCmd
+                 .replace(/^(powershell|pwsh)\s+/i, "")
+                 .replace(/^(-command|-c)\s+/i, "")
+                 .trim()
+                 .replace(/^["'](.*)["']\s*$/, "$1");
+               shell = "powershell.exe";
+               shellArgs = ["-NoLogo", "-NoProfile", "-Command", pwshCmd];
+             } else if (isWin) {
+               shell = "cmd.exe";
+               shellArgs = ["/d", "/c", args.command];
              } else {
                shell = "/bin/sh";
                shellArgs = ["-c", args.command];
              }
 
              const child = spawn(shell, shellArgs, {
-               cwd,
-               timeout,
+               cwd: projectPath,
                encoding: "utf-8",
                maxBuffer: 10 * 1024 * 1024,
+               windowsHide: true,
                windowsVerbatimArguments: isWin,
              });
 
@@ -646,11 +632,18 @@ export async function executeTool(toolCall, config = {}) {
                stderr += data.toString();
              });
 
+             const timer = setTimeout(() => {
+               child.kill("SIGTERM");
+               reject(new Error(`Command timed out after ${timeoutSec}s`));
+             }, timeoutSec * 1000);
+
              child.on("error", (err) => {
+               clearTimeout(timer);
                reject(err);
              });
 
-             child.on("close", (code) => {
+             child.on("close", (code, signal) => {
+               clearTimeout(timer);
                resolve({
                  stdout: stdout.trim(),
                  stderr: stderr.trim(),
@@ -659,14 +652,15 @@ export async function executeTool(toolCall, config = {}) {
              });
            });
 
-           return {
-             success: true,
-             data: {
-               stdout: result.stdout,
-               stderr: result.stderr,
-               exitCode: result.exitCode,
-             },
-           };
+            return {
+              success: result.exitCode === 0,
+              data: {
+                stdout: result.stdout,
+                stderr: result.stderr,
+                exitCode: result.exitCode,
+              },
+              error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
+            };
          } catch (e) {
            return {
              success: false,
