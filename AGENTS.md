@@ -28,6 +28,16 @@ npm run frontend:test # Frontend tests only
 - **API URL**: Use `http://127.0.0.1:3000/api` (not `localhost`). Frontend proxy configured for this.
 - **No linter/formatter**: Project does not use ESLint, Prettier, or TypeScript.
 - **Node version**: `^20.19.0 || >=22.12.0`
+- **ESM only**: `"type": "module"` — use `import/export`, not `require()`
+- **postinstall**: `npm install` auto-runs `cd aiagent-web-panel && npm install`
+
+## WebSocket (replaces polling)
+
+- Backend: `ws` server on `/ws`, heartbeat every 30s, `wsBroadcast(type, data)` in `server.js`
+- Frontend: `useWebSocket.js` composable — auto-reconnect with exponential backoff, uptime ticker
+- Event types: `status`, `stats`, `log`, `tokenUsage`
+- `useAgent.js` no longer polls; relies entirely on WebSocket + initial HTTP state load
+- Vite HMR overlay disabled to prevent false error popups during dev
 
 ## Config Flow (CRITICAL)
 
@@ -83,7 +93,7 @@ npm run frontend:test # Frontend tests only
 - `config` object: in-memory, persists no config files
   - `serverUrl`, `modelName`, `projectPath`, `systemPrompt`, `apiKey`
   - `maxTokens` (default 8192), `temperature` (default 0.1), `timeout` (default 120000ms)
-- `chatHistories`: `Map<chatId, messages[]>` per Telegram user
+- `chatHistories`: `Map<chatId, messages[]>` per Telegram user — **system messages are filtered out** before storage
 - `agentLogs`: array of `{time, message, type}` with max 200 entries
 - `stats`: `{requests, tools, errors}` — reset on `/api/stop`
 - `pendingApprovals`: `Map<chatId, pendingTool>` — tools awaiting user confirmation
@@ -91,22 +101,10 @@ npm run frontend:test # Frontend tests only
 
 ## System Prompt Construction
 
-Every AI request includes:
-```
-You are AI assistant in: {projectPath}
-IMPORTANT: Use ONLY RELATIVE paths!
-  GOOD: "test.txt", "src/app.js"
-  BAD: "E:\Git\test_project\file.txt"
-
-Commands:
-  write - create file (filePath RELATIVE, content)
-  read - read file (filePath RELATIVE)
-  ...
-
-WINDOWS RULES:
-- Wrap URLs with & in quotes
-- Do NOT use jq. Use PowerShell
-```
+Every AI request includes a fresh system message prepended by `agentLoopStep()` or `continueAfterApproval()`:
+- `truncateHistory()` **does NOT** return system messages — they are always prepended fresh
+- `chatHistories` stores messages **without** system messages (filtered on write)
+- `continueAfterApproval` builds its own system message before each AI call
 
 ## Agent Tool Loop
 
@@ -156,27 +154,23 @@ Tool configuration per tool:
 
 `/start`, `/help`, `/model`, `/clear`, `/tools`
 
+## Execute Tool (Windows)
+
+- **`cwd`**: Always uses `projectPath`, NOT `account.include_paths`
+- **Shell**: PowerShell commands run via `powershell.exe` directly; all others via `cmd.exe /d /c`
+- **No `chcp 65001`**: Causes crash on some Windows systems — removed
+- **Exit codes**: `success: false` when `exitCode !== 0` (not always `true`)
+- **Default timeout**: 30s — long-running commands (e.g. E2E tests) will timeout. See TODO #14 for async execution plan
+
+## Callback Handling
+
+- `answerCallbackQuery` must be called **immediately** on button click, before any async work
+- Otherwise Telegram returns "query is too old" error
+- `continueAfterApproval` runs asynchronously with `.catch()` error handler
+
 ## Vue Component Patterns
 
 - **Avoid**: `v-model` on props (causes recursive update warnings)
 - **Use instead**: Local ref + `emit("update:modelValue", value)`
 - **State**: Pinia store (`src/stores/`) + localStorage
 - **SettingsTab**: Uses `configCopy` reactive + `watch(props.config)` with debounce (300ms auto-save)
-
-## Testing
-
-- **Backend**: Vitest in `aiagent-be/tests/` — 89 tests
-  - `server.test.js` — safePath, parseToolCall, executeTool, session, logger
-  - `accounts.test.js` — account management, permissions, roles
-  - `agentLoop.test.js` — config, system message building
-  - `utils.test.js` — utility functions
-- **Frontend**: Vitest in `aiagent-web-panel/src/` — 22 tests
-  - `useToast.test.js` — toast notifications
-  - `settings.test.js` — Pinia store
-  - `client.test.js` — API client connection state
-  - `StatsCard.test.js` — token usage visualization
-
-## Known Issues (see TODO.md)
-
-- `continueAfterApproval` may return `AI API error: 400` after multiple tool calls — model sometimes returns both `content` and `tool_calls` simultaneously
-- Context size calculation sums tokens manually instead of using server `usage` data
