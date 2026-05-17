@@ -13,10 +13,10 @@
 ```bash
 npm run dev          # Both frontend + backend
 npm run frontend:dev # Frontend only (port 5173, /api proxies to :3000)
-npm run backend:dev  # Backend only
+npm run backend:dev  # Backend only (port 3000)
 npm run build        # Build frontend
 npm start            # Start backend only
-npm run test:all     # Run all tests
+npm run test:all     # Run all tests (89 backend + 22 frontend)
 npm run backend:test # Backend tests only
 npm run frontend:test # Frontend tests only
 ```
@@ -27,6 +27,29 @@ npm run frontend:test # Frontend tests only
 - **Backend has no package.json**: All dependencies live in root `package.json`.
 - **API URL**: Use `http://127.0.0.1:3000/api` (not `localhost`). Frontend proxy configured for this.
 - **No linter/formatter**: Project does not use ESLint, Prettier, or TypeScript.
+- **Node version**: `^20.19.0 || >=22.12.0`
+
+## Config Flow (CRITICAL)
+
+**Two config objects exist — they must stay in sync:**
+1. `server.js` `config` — source of truth, passed to API router and Telegram bot handlers
+2. `agentLoop.js` `config` — used by `agentLoopStep()` and `buildToolExecConfig()`
+
+**Sync mechanism:**
+- `server.js` calls `updateAgentConfig(config)` at startup to seed `agentLoop.js`
+- `POST /api/config` updates `server.js` config, then calls `updateAgentConfig(config)` to sync
+- `updateAgentConfig` uses `Object.assign` — both objects are separate but kept in sync
+
+**projectPath priority on frontend startup (`App.vue` onMounted):**
+1. Load `localStorage` (`agent-config`)
+2. If `projectPath` exists in localStorage → `POST /api/config` to sync to backend (overrides `.env`)
+3. If no `projectPath` in localStorage → load from backend (`GET /api/config`, falls back to `.env`)
+4. If neither has `projectPath` → show warning, block bot start
+
+**`.env` behavior:**
+- `PROJECT_PATH` in `.env` is the initial default only
+- `path.resolve("")` on Windows returns cwd — if `PROJECT_PATH` is empty, `server.js` sets `projectPath = ""` explicitly
+- Once user saves a path via UI, it overrides `.env` via `POST /api/config`
 
 ## API Client (Frontend)
 
@@ -39,7 +62,7 @@ npm run frontend:test # Frontend tests only
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| GET | `/api/status` | botStatus, stats (requests/tools/errors), uptime |
+| GET | `/api/status` | botStatus, stats (requests/tools/errors), uptime, tokenUsage |
 | GET | `/api/logs?limit=N` | Recent agent logs |
 | GET | `/api/config` | Current configuration |
 | GET | `/api/models` | Fetch available models from AI server |
@@ -64,6 +87,7 @@ npm run frontend:test # Frontend tests only
 - `agentLogs`: array of `{time, message, type}` with max 200 entries
 - `stats`: `{requests, tools, errors}` — reset on `/api/stop`
 - `pendingApprovals`: `Map<chatId, pendingTool>` — tools awaiting user confirmation
+- `tokenUsage`: `{prompt, completion, total, cached}` — accumulated across all AI requests
 
 ## System Prompt Construction
 
@@ -95,29 +119,12 @@ WINDOWS RULES:
 4. Maximum 5 iterations per message
 5. If model requests approval → inline keyboard 👍/👎 sent to user
 
-## Vue Component Patterns
+## Path Safety (`safePath` in utils.js)
 
-- **Avoid**: `v-model` on props (causes recursive update warnings)
-- **Use instead**: Local ref + `emit("update:modelValue", value)`
-- **State**: Pinia store (`src/stores/`) + localStorage
-
-## Agent Tools
-
-Available tools for AI agent (execute, read, write files, etc.):
-- `read` — Read file contents
-- `write` — Create/overwrite file
-- `search` — Search pattern in files
-- `list_dir` — List directory contents
-- `execute` — Run shell commands
-- `create_dir` — Create directory
-- `delete` — Delete file/directory
-- `move` — Move/rename file
-- `copy` — Copy file
-
-Tool configuration per tool:
-- `enabled` — true/false
-- `permission` — "ask" (inline keyboard), "always" (auto), "deny"
-- `exclude_paths` — ["node_modules", ".git", etc.]
+- Resolves user paths relative to `projectRoot`
+- Rejects paths outside project (traversal attacks)
+- **Handles absolute paths**: if user passes absolute path, checks if it's within `projectRoot`
+- Normalizes to forward slashes for comparison
 
 ## Account System
 
@@ -133,22 +140,43 @@ Users are authenticated by Telegram username. Accounts stored in `accounts.json`
 - `role` — system/user/guest
 - `permissions` — per-tool overrides
 - `include_paths` — restrict file operations to specific directories
+  - **Root drive paths** (e.g., `E:\`) allow access to all directories on that drive
+  - Subdirectory paths (e.g., `E:\Git`) restrict to that directory and children only
+
+## Agent Tools
+
+Available tools: `read`, `write`, `search`, `list_dir`, `execute`, `create_dir`, `delete`, `move`, `copy`
+
+Tool configuration per tool:
+- `enabled` — true/false
+- `permission` — "ask" (inline keyboard), "always" (auto), "deny"
+- `exclude_paths` — ["node_modules", ".git", etc.]
 
 ## Bot Commands
 
 `/start`, `/help`, `/model`, `/clear`, `/tools`
 
+## Vue Component Patterns
+
+- **Avoid**: `v-model` on props (causes recursive update warnings)
+- **Use instead**: Local ref + `emit("update:modelValue", value)`
+- **State**: Pinia store (`src/stores/`) + localStorage
+- **SettingsTab**: Uses `configCopy` reactive + `watch(props.config)` with debounce (300ms auto-save)
+
 ## Testing
 
-- **Backend**: Vitest in `aiagent-be/tests/` — 88 tests
+- **Backend**: Vitest in `aiagent-be/tests/` — 89 tests
   - `server.test.js` — safePath, parseToolCall, executeTool, session, logger
   - `accounts.test.js` — account management, permissions, roles
   - `agentLoop.test.js` — config, system message building
-- **Frontend**: Vitest in `aiagent-web-panel/src/` — 17 tests
+  - `utils.test.js` — utility functions
+- **Frontend**: Vitest in `aiagent-web-panel/src/` — 22 tests
   - `useToast.test.js` — toast notifications
   - `settings.test.js` — Pinia store
   - `client.test.js` — API client connection state
+  - `StatsCard.test.js` — token usage visualization
 
-## Node Version
+## Known Issues (see TODO.md)
 
-`^20.19.0 || >=22.12.0`
+- `continueAfterApproval` may return `AI API error: 400` after multiple tool calls — model sometimes returns both `content` and `tool_calls` simultaneously
+- Context size calculation sums tokens manually instead of using server `usage` data

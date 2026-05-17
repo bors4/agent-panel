@@ -24,11 +24,20 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 /**
  * Конфигурация приложения. Обновляется через API /api/config.
  * @type {Object}
+ * @property {string} serverUrl - URL AI сервера
+ * @property {string} modelName - Имя модели
+ * @property {string} projectPath - Путь к проекту. Если PROJECT_PATH не установлен в .env,
+ *   значение = "" (не cwd). Обновляется через POST /api/config из UI.
+ * @property {string} systemPrompt - Системный промпт
+ * @property {string} apiKey - Ключ авторизации
+ * @property {number} maxTokens - Максимальное количество токенов
+ * @property {number} temperature - Температура генерации
+ * @property {number} timeout - Таймаут запросов
  */
 const config = {
   serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
   modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-  projectPath: path.resolve(process.env.PROJECT_PATH || ""),
+  projectPath: process.env.PROJECT_PATH ? path.resolve(process.env.PROJECT_PATH) : "",
   systemPrompt: process.env.SYSTEM_PROMPT || "",
   apiKey: process.env.API_KEY || "agent-secret-key",
   maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
@@ -140,6 +149,11 @@ if (config.projectPath && fs.existsSync(config.projectPath)) {
     "warning",
   );
 }
+
+// ─── Sync config to agentLoop.js ──────────────────────────────────────────
+
+updateAgentConfig(config);
+addLog(`agentLoop config synced: projectPath=${config.projectPath || "(empty)"}`, "info");
 
 // ─── Middleware ─────────────────────────────────────────────────────────────
 
@@ -450,12 +464,22 @@ async function handleAgentResult(ctx, chatId, result, account) {
  * Выполняет инструмент, отправляет результат модели и обрабатывает ответ.
  * @param {Object} ctx - GrammY контекст
  * @param {Object} pending - Ожидающий инструмент
+ * @param {number} depth - Текущая глубина рекурсии (default: 0)
  */
-async function continueAfterApproval(ctx, pending) {
+const MAX_APPROVAL_DEPTH = 10;
+
+async function continueAfterApproval(ctx, pending, depth = 0) {
+  if (depth >= MAX_APPROVAL_DEPTH) {
+    addLog(`continueAfterApproval: depth limit (${MAX_APPROVAL_DEPTH}) reached`, "warning");
+    await replyMsg(ctx, `⚠️ Reached tool call chain limit (${MAX_APPROVAL_DEPTH}).`);
+    return;
+  }
+
   console.log("[continueAfterApproval] Called:", {
     toolName: pending.toolName,
     toolCallId: pending.toolCallId,
     args: pending.args,
+    depth,
   });
 
   stats.tools++;
@@ -611,7 +635,7 @@ async function continueAfterApproval(ctx, pending) {
         toolCallId: tc.id,
         messages: newHistory,
         account,
-      });
+      }, depth + 1);
       return;
     }
 

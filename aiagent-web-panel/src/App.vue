@@ -94,7 +94,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { useAgent } from "@/composables/useAgent";
 import { useToast } from "@/composables/useToast";
-import { updateConfig } from "@/api/client";
+import { updateConfig, getConfig } from "@/api/client";
 
 // Components
 import Header from "@/components/layout/Header.vue";
@@ -234,14 +234,13 @@ onMounted(async () => {
 
     addLog("App initialized", "system");
 
-    // Load saved config
+    // 1. Load localStorage saved preferences first
     const saved = localStorage.getItem("agent-config");
     if (saved) {
         try {
             const parsed = JSON.parse(saved);
-            systemPrompt.value = parsed.systemPrompt || "";
+            if (parsed.systemPrompt) systemPrompt.value = parsed.systemPrompt;
 
-            // Load all config fields
             Object.keys(defaultConfig).forEach((key) => {
                 if (parsed[key] !== undefined) {
                     localConfig.value[key] = parsed[key];
@@ -259,7 +258,32 @@ onMounted(async () => {
             if (parsed.modelName) modelName.value = parsed.modelName;
             if (parsed.serverUrl) serverUrl.value = parsed.serverUrl;
         } catch {}
-} else {
+    }
+
+    // 2. If localStorage has projectPath, sync it to backend (overrides .env)
+    if (localConfig.value.projectPath) {
+        try {
+            await updateConfig({
+                projectPath: localConfig.value.projectPath,
+            });
+            addLog(`Synced projectPath to backend: ${localConfig.value.projectPath}`, "info");
+        } catch (e) {
+            addLog(`Failed to sync projectPath: ${e.message}`, "warning");
+        }
+    } else {
+        // 3. No saved projectPath — load from backend (.env)
+        try {
+            const backendConfig = await getConfig();
+            if (backendConfig?.config?.projectPath) {
+                localConfig.value.projectPath = backendConfig.config.projectPath;
+                addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
+            }
+        } catch (e) {
+            addLog(`Failed to load backend config: ${e.message}`, "warning");
+        }
+    }
+
+    if (!localConfig.value.projectPath) {
          warning("Путь к проекту не указан. Укажите его в разделе Параметры.");
      }
 
@@ -451,23 +475,24 @@ const saveSettings = async () => {
                 serverUrl: serverUrl.value,
             }),
         );
+        const payload = {
+            modelName: modelName.value,
+            serverUrl: serverUrl.value,
+            projectPath: localConfig.value.projectPath,
+            systemPrompt: systemPrompt.value,
+            maxFileChars: localConfig.value.maxFileChars,
+            maxHistoryPairs: localConfig.value.maxHistoryPairs,
+            maxSearchResults: localConfig.value.maxSearchResults,
+            maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
+            maxTokens: localConfig.value.maxTokens,
+            timeout: localConfig.value.timeout,
+            temperature: localConfig.value.temperature,
+        };
         try {
-            await updateConfig({
-                modelName: modelName.value,
-                serverUrl: serverUrl.value,
-                projectPath: localConfig.value.projectPath,
-                systemPrompt: systemPrompt.value,
-                maxFileChars: localConfig.value.maxFileChars,
-                maxHistoryPairs: localConfig.value.maxHistoryPairs,
-                maxSearchResults: localConfig.value.maxSearchResults,
-                maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
-                maxTokens: localConfig.value.maxTokens,
-                timeout: localConfig.value.timeout,
-                temperature: localConfig.value.temperature,
-            });
-            addLog(`Config updated: ${modelName.value}`, "info");
+            await updateConfig(payload);
+            addLog(`Config updated: ${modelName.value}, projectPath=${localConfig.value.projectPath}`, "info");
         } catch (e) {
-            console.error("Failed to update backend config:", e);
+            error(`Failed to update backend config: ${e.message}`);
         }
         if (quickSettings.value.autoSave) success("Настройки сохранены");
     } catch (e) {

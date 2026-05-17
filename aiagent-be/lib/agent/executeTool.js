@@ -709,7 +709,7 @@ export async function executeTool(toolCall, config = {}) {
                 error: `Directory not empty: ${path.relative(projectPath, targetPath)}. Set recursive: true to delete.`,
               };
             }
-            fs.rmdirSync(targetPath);
+            fs.rmSync(targetPath, { recursive: false, force: false });
           }
         } else {
           fs.unlinkSync(targetPath);

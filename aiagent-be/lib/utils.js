@@ -12,6 +12,10 @@ import path from "path";
  * @param {string} projectRoot - Корневой путь проекта
  * @returns {string} Разрешённый абсолютный путь (с forward slashes)
  * @throws {Error} Если путь выходит за пределы проекта или содержит null bytes
+ * @description
+ *   - Относительные пути разрешаются относительно projectRoot
+ *   - Абсолютные пути проверяются на вхождение в projectRoot
+ *   - Нормализует к forward slashes для сравнения
  */
 export function safePath(userPath, projectRoot) {
    // Trim projectRoot to handle trailing whitespace/newlines from env
@@ -23,13 +27,15 @@ export function safePath(userPath, projectRoot) {
      throw new Error("Path contains null bytes");
    }
 
-   // Use path.resolve to get canonical absolute paths
-   // This automatically resolves ., .., mixed slashes, trailing slashes
    const resolvedRoot = path.resolve(trimmedRoot);
-   const resolvedPath = path.resolve(trimmedRoot, cleanPath);
+   const normalizedRoot = resolvedRoot.replace(/\\/g, "/").toLowerCase();
+
+   // If userPath is absolute, check if it's within the project root
+   const resolvedPath = path.isAbsolute(cleanPath)
+     ? path.resolve(cleanPath)
+     : path.resolve(trimmedRoot, cleanPath);
 
    // Normalize to forward slashes for consistent comparison and output
-   const normalizedRoot = resolvedRoot.replace(/\\/g, "/").toLowerCase();
    const normalizedPath = resolvedPath.replace(/\\/g, "/").toLowerCase();
 
    if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(normalizedRoot + "/")) {
