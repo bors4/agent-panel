@@ -21,9 +21,9 @@ export default defineConfig({
       },
     },
     hmr: {
-          // Увеличиваем таймауты, чтобы не спамить при кратковременных обрывах
-          pingTimeout: 5000, // было, возможно, 1000
-          pingInterval: 10000, // проверять реже
+          overlay: false,
+          pingTimeout: 5000,
+          pingInterval: 10000,
         },
   },
   define: {

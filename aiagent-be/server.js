@@ -7,6 +7,7 @@
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
+import { WebSocketServer } from "ws";
 import path from "path";
 import fs from "fs";
 import { Bot, InlineKeyboard } from "grammy";
@@ -83,6 +84,22 @@ const chatHistories = new Map();
 /** @type {Map.<string, Object>} */
 const pendingApprovals = new Map();
 
+/** @type {import("ws").WebSocketServer | null} */
+let wss = null;
+
+/**
+ * Рассылает сообщение всем подключённым WebSocket клиентам.
+ * @param {string} type - Тип события (status, stats, log, tokenUsage)
+ * @param {Object} data - Данные события
+ */
+function wsBroadcast(type, data) {
+  if (!wss) return;
+  const msg = JSON.stringify({ type, data });
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1) client.send(msg);
+  });
+}
+
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
 import {
@@ -118,6 +135,7 @@ function addLog(message, type = "info") {
   if (type === "error") logError(message);
   else if (type === "warning" || type === "warn") logWarn(message);
   else logInfo(message);
+  wsBroadcast("log", { ...entry, time: new Date(entry.time).toLocaleTimeString() });
 }
 
 /**
@@ -134,6 +152,14 @@ function updateStatus(newStatus, message = "") {
     `Status: ${message || newStatus}`,
     newStatus === "error" ? "error" : "info",
   );
+  const uptimeMs = state.startTime ? Date.now() - state.startTime : 0;
+  wsBroadcast("status", {
+    botStatus: newStatus,
+    botStatusMessage: message,
+    isRunning: newStatus === "running",
+    startTime: state.startTime,
+    uptime: Math.floor(uptimeMs / 1000),
+  });
 }
 
 // ─── Загрузка аккаунтов ────────────────────────────────────────────────────
@@ -178,6 +204,7 @@ const apiRouter = createApiRouter({
   tokenUsage,
   resetStats,
   resetTokenUsage,
+  wsBroadcast,
 });
 
 app.use("/api", apiRouter);
@@ -355,6 +382,7 @@ bot.on("message", async (ctx) => {
     "info",
   );
   stats.requests++;
+  wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
 
   try {
     await sendTyping(ctx);
@@ -367,6 +395,7 @@ bot.on("message", async (ctx) => {
       tokenUsage.completion += result.tokenUsage.completion;
       tokenUsage.total += result.tokenUsage.total;
       tokenUsage.cached += result.tokenUsage.cached;
+      wsBroadcast("tokenUsage", { ...tokenUsage });
     }
     addLog(
       `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
@@ -414,7 +443,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
       messages: result.messages,
       account,
     });
-    chatHistories.set(chatId, result.messages.slice(-20));
+    chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
     await replyMsg(
       ctx,
       `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
@@ -427,7 +456,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
   if (result.error) {
     const cleanHistory = (chatHistories.get(chatId) || []).filter(
       (m) =>
-        !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool",
+        !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system",
     );
     chatHistories.set(chatId, cleanHistory.slice(-10));
     await replyMsg(ctx, `❌ Error: ${result.error}`);
@@ -436,7 +465,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
 
   // Финальный ответ
   if (result.response !== undefined && result.response !== "continue") {
-    if (result.messages) chatHistories.set(chatId, result.messages.slice(-20));
+    if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
     const cleanResponse =
       result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() ||
       result.response;
@@ -483,6 +512,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   });
 
   stats.tools++;
+  wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
   const chatId = ctx.chat.id.toString();
   const account = pending.account;
 
@@ -492,7 +522,6 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       { projectPath: config.projectPath, account },
     );
 
-    await ctx.answerCallbackQuery(result.success ? "Done!" : "Error");
     addLog(
       `Tool executed: ${pending.toolName} = ${result.success ? "OK" : "FAIL:" + result.error}`,
       result.success ? "success" : "error",
@@ -525,6 +554,10 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       }));
 
     const history = chatHistories.get(chatId) || pending.messages || [];
+    const systemMessage = {
+      role: "system",
+      content: buildSystemMessage(config.projectPath, config.systemPrompt, true, account),
+    };
 
     const response = await fetch(config.serverUrl + "/chat/completions", {
       method: "POST",
@@ -534,7 +567,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       },
       body: JSON.stringify({
         model: config.modelName,
-        messages: [...history, toolMessage],
+        messages: [systemMessage, ...history, toolMessage],
         max_tokens: config.maxTokens ?? 4096,
         temperature: config.temperature ?? 0.1,
         tools: toolsDef,
@@ -557,6 +590,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
         tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
       }
+      wsBroadcast("tokenUsage", { ...tokenUsage });
     }
 
     console.log("[agent] Model response:", {
@@ -584,7 +618,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       return;
     }
 
-    const newHistory = [...history, toolMessage, nextMessage].slice(-20);
+    const newHistory = [...history, toolMessage, nextMessage].filter((m) => m.role !== "system").slice(-20);
     chatHistories.set(chatId, newHistory);
 
     // Модель вернула новый tool_call
@@ -671,10 +705,13 @@ bot.on("callback_query", async (ctx) => {
     }
 
     addLog(`Executing: ${toolName} with args=${JSON.stringify(pending.args)}`, "success");
+    await ctx.answerCallbackQuery("Executing...");
     await clearButtons(ctx);
     pendingApprovals.delete(chatId);
     await sendTyping(ctx);
-    await continueAfterApproval(ctx, pending);
+    continueAfterApproval(ctx, pending).catch((err) => {
+      addLog(`continueAfterApproval (async) error: ${err.message}`, "error");
+    });
   } else if (callbackData.startsWith("deny_")) {
     const toolName = callbackData.replace("deny_", "");
     const pending = pendingApprovals.get(chatId);
@@ -693,7 +730,7 @@ bot.on("callback_query", async (ctx) => {
         },
       ];
       deniedMessages.push({ role: "assistant", content: "" });
-      chatHistories.set(chatId, deniedMessages.slice(-20));
+      chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-20));
     }
 
     await replyMsg(
@@ -767,6 +804,33 @@ bot.catch((err, ctx) => {
 
 const PORT = process.env.API_PORT || 3000;
 const server = createServer(app);
+
+// ─── WebSocket Server ──────────────────────────────────────────────────────
+
+wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  if (pathname === "/ws") {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  }
+});
+
+// Heartbeat — проверяем живые соединения каждые 30 секунд
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((client) => {
+    if (client.isAlive === false) return client.terminate();
+    client.isAlive = false;
+    client.ping();
+  });
+}, 30000);
+
+wss.on("connection", (ws) => {
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
+});
 
 server.listen(PORT, () => {
   addLog(`Server running on port ${PORT}`, "system");

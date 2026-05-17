@@ -119,22 +119,25 @@ function extractBash(content) {
 
 /**
  * Обрезать историю чата до указанного количества пар сообщений.
- * Сохраняет системное сообщение + последние N пар (user+assistant/tool).
+ * НЕ сохраняет system message — agentLoopStep добавляет его сам.
+ * Фильтрует пустые assistant-сообщения для экономии контекста.
  * @param {Array} messages - Полный массив сообщений
  * @param {number} maxPairs - Максимальное количество пар
  * @returns {Array} Обрезанный массив
  */
 function truncateHistory(messages, maxPairs) {
   if (!maxPairs || maxPairs <= 0) return messages;
-  const systemMsg = messages.find((m) => m.role === "system");
-  const nonSystem = messages.filter((m) => m.role !== "system");
+  // Убираем system message — agentLoopStep сам добавит новый
+  const nonSystem = messages.filter(
+    (m) => m.role !== "system" && !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length),
+  );
   const maxMsgs = maxPairs * 2;
   let startIdx = Math.max(0, nonSystem.length - maxMsgs);
+  // Пропускаем orphan tool сообщения в начале
   while (startIdx < nonSystem.length && nonSystem[startIdx].role === "tool") {
     startIdx++;
   }
-  const truncated = nonSystem.slice(startIdx);
-  return systemMsg ? [systemMsg, ...truncated] : truncated;
+  return nonSystem.slice(startIdx);
 }
 
 function buildToolExecConfig(account) {

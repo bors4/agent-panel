@@ -31,11 +31,12 @@ import { logInfo, logError } from "../lib/logger.js";
  * @param {Object} deps.tokenUsage - Счётчик токенов (prompt, completion, total, cached)
  * @param {Function} deps.resetStats - Сброс статистики
  * @param {Function} deps.resetTokenUsage - Сброс счётчика токенов
+ * @param {Function} deps.wsBroadcast - WebSocket рассылка событий
  * @returns {Router} Express Router
  */
 export function createApiRouter(deps) {
   const router = Router();
-  const { config, stats, chatHistories, pendingApprovals, addLog, updateAgentConfig, telegramBotToken } = deps;
+  const { config, stats, chatHistories, pendingApprovals, addLog, updateAgentConfig, telegramBotToken, wsBroadcast } = deps;
 
   // ─── Tools ───────────────────────────────────────────────────────────────
 
@@ -277,6 +278,8 @@ export function createApiRouter(deps) {
       pendingApprovals.clear();
       deps.resetTokenUsage();
       deps.updateStatus("idle", "Отключен");
+      wsBroadcast("stats", { requests: 0, tools: 0, errors: 0, uptime: 0 });
+      wsBroadcast("tokenUsage", { prompt: 0, completion: 0, total: 0, cached: 0 });
       addLog("Bot stopped", "warning");
       res.json({ success: true, message: "Bot stopped" });
     } catch (error) {
@@ -359,7 +362,9 @@ export function createApiRouter(deps) {
         if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
           deps.tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
         }
+        wsBroadcast("tokenUsage", { ...deps.tokenUsage });
       }
+      wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
       res.json({ success: true, reply, usage });
     } catch (error) {
       stats.errors++;

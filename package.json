@@ -44,7 +44,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "grammy": "^1.42.0",
-    "openai": "^6.35.0"
+    "openai": "^6.35.0",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.6",

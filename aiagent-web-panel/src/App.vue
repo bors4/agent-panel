@@ -10,7 +10,7 @@
                  @stop="handleStop"
                  @restart="handleRestart"
              />
-            <StatsCard :uptime="uptime" :stats="stats" :token-usage="tokenUsage" :max-tokens="localConfig.maxTokens" :show-tokens="quickSettings.showTokens" />
+            <StatsCard :uptime="uptime" :stats="stats" :token-usage="tokenUsage" :max-tokens="localConfig.maxTokens" :show-tokens="quickSettings.showTokens" @refresh="refreshStatus" />
             <BotCheckCard :token="localConfig.token" />
         </aside>
 
@@ -91,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted } from "vue";
 import { useAgent } from "@/composables/useAgent";
 import { useToast } from "@/composables/useToast";
 import { updateConfig, getConfig } from "@/api/client";
@@ -230,7 +230,6 @@ const updateModels = async () => {
 
 onMounted(async () => {
     await refreshStatus();
-    statusInterval = setInterval(refreshStatus, 5000);
 
     addLog("App initialized", "system");
 
@@ -293,12 +292,6 @@ onMounted(async () => {
         await handleStart();
     }
 });
-
-onUnmounted(() => {
-    clearInterval(statusInterval);
-});
-
-let statusInterval;
 
 // Handlers
 const handleStart = async () => {
