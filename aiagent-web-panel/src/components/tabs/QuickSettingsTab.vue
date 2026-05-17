@@ -4,7 +4,6 @@
   - verbose: при true — ChatTab логирует тайминги и полные ответы в LogsTab
   - autoStart: при true + token + projectPath — агент запускается при загрузке
   - showTokens: StatsCard (диаграмма + мини-бары), ChatTab (токены под ответами)
-  Удалено: notifications (не было логики потребления)
 -->
 <template>
     <Card>

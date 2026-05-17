@@ -25,7 +25,12 @@ export let config = {
 
 /**
  * Обновить конфигурацию агента.
- * @param {Partial<typeof config>} newConfig - Новые значения конфигурации
+ * @param {Object} newConfig - Новые значения конфигурации (частичное совпадение с config)
+ * @description
+ *   Вызывается из:
+ *   - server.js при старте (синхронизация из .env)
+ *   - routes/api.js POST /api/config (синхронизация из UI)
+ *   Использует Object.assign — свойства newConfig перезаписывают существующие
  */
 export function updateAgentConfig(newConfig) {
   Object.assign(config, newConfig);

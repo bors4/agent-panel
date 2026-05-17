@@ -129,7 +129,7 @@
 <!--
   Компонент чата для тестирования AI агента.
   Поддерживает отправку сообщений, отображение истории, очистку чата.
-  История сохраняетсяется в localStorage.
+  История сохраняется в localStorage.
 -->
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";

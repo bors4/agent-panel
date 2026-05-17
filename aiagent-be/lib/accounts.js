@@ -57,7 +57,14 @@ export function getRoleDefaultPermissions(role) {
  * @param {string} toolName - Название инструмента
  * @param {Object} args - Аргументы инструмента
  * @param {string} projectPath - Путь к проекту
- * @returns {{allowed: boolean, reason?: string}}
+ * @returns {Object} {allowed: boolean, reason?: string}
+ * @description
+ *   Проверяет:
+ *   1. Явный запрет инструмента в account.permissions
+ *   2. include_paths — если заданы, путь инструмента должен быть внутри одной из директорий
+ *      - Корневые пути дисков (E:\) разрешают доступ ко всему на этом диске
+ *      - Обычные пути (E:\Git) ограничивают доступ этой директорией и вложенными
+ *   3. Для инструмента "execute" проверка include_paths не применяется
  */
 export function checkAccountToolPermission(account, toolName, args, projectPath) {
   if (!account) return { allowed: true };
@@ -72,6 +79,11 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
       const resolved = path.resolve(projectPath, toolPath);
       const allowed = account.include_paths.some(p => {
         const norm = path.resolve(p);
+        // For root drive paths (E:\) — allow everything on that drive
+        const isRootDrive = norm.length === 3 && norm[1] === ":" && norm[2] === path.sep;
+        if (isRootDrive) {
+          return resolved.startsWith(norm);
+        }
         return resolved === norm || resolved.startsWith(norm + path.sep);
       });
       if (!allowed) {

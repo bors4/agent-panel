@@ -37,7 +37,7 @@ npm run frontend:dev
 | Variable             | Default                              | Description                     |
 | -------------------- | ------------------------------------ | ------------------------------- |
 | `TELEGRAM_BOT_TOKEN` | (required)                           | Telegram bot token              |
-| `PROJECT_PATH`       | (required)                           | Project context path            |
+| `PROJECT_PATH`       | (optional)                           | Project context path. If not set, must be configured via UI before starting bot |
 | `SERVER_URL`         | `http://192.168.1.101:1234/v1`       | AI model server URL             |
 | `MODEL_NAME`         | `qwen3.5-2b`                         | Model identifier                |
 | `SYSTEM_PROMPT`      | (empty)                              | Custom system prompt            |
@@ -66,8 +66,8 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 88 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, sessions, logger
-- **Frontend**: 17 tests covering composables, stores, and API client
+- **Backend**: 89 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, sessions, logger
+- **Frontend**: 22 tests covering composables, stores, API client, and StatsCard
 
 ## Build & Deploy
 
@@ -126,6 +126,8 @@ Users are authenticated by Telegram username via `accounts.json` in the project 
 **Permissions:**
 - `permissions` — per-tool enable/disable
 - `include_paths` — restrict file operations to specific directories
+  - Root drive paths (e.g., `E:\`) allow access to all directories on that drive
+  - Subdirectory paths (e.g., `E:\Git`) restrict to that directory and children only
 
 ## Statistics
 
@@ -134,6 +136,7 @@ Stats are tracked and displayed in the dashboard:
 - **Requests**: Number of AI requests made
 - **Tools**: Tool executions
 - **Errors**: Failed requests
+- **Token Usage**: Accumulated prompt, completion, total, and cached tokens across all AI requests
 
 Stats reset when bot is stopped.
 

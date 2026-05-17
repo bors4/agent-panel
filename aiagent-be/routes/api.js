@@ -28,6 +28,9 @@ import { logInfo, logError } from "../lib/logger.js";
  * @param {Function} deps.addLog - Функция логирования
  * @param {Function} deps.updateAgentConfig - Обновление конфигурации агента
  * @param {Object} deps.state - Общее состояние (botStatus, botStatusMessage, startTime)
+ * @param {Object} deps.tokenUsage - Счётчик токенов (prompt, completion, total, cached)
+ * @param {Function} deps.resetStats - Сброс статистики
+ * @param {Function} deps.resetTokenUsage - Сброс счётчика токенов
  * @returns {Router} Express Router
  */
 export function createApiRouter(deps) {
@@ -131,7 +134,7 @@ export function createApiRouter(deps) {
   router.get("/config", (req, res) => {
     res.json({
       success: true,
-      config: { ...config },
+      config: { ...config, token: process.env.TELEGRAM_BOT_TOKEN || "" },
     });
   });
 
@@ -142,11 +145,15 @@ export function createApiRouter(deps) {
   router.post("/config", (req, res) => {
     const body = req.body || {};
     let tokenChanged = false;
+    addLog(`POST /api/config received keys: ${Object.keys(body).join(", ")}`, "info");
     if (body.serverUrl) config.serverUrl = body.serverUrl;
     if (body.modelName) config.modelName = body.modelName;
-    if (body.projectPath) {
-      config.projectPath = path.resolve(body.projectPath);
-      addLog(`projectPath resolved to: ${config.projectPath}`, "info");
+    if (body.projectPath !== undefined && body.projectPath !== null && body.projectPath !== "") {
+      const resolved = path.resolve(body.projectPath);
+      config.projectPath = resolved;
+      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}"`, "info");
+    } else {
+      addLog(`projectPath: skipped (value=${JSON.stringify(body.projectPath)})`, "warning");
     }
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
     if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
@@ -163,7 +170,7 @@ export function createApiRouter(deps) {
       addLog("Token changed — restart bot to apply", "warning");
     }
     updateAgentConfig(config);
-    addLog(`Config updated: ${config.modelName}`, "info");
+    addLog(`Config updated: ${config.modelName}, projectPath=${config.projectPath}`, "info");
     res.json({ success: true, config, tokenChanged });
   });
 
