@@ -2,11 +2,8 @@
  * Тесты для API клиента.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  isConnectionActive,
-  resetConnection,
-} from "@/api/client";
+import { describe, it, expect } from "vitest";
+import { isConnectionActive, resetConnection } from "@/api/client";
 
 describe("api/client connection state", () => {
   it("starts with connected state", () => {

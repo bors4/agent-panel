@@ -46,9 +46,7 @@ export const TOOLS = {
     name: "read",
     description: "Read file contents from the project directory",
     category: "file",
-    examples: [
-      '<tool>{"name": "read", "args": {"filePath": "src/main.js"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "read", "args": {"filePath": "src/main.js"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -64,9 +62,7 @@ export const TOOLS = {
     name: "write",
     description: "Create or overwrite a file with content",
     category: "file",
-    examples: [
-      '<tool>{"name": "write", "args": {"filePath": "output.txt", "content": "Hello World"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "write", "args": {"filePath": "output.txt", "content": "Hello World"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -83,9 +79,7 @@ export const TOOLS = {
     name: "search",
     description: "Search for pattern in all files recursively",
     category: "search",
-    examples: [
-      '<tool>{"name": "search", "args": {"pattern": "TODO", "include": "*.js"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "search", "args": {"pattern": "TODO", "include": "*.js"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -99,9 +93,7 @@ export const TOOLS = {
     name: "list_dir",
     description: "List directory contents as flat list",
     category: "file",
-    examples: [
-      '<tool>{"name": "list_dir", "args": {"path": ".", "depth": 1}}</tool>',
-    ],
+    examples: ['<tool>{"name": "list_dir", "args": {"path": ".", "depth": 1}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -117,9 +109,7 @@ export const TOOLS = {
     name: "execute",
     description: "Execute a shell command in the project directory",
     category: "system",
-    examples: [
-      '<tool>{"name": "execute", "args": {"command": "npm install", "timeout": 60}}</tool>',
-    ],
+    examples: ['<tool>{"name": "execute", "args": {"command": "npm install", "timeout": 60}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -136,9 +126,7 @@ export const TOOLS = {
     name: "create_dir",
     description: "Create a new directory",
     category: "file",
-    examples: [
-      '<tool>{"name": "create_dir", "args": {"path": "new-folder"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "create_dir", "args": {"path": "new-folder"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -154,9 +142,7 @@ export const TOOLS = {
     name: "delete",
     description: "Delete a file or directory",
     category: "file",
-    examples: [
-      '<tool>{"name": "delete", "args": {"path": "temp/file.txt"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "delete", "args": {"path": "temp/file.txt"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -169,9 +155,7 @@ export const TOOLS = {
     name: "move",
     description: "Move or rename a file or directory",
     category: "file",
-    examples: [
-      '<tool>{"name": "move", "args": {"source": "old.txt", "destination": "new.txt"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "move", "args": {"source": "old.txt", "destination": "new.txt"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -185,9 +169,7 @@ export const TOOLS = {
     name: "copy",
     description: "Copy a file",
     category: "file",
-    examples: [
-      '<tool>{"name": "copy", "args": {"source": "file.txt", "destination": "file.bak"}}</tool>',
-    ],
+    examples: ['<tool>{"name": "copy", "args": {"source": "file.txt", "destination": "file.bak"}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
@@ -244,13 +226,13 @@ function checkToolPermission(toolName, args, projectPath, account) {
     return { allowed: false, reason: "Tool is denied by configuration" };
   }
 
-  const toolPath =
-    args.filePath || args.path || args.source || args.destination || "";
+  const toolPath = args.filePath || args.path || args.source || args.destination || "";
   const normalizedPath = path.normalize(toolPath).replace(/\\/g, "/");
 
   if (config.exclude_paths) {
+    const segments = normalizedPath.split("/");
     for (const exclude of config.exclude_paths) {
-      if (normalizedPath.includes(exclude)) {
+      if (segments.some((seg) => seg === exclude)) {
         return {
           allowed: false,
           reason: `Path matches exclude pattern: ${exclude}`,
@@ -272,8 +254,7 @@ function checkToolPermission(toolName, args, projectPath, account) {
  */
 export function formatValue(v, depth = 0) {
   if (v === null || v === undefined) return "N/A";
-  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean")
-    return v;
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
 
   // Arrays: format each element with indentation
   if (Array.isArray(v)) {
@@ -322,14 +303,7 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
       // Skip hidden files and common ignore patterns
       if (
         entry.name.startsWith(".") ||
-        [
-          "node_modules",
-          ".git",
-          "dist",
-          "build",
-          "venv",
-          "__pycache__",
-        ].includes(entry.name)
+        ["node_modules", ".git", "dist", "build", "venv", "__pycache__"].includes(entry.name)
       ) {
         continue;
       }
@@ -341,11 +315,7 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
       // Recurse into subdirectories if depth allows
       if (entry.isDirectory() && currentDepth + 1 < maxDepth) {
         const subPath = path.join(dirPath, entry.name);
-        const subEntries = await listDirectoryFlat(
-          subPath,
-          maxDepth,
-          currentDepth + 1,
-        );
+        const subEntries = await listDirectoryFlat(subPath, maxDepth, currentDepth + 1);
         // Indent sub-entries for visual hierarchy
         result.push(...subEntries.map((s) => "  " + s));
       }
@@ -362,15 +332,7 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
 // HELPER: SEARCH DIRECTORY
 // ============================================================================
 
-async function searchDirectory(
-  dirPath,
-  pattern,
-  results,
-  depth,
-  extension,
-  maxResults,
-  projectPath,
-) {
+async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath) {
   if (depth > 5 || results.length >= maxResults) return;
 
   try {
@@ -378,59 +340,38 @@ async function searchDirectory(
 
     for (const entry of entries) {
       if (results.length >= maxResults) break;
-      if (
-        [
-          "node_modules",
-          ".git",
-          "dist",
-          "build",
-          "venv",
-          "__pycache__",
-        ].includes(entry.name)
-      )
-        continue;
+      if (["node_modules", ".git", "dist", "build", "venv", "__pycache__"].includes(entry.name)) continue;
 
       const fullPath = path.join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
-        await searchDirectory(
-          fullPath,
-          pattern,
-          results,
-          depth + 1,
-          extension,
-          maxResults,
-          projectPath,
-        );
+        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath);
       } else if (entry.isFile()) {
         // Filter by extension if specified
-        if (extension && !entry.name.endsWith(extension.replace("*", "")))
-          continue;
+        if (extension && !entry.name.endsWith(extension.replace("*", ""))) continue;
 
         try {
           const content = await fs.promises.readFile(fullPath, "utf-8");
           const matches = content.match(pattern);
           if (matches && results.length < maxResults) {
-            const relativePath = path
-              .relative(projectPath, fullPath)
-              .replace(/\\/g, "/");
+            const relativePath = path.relative(projectPath, fullPath).replace(/\\/g, "/");
             results.push({
               file: relativePath,
               matches: matches.length,
               preview: content
                 .substring(
                   Math.max(0, content.indexOf(matches[0]) - 50),
-                  Math.min(content.length, content.indexOf(matches[0]) + 100),
+                  Math.min(content.length, content.indexOf(matches[0]) + 100)
                 )
                 .replace(/\n/g, " "),
             });
           }
-        } catch (e) {
+        } catch (_e) {
           /* skip unreadable files */
         }
       }
     }
-  } catch (e) {
+  } catch (_e) {
     /* skip inaccessible directories */
   }
 }
@@ -461,8 +402,7 @@ export async function executeTool(toolCall, config = {}) {
   if (!rawPath) {
     return {
       success: false,
-      error:
-        "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
+      error: "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
     };
   }
   const projectPath = path.resolve(rawPath);
@@ -490,12 +430,11 @@ export async function executeTool(toolCall, config = {}) {
   // Check permissions
   const permission = checkToolPermission(name, args, projectPath, account);
   if (!permission.allowed) {
-    return { success: false, error: permission.reason, requiresApproval: true };
+    const toolCfg = getToolConfig()[name] || {};
+    return { success: false, error: permission.reason, requiresApproval: toolCfg.permission === "ask" };
   }
 
-  console.log(
-    `[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`,
-  );
+  console.log(`[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`);
 
   try {
     switch (name) {
@@ -512,8 +451,7 @@ export async function executeTool(toolCall, config = {}) {
         const maxChars = config.maxFileChars || 2000;
         const truncated =
           content.length > maxChars
-            ? content.slice(0, maxChars) +
-              `\n\n... [truncated, ${content.length - maxChars} more chars]`
+            ? content.slice(0, maxChars) + `\n\n... [truncated, ${content.length - maxChars} more chars]`
             : content;
         return {
           success: true,
@@ -538,19 +476,20 @@ export async function executeTool(toolCall, config = {}) {
 
       // ────────────────────────────────────────────────────────────────────
       case "search": {
+        const pattern = args.pattern;
+        if (pattern?.length > 200) {
+          return { success: false, error: "Search pattern too long (max 200 chars)" };
+        }
+        let regex;
+        try {
+          regex = new RegExp(pattern, "gi");
+        } catch (e) {
+          return { success: false, error: `Invalid regex pattern: ${e.message}` };
+        }
         const results = [];
-        const regex = new RegExp(args.pattern, "gi");
         const include = args.include || null;
 
-        await searchDirectory(
-          projectPath,
-          regex,
-          results,
-          0,
-          include,
-          maxResults,
-          projectPath,
-        );
+        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath);
 
         return {
           success: true,
@@ -563,9 +502,7 @@ export async function executeTool(toolCall, config = {}) {
 
       // ────────────────────────────────────────────────────────────────────
       case "list_dir": {
-        const dirPath = args.path
-          ? safePath(args.path, projectPath)
-          : projectPath;
+        const dirPath = args.path ? safePath(args.path, projectPath) : projectPath;
         const depth = Math.min(args.depth || 1, 3);
 
         if (!fs.existsSync(dirPath)) {
@@ -587,92 +524,84 @@ export async function executeTool(toolCall, config = {}) {
         };
       }
 
-// ────────────────────────────────────────────────────────────────────
-       case "execute": {
-         const timeoutSec = args.timeout || 30;
-         const isWin = process.platform === "win32";
-         const trimmedCmd = args.command.trimStart();
-         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
+      // ────────────────────────────────────────────────────────────────────
+      case "execute": {
+        const timeoutSec = Math.min(Math.max(args.timeout || 30, 1), 3600);
+        const isWin = process.platform === "win32";
+        const trimmedCmd = args.command.trimStart();
+        const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
 
-         try {
-           const result = await new Promise((resolve, reject) => {
-             let shell, shellArgs;
+        try {
+          const result = await new Promise((resolve, reject) => {
+            const { shell, shellArgs } = isWin && isPwsh
+              ? (() => {
+                  const pwshCmd = trimmedCmd
+                    .replace(/^(powershell|pwsh)\s+/i, "")
+                    .replace(/^(-command|-c)\s+/i, "")
+                    .trim()
+                    .replace(/^["'](.*)["']\s*$/, "$1");
+                  return { shell: "powershell.exe", shellArgs: ["-NoLogo", "-NoProfile", "-Command", pwshCmd] };
+                })()
+              : isWin
+                ? { shell: "cmd.exe", shellArgs: ["/d", "/c", args.command] }
+                : { shell: "/bin/sh", shellArgs: ["-c", args.command] };
 
-             if (isWin && isPwsh) {
-               const pwshCmd = trimmedCmd
-                 .replace(/^(powershell|pwsh)\s+/i, "")
-                 .replace(/^(-command|-c)\s+/i, "")
-                 .trim()
-                 .replace(/^["'](.*)["']\s*$/, "$1");
-               shell = "powershell.exe";
-               shellArgs = ["-NoLogo", "-NoProfile", "-Command", pwshCmd];
-             } else if (isWin) {
-               shell = "cmd.exe";
-               shellArgs = ["/d", "/c", args.command];
-             } else {
-               shell = "/bin/sh";
-               shellArgs = ["-c", args.command];
-             }
+            const child = spawn(shell, shellArgs, {
+              cwd: projectPath,
+              encoding: "utf-8",
+              maxBuffer: 10 * 1024 * 1024,
+              windowsHide: true,
+              windowsVerbatimArguments: isWin,
+            });
 
-             const child = spawn(shell, shellArgs, {
-               cwd: projectPath,
-               encoding: "utf-8",
-               maxBuffer: 10 * 1024 * 1024,
-               windowsHide: true,
-               windowsVerbatimArguments: isWin,
-             });
+            let stdout = "";
+            let stderr = "";
 
-             let stdout = "";
-             let stderr = "";
+            child.stdout.on("data", (data) => {
+              stdout += data.toString();
+            });
+            child.stderr.on("data", (data) => {
+              stderr += data.toString();
+            });
 
-             child.stdout.on("data", (data) => {
-               stdout += data.toString();
-             });
-             child.stderr.on("data", (data) => {
-               stderr += data.toString();
-             });
+            const timer = setTimeout(() => {
+              if (process.platform === "win32") {
+                child.kill();
+              } else {
+                child.kill("SIGTERM");
+              }
+              reject(new Error(`Command timed out after ${timeoutSec}s`));
+            }, timeoutSec * 1000);
 
-             const timer = setTimeout(() => {
-               child.kill("SIGTERM");
-               reject(new Error(`Command timed out after ${timeoutSec}s`));
-             }, timeoutSec * 1000);
+            child.on("error", (err) => {
+              clearTimeout(timer);
+              reject(err);
+            });
 
-             child.on("error", (err) => {
-               clearTimeout(timer);
-               reject(err);
-             });
+            child.on("close", (code, signal) => {
+              clearTimeout(timer);
+              const exitCode = code ?? (signal ? 1 : 0);
+              resolve({
+                stdout: stdout.trim(),
+                stderr: stderr.trim(),
+                exitCode,
+              });
+            });
+          });
 
-             child.on("close", (code, signal) => {
-               clearTimeout(timer);
-               resolve({
-                 stdout: stdout.trim(),
-                 stderr: stderr.trim(),
-                 exitCode: code ?? 0,
-               });
-             });
-           });
-
-            return {
-              success: result.exitCode === 0,
-              data: {
-                stdout: result.stdout,
-                stderr: result.stderr,
-                exitCode: result.exitCode,
-              },
-              error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
-            };
-         } catch (e) {
-           return {
-             success: false,
-             error: e.message,
-             data: {
-               stdout: e.stdout?.trim() || "",
-               stderr: e.stderr?.trim() || "",
-               exitCode: e.code ?? 1,
-             },
-           };
-         }
-       }
+          return {
+            success: result.exitCode === 0,
+            data: {
+              stdout: result.stdout,
+              stderr: result.stderr,
+              exitCode: result.exitCode,
+            },
+            error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
+          };
+        } catch (e) {
+          return { success: false, error: e.message };
+        }
+      }
 
       // ────────────────────────────────────────────────────────────────────
       case "create_dir": {

@@ -18,31 +18,29 @@ import path from "path";
  *   - Нормализует к forward slashes для сравнения
  */
 export function safePath(userPath, projectRoot) {
-   // Trim projectRoot to handle trailing whitespace/newlines from env
-   const trimmedRoot = projectRoot.trim();
-   const cleanPath = userPath.replace(/^\.\//, "").trim();
+  // Trim projectRoot to handle trailing whitespace/newlines from env
+  const trimmedRoot = projectRoot.trim();
+  const cleanPath = userPath.replace(/^\.\//, "").trim();
 
-   // Reject null bytes
-   if (cleanPath.includes("\0")) {
-     throw new Error("Path contains null bytes");
-   }
+  // Reject null bytes
+  if (cleanPath.includes("\0")) {
+    throw new Error("Path contains null bytes");
+  }
 
-   const resolvedRoot = path.resolve(trimmedRoot);
-   const normalizedRoot = resolvedRoot.replace(/\\/g, "/").toLowerCase();
+  const resolvedRoot = path.resolve(trimmedRoot);
+  const normalizedRoot = resolvedRoot.replace(/\\/g, "/").toLowerCase();
 
-   // If userPath is absolute, check if it's within the project root
-   const resolvedPath = path.isAbsolute(cleanPath)
-     ? path.resolve(cleanPath)
-     : path.resolve(trimmedRoot, cleanPath);
+  // If userPath is absolute, check if it's within the project root
+  const resolvedPath = path.isAbsolute(cleanPath) ? path.resolve(cleanPath) : path.resolve(trimmedRoot, cleanPath);
 
-   // Normalize to forward slashes for consistent comparison and output
-   const normalizedPath = resolvedPath.replace(/\\/g, "/").toLowerCase();
+  // Normalize to forward slashes for consistent comparison and output
+  const normalizedPath = resolvedPath.replace(/\\/g, "/").toLowerCase();
 
-   if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(normalizedRoot + "/")) {
-     throw new Error(`Path outside project is forbidden: ${normalizedPath} (root: ${normalizedRoot})`);
-   }
-   return resolvedPath.replace(/\\/g, "/");
- }
+  if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(normalizedRoot + "/")) {
+    throw new Error(`Path outside project is forbidden: ${normalizedPath} (root: ${normalizedRoot})`);
+  }
+  return resolvedPath.replace(/\\/g, "/");
+}
 
 /**
  * Extracts a complete JSON block from a string starting at the given index,
@@ -80,9 +78,7 @@ export function parseToolCall(text) {
     const funcName = match[1];
     const paramsText = match[2];
     const args = {};
-    const pm = paramsText.matchAll(
-      /<parameter=(\w+)>([\s\S]*?)<\/parameter>/gis,
-    );
+    const pm = paramsText.matchAll(/<parameter=(\w+)>([\s\S]*?)<\/parameter>/gis);
     for (const m of pm) {
       let value = m[2].trim();
       // Конвертация типов: boolean / number / string

@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 12 / 33** | `P0: 3/8` · `P1: 3/13` · `P2: 6/12`
+> **Прогресс: 15 / 62** | `P0: 3/12` · `P1: 5/24` · `P2: 7/26`
 
 ---
 
@@ -42,6 +42,24 @@
 - [ ] #8 `[security][backend]` **Telegram bot token в ответе API**
   - `GET /api/config` возвращает `{ token: process.env.TELEGRAM_BOT_TOKEN }` — убрать из ответа
 
+- [ ] #9 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
+  - На Linux файловая система чувствительна к регистру: `/home/User/file.txt` ≠ `/home/user/file.txt`
+  - Использовать `.toLowerCase()` только на Windows (`process.platform === "win32"`)
+
+- [ ] #10 `[bug][backend]` **Race condition в `loadAccounts()` между existsSync и readFileSync**
+  - Если файл удалён между `fs.existsSync` и `fs.readFileSync` → `ENOENT` исключение
+  - **Фикс:** убрать `existsSync`, обернуть `readFileSync` в try/catch с проверкой `e.code !== "ENOENT"`
+
+- [ ] #11 `[bug][backend]` **Fetch-запросы к AI API не имеют таймаута**
+  - `agentLoop.js`, `server.js`, `api.js` — нет `AbortSignal`/`AbortController`
+  - Если AI-сервер завис, запрос висит бесконечно, бот блокируется
+  - **Фикс:** вынести `fetchWithTimeout(url, options, timeoutMs)` с `AbortController`
+
+- [ ] #12 `[security][backend]` **Path traversal в `checkAccountToolPermission` через `include_paths`**
+  - `accounts.js:73-89`: `path.resolve(projectPath, "../../../Windows")` обходит проверку
+  - `include_paths` с корнем диска (`E:\`) пропускает любой путь на этом диске
+  - **Фикс:** добавить проверку вхождения пути в `projectPath` через `path.relative()`
+
 ---
 
 ## 🟡 Medium Priority (P1)
@@ -77,16 +95,17 @@
   - Убедиться что `usage.prompt_tokens_details.cached_tokens` корректно обрабатывается
   - Добавить отображение контекстного окна модели (если доступно через `/v1/models`)
 
-- [ ] #8 `[refactor][backend]` **Убрать дублирование config-объекта** между `server.js` и `agentLoop.js`
-  - Передавать config как параметр в функции agentLoop вместо хранения копии; убрать `updateAgentConfig()`
+- [x] #8 `[refactor][backend]` **Убрать дублирование config-объекта** между `server.js` и `agentLoop.js` ✅
+  - Config передаётся параметром в `agentLoopStep()` и `buildToolExecConfig()`
+  - Удалены `updateAgentConfig()`, `getAgentConfig()`, module-level `config` из `agentLoop.js`
 
 - [ ] #9 `[perf][backend]` **Синхронный file I/O блокирует event loop**
   - Все `*Sync` операции в `executeTool.js` заменить на `fs.promises`
 
-- [ ] #10 `[refactor][backend]` **Мёртвый код и зависимости**
-  - `aiagent-be/lib/session.js` — импортирован но не используется; либо интегрировать, либо удалить
-  - `aiagent-web-panel/src/stores/settings.js` — Pinia store не используется; либо интегрировать, либо удалить
-  - `openai` в `package.json` — установлен, но нигде не импортирован (~1.5MB мусора); удалить
+- [x] #10 `[refactor][backend]` **Мёртвый код и зависимости** ✅
+  - Удалён `aiagent-be/lib/session.js` (никем не используется)
+  - Удалён `aiagent-web-panel/src/stores/settings.js` (Pinia store не используется)
+  - Удалён `openai` из `package.json` (~1.5MB мусора)
 
 - [ ] #11 `[refactor][backend]` **Дублирование аккумуляции token usage** в 5 местах
   - Вынести в `accumulateTokenUsage(target, usage)` в utils.js
@@ -138,6 +157,38 @@
   - **Фикс:** интегрировать `agentLoopStep()` в `/api/chat`; добавить tool definitions; передавать account/permissions; унифицировать system prompt с Telegram bot
   - На фронтенде: добавить отображение tool calls (выполняется/одобрить/отклонить) и результатов в чате
 
+- [ ] #18 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
+  - `Object.assign(config, newConfig)` — уязвим к `__proto__` / `constructor`
+  - **Фикс:** использовать `Object.keys(newConfig).forEach(k => { if (k in config) config[k] = newConfig[k]; })`
+
+- [ ] #19 `[security][backend]` **Все команды Telegram доступны без аккаунта**
+  - `/start`, `/help`, `/model`, `/clear`, `/tools` работают для любого пользователя
+  - При этом `bot.on("message")` блокирует неизвестных — несоответствие модели безопасности
+
+- [ ] #20 `[bug][backend]` **`args.timeout || 30` — некорректная обработка timeout=0 и NaN**
+  - Если модель передаст `timeout: 0` → станет 30 (должно означать "без лимита")
+  - Если `timeout: "abc"` → `NaN` → `setTimeout(NaN)` никогда не сработает
+  - **Фикс:** `Number.isFinite(args.timeout) && args.timeout > 0 ? args.timeout : 30`
+
+- [ ] #21 `[bug][backend]` **Двойной вызов `getToolConfig()` в `continueAfterApproval`**
+  - `server.js:552-553`: дважды вызывается `getToolConfig()`, race condition при смене конфига
+  - **Фикс:** вызвать один раз, сохранить результат в переменную
+
+- [ ] #22 `[bug][backend]` **JSON.parse без обработки undefined/null в tool_calls модели**
+  - `agentLoop.js:191-194`, `server.js:546-549`: `JSON.parse(tc.function.arguments)` — если `arguments = undefined`, падает с TypeError
+  - `catch` без параметра — теряется стек ошибки
+  - **Фикс:** добавить проверку `arguments`, логировать ошибку в `catch(e)`
+
+- [ ] #23 `[bug][backend]` **Нет валидации `projectPath` на существование при обновлении через API**
+  - `api.js:138-141`: любой путь принимается без проверки, что директория существует
+  - Если указать несуществующий путь, все Telegram-запросы падают с `"Project path not configured"`
+  - **Фикс:** `fs.existsSync` + `fs.statSync.isDirectory()` с `400 Bad Request`
+
+- [ ] #24 `[bug][backend]` **`useFunctionCalling` fallback не отличает 400 от 500**
+  - `agentLoop.js:165-169`: при любой ошибке `!resp.ok` код считает, что model "не поддерживает FC"
+  - Если сервер вернул 500, retry с отключенным FC бесполезен — та же 500 повторится
+  - **Фикс:** fallback только при `resp.status === 400`, иначе сразу `return`
+
 ---
 
 ## 🟢 Low Priority (P2)
@@ -145,8 +196,10 @@
 - [x] #1 `[docs]` Переименовать директорию `web-panel` → `agent-panel` и обновить все ссылки
 - [x] #2 `[bug][ui]` Нужно исправить `color` для `chat-bubble`. Для светлой темы не виден. ✅ Исправлено: заменён
 
-- [ ] #3 `[infra]` **Добавить ESLint + Prettier**
-  - Нет никакого линтера/форматтера; код в разном стиле (кавычки, отступы, точки с запятой)
+- [x] #3 `[infra]` **Добавить ESLint + Prettier** ✅
+  - Flat config (`eslint.config.js`), `.prettierrc`, scripts: `lint`, `lint:fix`, `format`, `format:check`
+  - Backend: Node.js globals; Frontend: Browser globals
+  - 0 errors, 35 warnings (unused vars — existing code)
 
 - [ ] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
   - `server.js` режет до 20, `session.js` до 10, `agentLoop.js` через `maxHistoryPairs*2`
@@ -155,11 +208,11 @@
 - [ ] #5 `[refactor][backend]` **Graceful shutdown**
   - Добавить `process.on('SIGTERM')` и `process.on('SIGINT')` для остановки бота и закрытия Express
 
-- [ ] #6 `[tests][backend]` **Интеграционные тесты API**
-  - Добавить supertest для тестирования всех REST endpoints
+- [x] #6 `[tests][backend]` **Интеграционные тесты API** ✅
+  - Добавлен `supertest`, 25 тестов для всех REST endpoints в `tests/api.test.js`
 
-- [ ] #7 `[tests][frontend]` **Компонентные тесты Vue**
-  - Добавить тесты для SettingsTab, ChatTab, ControlsCard, StatsCard
+- [x] #7 `[tests][frontend]` **Компонентные тесты Vue** ✅
+  - Добавлены тесты: ControlsCard (6), ChatTab (4), SettingsTab (3), StatsCard (5)
 
 - [ ] #8 `[feature][backend]` **Rate limiting**
   - Добавить `express-rate-limit` на чувствительные endpoints (`/api/chat`, `/api/agent/tool`, `/api/config`)
@@ -175,3 +228,54 @@
 
 - [ ] #12 `[feature][backend]` **Очистка старых сессий**
   - `chatHistories` никогда не очищается — добавить периодическую чистку (1 час без активности)
+
+- [ ] #13 `[bug][backend]` **`/api/status` возвращает `uptime` дважды**
+  - `uptime` есть и в `stats`, и на корневом уровне ответа — убрать дублирование
+
+- [ ] #14 `[refactor][backend]` **Магическое число `5` для `maxIterations`**
+  - Вынести в константу `const MAX_AGENT_ITERATIONS = 5;`
+
+- [ ] #15 `[security][frontend]` **Hardcoded API key на фронтенде**
+  - `"x-api-key": "agent-secret-key"` в ToolsTab.vue и client.js хардкожен
+  - Если изменить `API_KEY` в `.env`, фронтенд перестанет работать
+  - Вынести в константу/env-переменную Vite
+
+- [ ] #16 `[perf][frontend]` **`BotCheckCard.vue` — `watch` с `{ immediate: true }` вызывает фильтрацию token на каждый триггер**
+  - `token.replace(/[^\x00-\x7F]/g, "")` вызывается при быстром наборе 10+ раз/сек
+  - Добавить debounce (300ms)
+
+- [x] #17 `[refactor][backend]` **`let shell, shellArgs` → const внутри блоков** ✅
+  - В `executeTool.js` переписано на тернарник с `const { shell, shellArgs }`
+
+- [x] #18 `[refactor][backend]` **`useFC` → `useFunctionCalling`** ✅
+  - Переименовано 5 вхождений в `agentLoop.js`
+
+- [ ] #19 `[style][backend]` **`let finalResponse = ""`, `let useFC = true` — объединить с другими `let` в один statement**
+
+- [ ] #20 `[style][backend]` **`addLog` внутри `updateStatus` — косвенная рекурсия логирования**
+  - `updateStatus` сам вызывает `addLog`, в который передаётся лог — запутывает
+
+- [ ] #21 `[perf][frontend]` **`BASE_URL` хардкод в `client.js`**
+  - Для production должно быть конфигурируемым через Vite env-переменную
+
+- [ ] #22 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
+  - За прокси на production может сломаться; унифицировать через `BASE_URL`
+
+- [ ] #23 `[bug][frontend]` **Черновик "⏳ Analyzing request..." не удаляется после ответа**
+  - `server.js:320,350-356`: `sendDraft` отправляет черновик, но он никогда не редактируется/удаляется
+  - Пользователь видит два сообщения: "⏳..." и ответ
+  - **Фикс:** сохранять msgId черновика и удалять перед ответом, либо убрать `sendDraft`
+
+- [ ] #24 `[perf][backend]` **ReDoS-потенциал в `extractBash()`**
+  - `agentLoop.js:70-73`: `content.match(/\`(?:bash|sh)?[\s\S]*?\`/)` — backtracking при большом content
+  - **Фикс:** использовать `indexOf` вместо regex
+
+- [ ] #25 `[refactor][backend]` **`TOOLS` определение и конфигурация разделены**
+  - `executeTool.js`: `TOOLS` (строки 44-182) — схема, `toolConfig` — runtime-конфиг
+  - `getToolConfig()` вынужден merge-ить две структуры
+  - **Фикс:** объединить `enabled`/`permission`/`exclude_paths` в `TOOLS` как единый источник
+
+- [ ] #26 `[perf][backend]` **`formatValue()` рекурсия без защиты от циклических ссылок**
+  - `executeTool.js:255-285`: рекурсивный обход без защиты от circular ref
+  - Если модель вернёт объект с циклической ссылкой → `RangeError: Maximum call stack size exceeded`
+  - **Фикс:** добавить `Set` для отслеживания посещённых объектов

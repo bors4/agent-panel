@@ -21,12 +21,12 @@ export default defineConfig({
       },
     },
     hmr: {
-          overlay: false,
-          pingTimeout: 5000,
-          pingInterval: 10000,
-        },
+      overlay: false,
+      pingTimeout: 5000,
+      pingInterval: 10000,
+    },
   },
   define: {
-      'import.meta.env.VITE_DISABLE_HMR_LOGS': JSON.stringify('true'),
-    },
+    "import.meta.env.VITE_DISABLE_HMR_LOGS": JSON.stringify("true"),
+  },
 });

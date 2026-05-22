@@ -25,8 +25,8 @@ const BASE_RECONNECT_DELAY = 1000; // 1 секунда старт
 
   // Перехватываем ошибки "send was called before connect"
   const originalOnError = window.onerror;
-  window.onerror = function (message, source, lineno, colno, error) {
-    if (message?.includes?.('send was called before connect') && source?.includes('client:')) {
+  window.onerror = function (message, source, _lineno, _colno, _error) {
+    if (message?.includes?.("send was called before connect") && source?.includes("client:")) {
       const now = Date.now();
       if (now < suppressUntil) {
         return true;
@@ -38,12 +38,12 @@ const BASE_RECONNECT_DELAY = 1000; // 1 секунда старт
   };
 
   // Перехватываем неуловимые Promise-ошибки
-  window.addEventListener('unhandledrejection', (event) => {
-    if (event.reason?.message?.includes('send was called before connect')) {
+  window.addEventListener("unhandledrejection", (event) => {
+    if (event.reason?.message?.includes("send was called before connect")) {
       event.preventDefault(); // не показывать в консоли
       const now = Date.now();
       if (now >= suppressUntil) {
-        console.debug('[client] Suppressed unhandled promise rejection');
+        console.debug("[client] Suppressed unhandled promise rejection");
         suppressUntil = now + SUPPRESS_DURATION;
       }
     }
@@ -54,10 +54,7 @@ const BASE_RECONNECT_DELAY = 1000; // 1 секунда старт
 // 🛡️ Утилита: экспоненциальная задержка
 // ─────────────────────────────────────────────────────
 function getReconnectDelay() {
-  const delay = Math.min(
-    BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempt),
-    MAX_RECONNECT_DELAY,
-  );
+  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempt), MAX_RECONNECT_DELAY);
   reconnectAttempt = Math.min(reconnectAttempt + 1, 4); // не больше 4 шагов
   return delay;
 }
@@ -98,19 +95,17 @@ async function apiFetch(endpoint, options = {}, retry = true) {
     return response;
   } catch (error) {
     // 🚫 При первой ошибке — включаем короткое подавление "шума"
-      if (isConnected) {
-        window.__apiConnectionLost = true;
-        window.__apiConnectionLostTime = Date.now();
-        console.warn(`[api] ✗ Connection lost: ${error.message}`);
-        isConnected = false;
-      }
+    if (isConnected) {
+      window.__apiConnectionLost = true;
+      window.__apiConnectionLostTime = Date.now();
+      console.warn(`[api] ✗ Connection lost: ${error.message}`);
+      isConnected = false;
+    }
 
     // Если повторные попытки включены — планируем следующую
     if (retry && !reconnectTimeout) {
       const delay = getReconnectDelay();
-      console.debug(
-        `[api] Retrying in ${delay}ms... (attempt ${reconnectAttempt})`,
-      );
+      console.debug(`[api] Retrying in ${delay}ms... (attempt ${reconnectAttempt})`);
 
       reconnectTimeout = setTimeout(() => {
         reconnectTimeout = null;
@@ -218,16 +213,16 @@ export async function runAgentLoop(agentState) {
 }
 
 export async function executeTool(toolCall) {
-   const config = JSON.parse(localStorage.getItem("agent-config") || "{}");
-   const response = await apiFetch("/agent/tool", {
-     method: "POST",
-     body: JSON.stringify({
-       toolCall,
-       projectPath: config.projectPath || undefined,
-     }),
-   });
-   return response.json();
- }
+  const config = JSON.parse(localStorage.getItem("agent-config") || "{}");
+  const response = await apiFetch("/agent/tool", {
+    method: "POST",
+    body: JSON.stringify({
+      toolCall,
+      projectPath: config.projectPath || undefined,
+    }),
+  });
+  return response.json();
+}
 
 export async function getTools() {
   const response = await apiFetch("/tools");

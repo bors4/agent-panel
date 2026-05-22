@@ -4,7 +4,7 @@
 
 import path from "path";
 import fs from "fs";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   loadAccounts,
   saveAccounts,
@@ -22,11 +22,7 @@ beforeEach(() => {
     fs.mkdirSync(testDir, { recursive: true });
   } catch {}
   // Reset module state by writing empty accounts file
-  fs.writeFileSync(
-    path.join(testDir, "accounts.json"),
-    JSON.stringify({ accounts: [] }),
-    "utf-8",
-  );
+  fs.writeFileSync(path.join(testDir, "accounts.json"), JSON.stringify({ accounts: [] }), "utf-8");
   loadAccounts(testDir);
 });
 
@@ -38,9 +34,7 @@ afterEach(() => {
 
 describe("loadAccounts / saveAccounts", () => {
   it("saves and loads accounts from accounts.json", () => {
-    const accounts = [
-      { username: "@testuser", role: "user", permissions: { read: true } },
-    ];
+    const accounts = [{ username: "@testuser", role: "user", permissions: { read: true } }];
     saveAccounts(testDir, accounts);
     loadAccounts(testDir);
     const loaded = getAccounts();
@@ -146,12 +140,7 @@ describe("checkAccountToolPermission", () => {
     };
     fs.mkdirSync(path.join(testDir, "allowed"), { recursive: true });
 
-    const result = checkAccountToolPermission(
-      account,
-      "read",
-      { filePath: "allowed/file.txt" },
-      testDir,
-    );
+    const result = checkAccountToolPermission(account, "read", { filePath: "allowed/file.txt" }, testDir);
     expect(result.allowed).toBe(true);
   });
 
@@ -161,12 +150,7 @@ describe("checkAccountToolPermission", () => {
       include_paths: [path.join(testDir, "allowed")],
     };
 
-    const result = checkAccountToolPermission(
-      account,
-      "read",
-      { filePath: "../forbidden/file.txt" },
-      testDir,
-    );
+    const result = checkAccountToolPermission(account, "read", { filePath: "../forbidden/file.txt" }, testDir);
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("not in allowed");
   });
@@ -177,12 +161,7 @@ describe("checkAccountToolPermission", () => {
       include_paths: [path.join(testDir, "allowed")],
     };
 
-    const result = checkAccountToolPermission(
-      account,
-      "execute",
-      { command: "echo hello" },
-      testDir,
-    );
+    const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
     expect(result.allowed).toBe(true);
   });
 });

@@ -7,15 +7,12 @@
 import path from "path";
 import fs from "fs";
 
-const ALL_TOOLS = [
-  "read", "write", "search", "list_dir", "execute",
-  "create_dir", "delete", "move", "copy",
-];
+const ALL_TOOLS = ["read", "write", "search", "list_dir", "execute", "create_dir", "delete", "move", "copy"];
 
 const ROLE_DEFAULTS = {
   system: ALL_TOOLS.reduce((m, t) => ({ ...m, [t]: true }), {}),
-  user:   { read: true, write: true, list_dir: true, search: true, create_dir: true },
-  guest:  { read: true },
+  user: { read: true, write: true, list_dir: true, search: true, create_dir: true },
+  guest: { read: true },
 };
 
 let accounts = [];
@@ -44,7 +41,7 @@ export function getAccounts() {
 export function getAccountByUsername(username) {
   if (!username) return null;
   const normalized = username.replace(/^@/, "");
-  return accounts.find(a => (a.username || "").replace(/^@/, "") === normalized) || null;
+  return accounts.find((a) => (a.username || "").replace(/^@/, "") === normalized) || null;
 }
 
 export function getRoleDefaultPermissions(role) {
@@ -77,7 +74,7 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
     const toolPath = args.filePath || args.path || args.source || args.destination || "";
     if (toolPath) {
       const resolved = path.resolve(projectPath, toolPath);
-      const allowed = account.include_paths.some(p => {
+      const allowed = account.include_paths.some((p) => {
         const norm = path.resolve(p);
         // For root drive paths (E:\) — allow everything on that drive
         const isRootDrive = norm.length === 3 && norm[1] === ":" && norm[2] === path.sep;
