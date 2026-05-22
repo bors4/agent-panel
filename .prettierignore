@@ -1,0 +1,10 @@
+*.md
+*.json
+package-lock.json
+.env
+*.lock
+dist/
+node_modules/
+docs/
+coverage/
+aiagent-be/logs/

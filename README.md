@@ -34,18 +34,18 @@ npm run frontend:dev
 
 ## Environment Variables (`.env`)
 
-| Variable             | Default                              | Description                     |
-| -------------------- | ------------------------------------ | ------------------------------- |
-| `TELEGRAM_BOT_TOKEN` | (required)                           | Telegram bot token              |
-| `PROJECT_PATH`       | (optional)                           | Project context path. If not set, must be configured via UI before starting bot |
-| `SERVER_URL`         | `http://192.168.1.101:1234/v1`       | AI model server URL             |
-| `MODEL_NAME`         | `qwen3.5-2b`                         | Model identifier                |
-| `SYSTEM_PROMPT`      | (empty)                              | Custom system prompt            |
-| `API_PORT`           | `3000`                               | Backend API port                |
-| `API_KEY`            | `agent-secret-key`                   | API key for frontend auth       |
-| `MAX_TOKENS`         | `8192`                               | Max tokens per AI response      |
-| `TEMPERATURE`        | `0.1`                                | AI response temperature         |
-| `TIMEOUT`            | `120000`                             | Request timeout (ms)            |
+| Variable             | Default                        | Description                                                                     |
+| -------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN` | (required)                     | Telegram bot token                                                              |
+| `PROJECT_PATH`       | (optional)                     | Project context path. If not set, must be configured via UI before starting bot |
+| `SERVER_URL`         | `http://192.168.1.101:1234/v1` | AI model server URL                                                             |
+| `MODEL_NAME`         | `qwen3.5-2b`                   | Model identifier                                                                |
+| `SYSTEM_PROMPT`      | (empty)                        | Custom system prompt                                                            |
+| `API_PORT`           | `3000`                         | Backend API port                                                                |
+| `API_KEY`            | `agent-secret-key`             | API key for frontend auth                                                       |
+| `MAX_TOKENS`         | `8192`                         | Max tokens per AI response                                                      |
+| `TEMPERATURE`        | `0.1`                          | AI response temperature                                                         |
+| `TIMEOUT`            | `120000`                       | Request timeout (ms)                                                            |
 
 ## Development
 
@@ -83,23 +83,23 @@ npm start
 
 All endpoints require `x-api-key: agent-secret-key` header:
 
-| Method | Endpoint              | Description                                      |
-| ------ | --------------------- | ------------------------------------------------ |
-| GET    | `/api/status`         | Server status, botStatus, stats, uptime          |
-| GET    | `/api/logs?limit=N`   | Recent logs                                      |
-| GET    | `/api/config`         | Current configuration                            |
-| GET    | `/api/models`         | Fetch available models from AI server            |
-| POST   | `/api/config`         | Update config                                    |
-| POST   | `/api/start`          | Start Telegram bot                               |
-| POST   | `/api/stop`           | Stop bot, reset stats, clear chat histories      |
-| POST   | `/api/restart`        | Restart Telegram bot                             |
-| POST   | `/api/chat`           | Direct chat with AI                              |
-| GET    | `/api/tools`          | List tools with config                           |
-| POST   | `/api/tools`          | Update tool config                               |
-| GET    | `/api/accounts`       | List user accounts                               |
-| POST   | `/api/accounts`       | Save user accounts                               |
-| POST   | `/api/accounts/import`| Import accounts from JSON                        |
-| POST   | `/api/agent/tool`     | Direct tool call by agent                        |
+| Method | Endpoint               | Description                                 |
+| ------ | ---------------------- | ------------------------------------------- |
+| GET    | `/api/status`          | Server status, botStatus, stats, uptime     |
+| GET    | `/api/logs?limit=N`    | Recent logs                                 |
+| GET    | `/api/config`          | Current configuration                       |
+| GET    | `/api/models`          | Fetch available models from AI server       |
+| POST   | `/api/config`          | Update config                               |
+| POST   | `/api/start`           | Start Telegram bot                          |
+| POST   | `/api/stop`            | Stop bot, reset stats, clear chat histories |
+| POST   | `/api/restart`         | Restart Telegram bot                        |
+| POST   | `/api/chat`            | Direct chat with AI                         |
+| GET    | `/api/tools`           | List tools with config                      |
+| POST   | `/api/tools`           | Update tool config                          |
+| GET    | `/api/accounts`        | List user accounts                          |
+| POST   | `/api/accounts`        | Save user accounts                          |
+| POST   | `/api/accounts/import` | Import accounts from JSON                   |
+| POST   | `/api/agent/tool`      | Direct tool call by agent                   |
 
 ## Account System
 
@@ -119,11 +119,13 @@ Users are authenticated by Telegram username via `accounts.json` in the project 
 ```
 
 **Roles:**
+
 - `system` — full access to all tools
 - `user` — read, write, search, list_dir, create_dir
 - `guest` — read only
 
 **Permissions:**
+
 - `permissions` — per-tool enable/disable
 - `include_paths` — restrict file operations to specific directories
   - Root drive paths (e.g., `E:\`) allow access to all directories on that drive
@@ -132,6 +134,7 @@ Users are authenticated by Telegram username via `accounts.json` in the project 
 ## Statistics
 
 Stats are tracked and displayed in the dashboard:
+
 - **Uptime**: Time since bot started (seconds)
 - **Requests**: Number of AI requests made
 - **Tools**: Tool executions

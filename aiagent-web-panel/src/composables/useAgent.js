@@ -6,7 +6,6 @@
 
 import { ref } from "vue";
 import { useWebSocket } from "./useWebSocket.js";
-import { useToast } from "./useToast.js";
 import {
   getStatus as apiGetStatus,
   getLogs,
@@ -21,11 +20,7 @@ export function useAgent() {
 
   const isProcessing = ref(false);
   const currentChatId = ref(null);
-  const toast = useToast();
-
   const { status, isRunning, stats, logs, tokenUsage } = ws;
-
-  const uptime = ref(0);
 
   async function clearLogsAction() {
     try {
@@ -43,7 +38,6 @@ export function useAgent() {
       status.value = statusData.status || "idle";
       isRunning.value = statusData.isRunning || false;
       stats.value = statusData.stats || {};
-      uptime.value = statusData.uptime || 0;
       if (statusData.tokenUsage) {
         tokenUsage.value = statusData.tokenUsage;
       }
@@ -53,10 +47,10 @@ export function useAgent() {
         if (logsData?.logs) {
           logs.value = logsData.logs;
         }
-      } catch (e) {
+      } catch (_e) {
         console.debug("[useAgent] Logs fetch skipped");
       }
-    } catch (error) {
+    } catch (_error) {
       status.value = "error";
     }
   }
@@ -95,7 +89,6 @@ export function useAgent() {
     status,
     isRunning,
     stats,
-    uptime,
     logs,
     tokenUsage,
     isProcessing,

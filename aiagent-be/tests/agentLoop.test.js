@@ -2,12 +2,8 @@
  * Тесты для модуля agent loop.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  updateAgentConfig,
-  getAgentConfig,
-  buildSystemMessage,
-} from "../lib/agent/agentLoop.js";
+import { describe, it, expect } from "vitest";
+import { updateAgentConfig, getAgentConfig, buildSystemMessage } from "../lib/agent/agentLoop.js";
 
 describe("agent config", () => {
   it("returns default config", () => {

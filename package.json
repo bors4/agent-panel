@@ -17,7 +17,11 @@
     "start": "npm run backend:start",
     "test": "npm run backend:test",
     "test:all": "npm run backend:test && npm run frontend:test",
-    "postinstall": "cd aiagent-web-panel && npm install"
+    "postinstall": "cd aiagent-web-panel && npm install",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [
     "ai",
@@ -48,8 +52,14 @@
     "ws": "^8.20.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitest/coverage-v8": "^4.1.6",
     "concurrently": "^9.2.1",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.9.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
     "vitest": "^4.1.6"
   },
   "overrides": {

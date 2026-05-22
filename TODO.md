@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 12 / 33** | `P0: 3/8` · `P1: 3/13` · `P2: 6/12`
+> **Прогресс: 13 / 45** | `P0: 3/10` · `P1: 3/16` · `P2: 7/19`
 
 ---
 
@@ -41,6 +41,14 @@
 
 - [ ] #8 `[security][backend]` **Telegram bot token в ответе API**
   - `GET /api/config` возвращает `{ token: process.env.TELEGRAM_BOT_TOKEN }` — убрать из ответа
+
+- [ ] #9 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
+  - На Linux файловая система чувствительна к регистру: `/home/User/file.txt` ≠ `/home/user/file.txt`
+  - Использовать `.toLowerCase()` только на Windows (`process.platform === "win32"`)
+
+- [ ] #10 `[bug][backend]` **Race condition в `loadAccounts()` между existsSync и readFileSync**
+  - Если файл удалён между `fs.existsSync` и `fs.readFileSync` → `ENOENT` исключение
+  - **Фикс:** убрать `existsSync`, обернуть `readFileSync` в try/catch с проверкой `e.code !== "ENOENT"`
 
 ---
 
@@ -138,6 +146,19 @@
   - **Фикс:** интегрировать `agentLoopStep()` в `/api/chat`; добавить tool definitions; передавать account/permissions; унифицировать system prompt с Telegram bot
   - На фронтенде: добавить отображение tool calls (выполняется/одобрить/отклонить) и результатов в чате
 
+- [ ] #18 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
+  - `Object.assign(config, newConfig)` — уязвим к `__proto__` / `constructor`
+  - **Фикс:** использовать `Object.keys(newConfig).forEach(k => { if (k in config) config[k] = newConfig[k]; })`
+
+- [ ] #19 `[security][backend]` **Все команды Telegram доступны без аккаунта**
+  - `/start`, `/help`, `/model`, `/clear`, `/tools` работают для любого пользователя
+  - При этом `bot.on("message")` блокирует неизвестных — несоответствие модели безопасности
+
+- [ ] #20 `[bug][backend]` **`args.timeout || 30` — некорректная обработка timeout=0 и NaN**
+  - Если модель передаст `timeout: 0` → станет 30 (должно означать "без лимита")
+  - Если `timeout: "abc"` → `NaN` → `setTimeout(NaN)` никогда не сработает
+  - **Фикс:** `Number.isFinite(args.timeout) && args.timeout > 0 ? args.timeout : 30`
+
 ---
 
 ## 🟢 Low Priority (P2)
@@ -145,8 +166,10 @@
 - [x] #1 `[docs]` Переименовать директорию `web-panel` → `agent-panel` и обновить все ссылки
 - [x] #2 `[bug][ui]` Нужно исправить `color` для `chat-bubble`. Для светлой темы не виден. ✅ Исправлено: заменён
 
-- [ ] #3 `[infra]` **Добавить ESLint + Prettier**
-  - Нет никакого линтера/форматтера; код в разном стиле (кавычки, отступы, точки с запятой)
+- [x] #3 `[infra]` **Добавить ESLint + Prettier** ✅
+  - Flat config (`eslint.config.js`), `.prettierrc`, scripts: `lint`, `lint:fix`, `format`, `format:check`
+  - Backend: Node.js globals; Frontend: Browser globals
+  - 0 errors, 35 warnings (unused vars — existing code)
 
 - [ ] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
   - `server.js` режет до 20, `session.js` до 10, `agentLoop.js` через `maxHistoryPairs*2`
@@ -175,3 +198,34 @@
 
 - [ ] #12 `[feature][backend]` **Очистка старых сессий**
   - `chatHistories` никогда не очищается — добавить периодическую чистку (1 час без активности)
+
+- [ ] #13 `[bug][backend]` **`/api/status` возвращает `uptime` дважды**
+  - `uptime` есть и в `stats`, и на корневом уровне ответа — убрать дублирование
+
+- [ ] #14 `[refactor][backend]` **Магическое число `5` для `maxIterations`**
+  - Вынести в константу `const MAX_AGENT_ITERATIONS = 5;`
+
+- [ ] #15 `[security][frontend]` **Hardcoded API key на фронтенде**
+  - `"x-api-key": "agent-secret-key"` в ToolsTab.vue и client.js хардкожен
+  - Если изменить `API_KEY` в `.env`, фронтенд перестанет работать
+  - Вынести в константу/env-переменную Vite
+
+- [ ] #16 `[perf][frontend]` **`BotCheckCard.vue` — `watch` с `{ immediate: true }` вызывает фильтрацию token на каждый триггер**
+  - `token.replace(/[^\x00-\x7F]/g, "")` вызывается при быстром наборе 10+ раз/сек
+  - Добавить debounce (300ms)
+
+- [ ] #17 `[refactor][backend]` **`let shell, shellArgs` → const внутри блоков**
+  - В `executeTool.js` переписать на тернарник: `const { shell, shellArgs } = isWin && isPwsh ? … : isWin ? … : …`
+
+- [ ] #18 `[refactor][backend]` **`useFC` → `useFunctionCalling` (непонятное имя)**
+
+- [ ] #19 `[style][backend]` **`let finalResponse = ""`, `let useFC = true` — объединить с другими `let` в один statement**
+
+- [ ] #20 `[style][backend]` **`addLog` внутри `updateStatus` — косвенная рекурсия логирования**
+  - `updateStatus` сам вызывает `addLog`, в который передаётся лог — запутывает
+
+- [ ] #21 `[perf][frontend]` **`BASE_URL` хардкод в `client.js`**
+  - Для production должно быть конфигурируемым через Vite env-переменную
+
+- [ ] #22 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
+  - За прокси на production может сломаться; унифицировать через `BASE_URL`

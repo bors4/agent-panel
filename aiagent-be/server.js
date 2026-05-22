@@ -102,22 +102,9 @@ function wsBroadcast(type, data) {
 
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
-import {
-  agentLoopStep,
-  updateAgentConfig,
-  buildSystemMessage,
-} from "./lib/agent/agentLoop.js";
-import {
-  executeTool,
-  getToolConfig,
-  TOOLS,
-} from "./lib/agent/executeTool.js";
-import {
-  loadAccounts,
-  getAccounts,
-  getAccountByUsername,
-  isToolEnabledForAccount,
-} from "./lib/accounts.js";
+import { agentLoopStep, updateAgentConfig, buildSystemMessage } from "./lib/agent/agentLoop.js";
+import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
+import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 import { createApiRouter } from "./routes/api.js";
 
@@ -148,10 +135,7 @@ function updateStatus(newStatus, message = "") {
   state.botStatusMessage = message;
   if (newStatus === "running") state.startTime = Date.now();
   else state.startTime = null;
-  addLog(
-    `Status: ${message || newStatus}`,
-    newStatus === "error" ? "error" : "info",
-  );
+  addLog(`Status: ${message || newStatus}`, newStatus === "error" ? "error" : "info");
   const uptimeMs = state.startTime ? Date.now() - state.startTime : 0;
   wsBroadcast("status", {
     botStatus: newStatus,
@@ -170,10 +154,7 @@ if (config.projectPath && fs.existsSync(config.projectPath)) {
   addLog(`Accounts loaded: ${getAccounts().length}`, "info");
 } else {
   config.projectPath = "";
-  addLog(
-    "Project path is not configured. Agent blocked until path is set via API or .env",
-    "warning",
-  );
+  addLog("Project path is not configured. Agent blocked until path is set via API or .env", "warning");
 }
 
 // ─── Sync config to agentLoop.js ──────────────────────────────────────────
@@ -224,17 +205,11 @@ const REPLY_OPTS = {
  * @returns {string} Безопасный текст
  */
 function sanitizeTelegramHtml(text) {
-  return text.replace(
-    /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g,
-    (match, slash, tag) => {
-      const allowed = new Set([
-        "b", "i", "u", "s", "code", "pre",
-        "tg-spoiler", "a", "strong", "em",
-      ]);
-      if (allowed.has(tag.toLowerCase())) return match;
-      return `&lt;${slash}${tag}${match.slice(1 + slash.length + tag.length, match.length - 1)}&gt;`;
-    },
-  );
+  return text.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (match, slash, tag) => {
+    const allowed = new Set(["b", "i", "u", "s", "code", "pre", "tg-spoiler", "a", "strong", "em"]);
+    if (allowed.has(tag.toLowerCase())) return match;
+    return `&lt;${slash}${tag}${match.slice(1 + slash.length + tag.length, match.length - 1)}&gt;`;
+  });
 }
 
 /**
@@ -253,10 +228,7 @@ async function replyMsg(ctx, text, extra = {}) {
     });
     return sent.message_id;
   } catch (e) {
-    if (
-      e.message?.includes("can't parse entities") ||
-      e.message?.includes("Bad Request")
-    ) {
+    if (e.message?.includes("can't parse entities") || e.message?.includes("Bad Request")) {
       const plain = sanitizeTelegramHtml(text).replace(/<[^>]+>/g, "");
       try {
         const sent = await ctx.reply(plain, {
@@ -280,9 +252,7 @@ async function replyMsg(ctx, text, extra = {}) {
  * @returns {InlineKeyboard}
  */
 const KEYBOARD_YES_NO = (toolName) =>
-  new InlineKeyboard()
-    .text("✅ YES", `approve_${toolName}`)
-    .text("❌ NO", `deny_${toolName}`);
+  new InlineKeyboard().text("✅ YES", `approve_${toolName}`).text("❌ NO", `deny_${toolName}`);
 
 /**
  * Отправить сообщение с индикатором набора текста.
@@ -291,34 +261,7 @@ const KEYBOARD_YES_NO = (toolName) =>
 async function sendTyping(ctx) {
   try {
     await ctx.replyWithChatAction("typing");
-  } catch (_) {}
-}
-
-/**
- * Редактировать существующее сообщение.
- * @param {Object} ctx - GrammY контекст
- * @param {number} msgId - ID сообщения
- * @param {string} text - Новый текст
- * @param {Object} extra - Дополнительные опции
- */
-async function editMsg(ctx, msgId, text, extra = {}) {
-  try {
-    await ctx.api.editMessageText(
-      ctx.chat.id,
-      msgId,
-      sanitizeTelegramHtml(text),
-      { ...REPLY_OPTS, ...extra },
-    );
-  } catch (e) {
-    const ignore = [
-      "message is not modified",
-      "Bad Request: message to edit not found",
-      "inline keyboard expected",
-    ];
-    if (!ignore.some((i) => e.message?.includes(i))) {
-      console.error("Edit message error:", e.message);
-    }
-  }
+  } catch {}
 }
 
 /**
@@ -327,11 +270,9 @@ async function editMsg(ctx, msgId, text, extra = {}) {
  */
 async function clearButtons(ctx) {
   try {
-    await ctx.api.editMessageReplyMarkup(
-      ctx.chat.id,
-      ctx.callbackQuery.message.message_id,
-      { reply_markup: { inline_keyboard: [] } },
-    );
+    await ctx.api.editMessageReplyMarkup(ctx.chat.id, ctx.callbackQuery.message.message_id, {
+      reply_markup: { inline_keyboard: [] },
+    });
   } catch (e) {
     const ignore = ["message to edit not found", "message is not modified"];
     if (!ignore.some((i) => e.message?.includes(i))) {
@@ -361,7 +302,7 @@ bot.on("message", async (ctx) => {
   if (!config.projectPath) {
     await replyMsg(
       ctx,
-      "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env",
+      "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env"
     );
     return;
   }
@@ -371,16 +312,13 @@ bot.on("message", async (ctx) => {
   if (!account) {
     await replyMsg(
       ctx,
-      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered. Contact the administrator.`,
+      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered. Contact the administrator.`
     );
     return;
   }
 
   const chatId = ctx.chat.id.toString();
-  addLog(
-    `Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`,
-    "info",
-  );
+  addLog(`Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`, "info");
   stats.requests++;
   wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
 
@@ -399,7 +337,7 @@ bot.on("message", async (ctx) => {
     }
     addLog(
       `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
-      "info",
+      "info"
     );
 
     await handleAgentResult(ctx, chatId, result, account);
@@ -447,7 +385,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
     await replyMsg(
       ctx,
       `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
-      { reply_markup: KEYBOARD_YES_NO(result.toolName) },
+      { reply_markup: KEYBOARD_YES_NO(result.toolName) }
     );
     return true;
   }
@@ -455,8 +393,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
   // Ошибка
   if (result.error) {
     const cleanHistory = (chatHistories.get(chatId) || []).filter(
-      (m) =>
-        !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system",
+      (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system"
     );
     chatHistories.set(chatId, cleanHistory.slice(-10));
     await replyMsg(ctx, `❌ Error: ${result.error}`);
@@ -466,9 +403,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
   // Финальный ответ
   if (result.response !== undefined && result.response !== "continue") {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
-    const cleanResponse =
-      result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() ||
-      result.response;
+    const cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() || result.response;
     await replyMsg(ctx, cleanResponse);
     return true;
   }
@@ -519,12 +454,12 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   try {
     const result = await executeTool(
       { name: pending.toolName, args: pending.args },
-      { projectPath: config.projectPath, account },
+      { projectPath: config.projectPath, account }
     );
 
     addLog(
       `Tool executed: ${pending.toolName} = ${result.success ? "OK" : "FAIL:" + result.error}`,
-      result.success ? "success" : "error",
+      result.success ? "success" : "error"
     );
 
     if (!result.success) {
@@ -534,9 +469,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
     const toolMessage = {
       role: "tool",
-      content: JSON.stringify(result)
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;"),
+      content: JSON.stringify(result).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
     };
     if (pending.toolCallId) {
       toolMessage.tool_call_id = pending.toolCallId;
@@ -599,21 +532,12 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       contentLen: nextMessage?.content?.length,
     });
 
-    if (
-      !nextMessage ||
-      (!nextMessage.content?.trim() && !nextMessage.tool_calls?.length)
-    ) {
-      const reason =
-        finishReason === "length"
-          ? "Лимит токенов (max_tokens)"
-          : "Ответ модели обрезан или невалиден";
-      addLog(
-        `Model response empty/invalid. finish_reason: ${finishReason}`,
-        "warning",
-      );
+    if (!nextMessage || (!nextMessage.content?.trim() && !nextMessage.tool_calls?.length)) {
+      const reason = finishReason === "length" ? "Лимит токенов (max_tokens)" : "Ответ модели обрезан или невалиден";
+      addLog(`Model response empty/invalid. finish_reason: ${finishReason}`, "warning");
       await replyMsg(
         ctx,
-        `⚠️ ${reason}. Модель не сгенерировала полный вызов инструмента. Попробуйте разбить задачу или увеличить MAX_TOKENS.`,
+        `⚠️ ${reason}. Модель не сгенерировала полный вызов инструмента. Попробуйте разбить задачу или увеличить MAX_TOKENS.`
       );
       return;
     }
@@ -650,26 +574,25 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
           account,
         });
         const paramStr = JSON.stringify(ta);
-        const displayParams =
-          paramStr.length > 300
-            ? paramStr.substring(0, 300) + "… [truncated]"
-            : paramStr;
-        await replyMsg(
-          ctx,
-          `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${displayParams}</code>`,
-          { reply_markup: KEYBOARD_YES_NO(tn) },
-        );
+        const displayParams = paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
+        await replyMsg(ctx, `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${displayParams}</code>`, {
+          reply_markup: KEYBOARD_YES_NO(tn),
+        });
         return;
       }
 
       // Авто-выполнение следующего инструмента
-      await continueAfterApproval(ctx, {
-        toolName: tn,
-        args: ta,
-        toolCallId: tc.id,
-        messages: newHistory,
-        account,
-      }, depth + 1);
+      await continueAfterApproval(
+        ctx,
+        {
+          toolName: tn,
+          args: ta,
+          toolCallId: tc.id,
+          messages: newHistory,
+          account,
+        },
+        depth + 1
+      );
       return;
     }
 
@@ -684,9 +607,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
 /** Обработка callback-запросов (inline keyboard). */
 bot.on("callback_query", async (ctx) => {
-  console.log(
-    `[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`,
-  );
+  console.log(`[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`);
   const callbackData = ctx.callbackQuery.data;
   const chatId = ctx.chat.id.toString();
   addLog(`Callback: ${callbackData} from ${chatId}`, "info");
@@ -696,10 +617,7 @@ bot.on("callback_query", async (ctx) => {
     const pending = pendingApprovals.get(chatId);
 
     if (!pending || pending.toolName !== toolName) {
-      addLog(
-        `Stale approve: tool=${toolName}, pending=${pending?.toolName || "none"}`,
-        "warning",
-      );
+      addLog(`Stale approve: tool=${toolName}, pending=${pending?.toolName || "none"}`, "warning");
       await ctx.answerCallbackQuery("❌ Request not found or outdated");
       return;
     }
@@ -733,10 +651,7 @@ bot.on("callback_query", async (ctx) => {
       chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-20));
     }
 
-    await replyMsg(
-      ctx,
-      `❌ <b>${toolName}</b> cancelled. The tool was not executed.`,
-    );
+    await replyMsg(ctx, `❌ <b>${toolName}</b> cancelled. The tool was not executed.`);
   }
 });
 
@@ -750,15 +665,12 @@ bot.command("start", (ctx) => {
 bot.command("help", (ctx) => {
   ctx.reply(
     "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list",
-    REPLY_OPTS,
+    REPLY_OPTS
   );
 });
 
 bot.command("model", (ctx) => {
-  ctx.reply(
-    `Model: ${config.modelName}\nServer: ${config.serverUrl}`,
-    REPLY_OPTS,
-  );
+  ctx.reply(`Model: ${config.modelName}\nServer: ${config.serverUrl}`, REPLY_OPTS);
 });
 
 bot.command("clear", (ctx) => {
@@ -819,7 +731,7 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 // Heartbeat — проверяем живые соединения каждые 30 секунд
-const heartbeatInterval = setInterval(() => {
+setInterval(() => {
   wss.clients.forEach((client) => {
     if (client.isAlive === false) return client.terminate();
     client.isAlive = false;
@@ -829,7 +741,9 @@ const heartbeatInterval = setInterval(() => {
 
 wss.on("connection", (ws) => {
   ws.isAlive = true;
-  ws.on("pong", () => { ws.isAlive = true; });
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
 });
 
 server.listen(PORT, () => {

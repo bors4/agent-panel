@@ -66,12 +66,7 @@ function buildToolsDescription(account, globalToolConfig) {
   return result;
 }
 
-export function buildSystemMessage(
-  projectPath,
-  systemPrompt,
-  useFunctionCalling,
-  account = null,
-) {
+export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
   let ctx =
     "You are AI assistant in: " +
     projectPath +
@@ -104,11 +99,7 @@ export function buildSystemMessage(
   if (useFunctionCalling) {
     return ctx + td + "\n\nUse function calling.";
   } else {
-    return (
-      ctx +
-      td +
-      "\n\nUse: <tool_call><function>move</function><parameter=source>test.txt"
-    );
+    return ctx + td + "\n\nUse: <tool_call><function>move</function><parameter=source>test.txt";
   }
 }
 
@@ -129,7 +120,7 @@ function truncateHistory(messages, maxPairs) {
   if (!maxPairs || maxPairs <= 0) return messages;
   // Убираем system message — agentLoopStep сам добавит новый
   const nonSystem = messages.filter(
-    (m) => m.role !== "system" && !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length),
+    (m) => m.role !== "system" && !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length)
   );
   const maxMsgs = maxPairs * 2;
   let startIdx = Math.max(0, nonSystem.length - maxMsgs);
@@ -161,23 +152,12 @@ function buildToolExecConfig(account) {
  * @param {Object|null} account - Аккаунт пользователя
  * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
  */
-export async function agentLoopStep(
-  message,
-  chatId,
-  history = [],
-  maxIterations = 5,
-  account = null,
-) {
+export async function agentLoopStep(message, chatId, history = [], maxIterations = 5, account = null) {
   const toolConfig = getToolConfig();
   let messages = [
     {
       role: "system",
-      content: buildSystemMessage(
-        config.projectPath,
-        config.systemPrompt,
-        true,
-        account,
-      ),
+      content: buildSystemMessage(config.projectPath, config.systemPrompt, true, account),
     },
     ...truncateHistory(history, config.maxHistoryPairs),
   ];
@@ -219,12 +199,7 @@ export async function agentLoopStep(
       });
       if (!resp.ok && useFC) {
         useFC = false;
-        messages[0].content = buildSystemMessage(
-          config.projectPath,
-          config.systemPrompt,
-          false,
-          account,
-        );
+        messages[0].content = buildSystemMessage(config.projectPath, config.systemPrompt, false, account);
         continue;
       }
       if (!resp.ok) return { error: "AI error: " + resp.status };
@@ -257,12 +232,7 @@ export async function agentLoopStep(
           if (ts.permission === "ask") {
             messages.push({
               role: "assistant",
-              content:
-                "[TOOL APPROVAL REQUIRED] The user must approve: " +
-                tn +
-                "(" +
-                JSON.stringify(ta) +
-                ")",
+              content: "[TOOL APPROVAL REQUIRED] The user must approve: " + tn + "(" + JSON.stringify(ta) + ")",
             });
             return {
               requiresApproval: true,
@@ -272,10 +242,7 @@ export async function agentLoopStep(
               messages,
             };
           }
-          const r = await executeTool(
-            { name: tn, args: ta },
-            buildToolExecConfig(account),
-          );
+          const r = await executeTool({ name: tn, args: ta }, buildToolExecConfig(account));
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -306,10 +273,7 @@ export async function agentLoopStep(
 
       const bash = extractBash(content);
       if (bash && !useFC) {
-        const r = await executeTool(
-          { name: "execute", args: { command: bash } },
-          buildToolExecConfig(account),
-        );
+        const r = await executeTool({ name: "execute", args: { command: bash } }, buildToolExecConfig(account));
         messages.push({
           role: "tool",
           tool_call_id: `bash_${Date.now()}`,
@@ -324,10 +288,6 @@ export async function agentLoopStep(
       return { error: e.message };
     }
   }
-  const finalMessages = messages.filter(
-    (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"),
-  );
+  const finalMessages = messages.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
   return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage };
 }
-
-

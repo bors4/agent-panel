@@ -5,18 +5,8 @@
 
 import { Router } from "express";
 import path from "path";
-import {
-  executeTool,
-  getToolConfig,
-  updateToolConfig,
-  TOOLS,
-} from "../lib/agent/executeTool.js";
-import {
-  loadAccounts,
-  saveAccounts,
-  getAccounts,
-} from "../lib/accounts.js";
-import { logInfo, logError } from "../lib/logger.js";
+import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
+import { saveAccounts, getAccounts } from "../lib/accounts.js";
 
 /**
  * Создаёт Express Router с API маршрутами.
@@ -36,7 +26,8 @@ import { logInfo, logError } from "../lib/logger.js";
  */
 export function createApiRouter(deps) {
   const router = Router();
-  const { config, stats, chatHistories, pendingApprovals, addLog, updateAgentConfig, telegramBotToken, wsBroadcast } = deps;
+  const { config, stats, chatHistories, pendingApprovals, addLog, updateAgentConfig, wsBroadcast } =
+    deps;
 
   // ─── Tools ───────────────────────────────────────────────────────────────
 
@@ -64,8 +55,7 @@ export function createApiRouter(deps) {
   router.post("/tools", (req, res) => {
     const { name, ...settings } = req.body;
     if (!name) return res.status(400).json({ error: "Tool name required" });
-    if (!TOOLS[name])
-      return res.status(404).json({ error: `Tool '${name}' not found` });
+    if (!TOOLS[name]) return res.status(404).json({ error: `Tool '${name}' not found` });
     updateToolConfig(name, settings);
     res.json({ success: true, config: getToolConfig()[name] });
   });
@@ -85,8 +75,7 @@ export function createApiRouter(deps) {
    */
   router.post("/accounts", (req, res) => {
     const { accounts } = req.body;
-    if (!Array.isArray(accounts))
-      return res.status(400).json({ error: "accounts array required" });
+    if (!Array.isArray(accounts)) return res.status(400).json({ error: "accounts array required" });
     saveAccounts(config.projectPath, accounts);
     res.json({ success: true, accounts: getAccounts() });
   });
@@ -97,8 +86,7 @@ export function createApiRouter(deps) {
    */
   router.post("/accounts/import", (req, res) => {
     const { accounts } = req.body;
-    if (!Array.isArray(accounts))
-      return res.status(400).json({ error: "accounts array required" });
+    if (!Array.isArray(accounts)) return res.status(400).json({ error: "accounts array required" });
     saveAccounts(config.projectPath, accounts);
     res.json({ success: true, accounts: getAccounts() });
   });
@@ -112,8 +100,7 @@ export function createApiRouter(deps) {
   router.post("/agent/tool", async (req, res) => {
     try {
       const { toolCall, projectPath } = req.body;
-      if (!toolCall?.name)
-        return res.status(400).json({ error: "toolCall.name required" });
+      if (!toolCall?.name) return res.status(400).json({ error: "toolCall.name required" });
       const result = await executeTool(toolCall, {
         projectPath: projectPath || config.projectPath,
       });
@@ -158,8 +145,7 @@ export function createApiRouter(deps) {
     }
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
     if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
-    if (body.temperature !== undefined)
-      config.temperature = parseFloat(body.temperature);
+    if (body.temperature !== undefined) config.temperature = parseFloat(body.temperature);
     if (body.timeout) config.timeout = parseInt(body.timeout);
     if (body.maxFileChars) config.maxFileChars = parseInt(body.maxFileChars);
     if (body.maxHistoryPairs) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
@@ -217,6 +203,7 @@ export function createApiRouter(deps) {
         errors: stats.errors,
       },
       uptime: Math.floor(uptimeMs / 1000),
+      startTime: deps.state.startTime,
       tokenUsage: deps.tokenUsage,
     });
   });
@@ -231,9 +218,7 @@ export function createApiRouter(deps) {
     const limit = parseInt(req.query.limit) || 50;
     res.json({
       success: true,
-      logs: deps.agentLogs
-        .slice(-limit)
-        .map((l) => ({ ...l, time: new Date(l.time).toLocaleTimeString() })),
+      logs: deps.agentLogs.slice(-limit).map((l) => ({ ...l, time: new Date(l.time).toLocaleTimeString() })),
     });
   });
 
@@ -252,8 +237,7 @@ export function createApiRouter(deps) {
    */
   router.post("/start", async (req, res) => {
     try {
-      if (deps.state.botStatus === "running")
-        return res.json({ success: true, message: "Bot already running" });
+      if (deps.state.botStatus === "running") return res.json({ success: true, message: "Bot already running" });
       deps.updateStatus("running", "Работает");
       deps.bot.start();
       addLog("Telegram connected", "success");
@@ -314,15 +298,13 @@ export function createApiRouter(deps) {
    */
   router.post("/chat", async (req, res) => {
     try {
-      const { message, modelName, serverUrl, projectPath, systemPrompt } =
-        req.body;
+      const { message, modelName, serverUrl, projectPath, systemPrompt } = req.body;
       if (!message) return res.status(400).json({ error: "Message required" });
 
       const actualServerUrl = serverUrl || config.serverUrl;
       const model = modelName || config.modelName;
       const workPath = projectPath || config.projectPath;
-      const sysPrompt =
-        systemPrompt !== undefined ? systemPrompt : config.systemPrompt;
+      const sysPrompt = systemPrompt !== undefined ? systemPrompt : config.systemPrompt;
 
       stats.requests++;
 
@@ -352,8 +334,7 @@ export function createApiRouter(deps) {
       }
 
       const data = await response.json();
-      const reply =
-        data.choices?.[0]?.message?.content || "Пустой ответ от модели";
+      const reply = data.choices?.[0]?.message?.content || "Пустой ответ от модели";
       const usage = data.usage || null;
       if (usage) {
         deps.tokenUsage.prompt += usage.prompt_tokens || 0;
