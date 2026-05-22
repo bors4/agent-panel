@@ -48,7 +48,6 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "grammy": "^1.42.0",
-    "openai": "^6.35.0",
     "ws": "^8.20.1"
   },
   "devDependencies": {
@@ -60,6 +59,7 @@
     "eslint-plugin-vue": "^10.9.1",
     "globals": "^17.6.0",
     "prettier": "^3.8.3",
+    "supertest": "^7.2.2",
     "vitest": "^4.1.6"
   },
   "overrides": {

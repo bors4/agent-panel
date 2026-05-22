@@ -102,7 +102,7 @@ function wsBroadcast(type, data) {
 
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
-import { agentLoopStep, updateAgentConfig, buildSystemMessage } from "./lib/agent/agentLoop.js";
+import { agentLoopStep, buildSystemMessage } from "./lib/agent/agentLoop.js";
 import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
@@ -157,11 +157,6 @@ if (config.projectPath && fs.existsSync(config.projectPath)) {
   addLog("Project path is not configured. Agent blocked until path is set via API or .env", "warning");
 }
 
-// ─── Sync config to agentLoop.js ──────────────────────────────────────────
-
-updateAgentConfig(config);
-addLog(`agentLoop config synced: projectPath=${config.projectPath || "(empty)"}`, "info");
-
 // ─── Middleware ─────────────────────────────────────────────────────────────
 
 app.use(cors());
@@ -172,20 +167,18 @@ app.use(requestLogger);
 
 const apiRouter = createApiRouter({
   config,
+  bot,
   stats,
   chatHistories,
   pendingApprovals,
   addLog,
-  updateAgentConfig,
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
-  bot,
+  wsBroadcast,
   state,
   agentLogs,
   updateStatus,
   tokenUsage,
   resetStats,
   resetTokenUsage,
-  wsBroadcast,
 });
 
 app.use("/api", apiRouter);
@@ -327,7 +320,7 @@ bot.on("message", async (ctx) => {
     await sendDraft(ctx, "⏳ Analyzing request...");
 
     const history = chatHistories.get(chatId) || [];
-    const result = await agentLoopStep(message, chatId, history, 5, account);
+    const result = await agentLoopStep(message, chatId, history, config, 5, account);
     if (result.tokenUsage) {
       tokenUsage.prompt += result.tokenUsage.prompt;
       tokenUsage.completion += result.tokenUsage.completion;
@@ -411,7 +404,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
   // Продолжение (нужен ещё один шаг)
   if (result.response === "continue") {
     const history = result.messages || chatHistories.get(chatId) || [];
-    const retryResult = await agentLoopStep("", chatId, history, 5, account);
+    const retryResult = await agentLoopStep("", chatId, history, config, 5, account);
     addLog(`agentLoopStep (retry): requiresApproval=${retryResult.requiresApproval}`, "info");
     return await handleAgentResult(ctx, chatId, retryResult, account);
   }

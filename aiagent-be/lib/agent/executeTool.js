@@ -533,23 +533,18 @@ export async function executeTool(toolCall, config = {}) {
 
         try {
           const result = await new Promise((resolve, reject) => {
-            let shell, shellArgs;
-
-            if (isWin && isPwsh) {
-              const pwshCmd = trimmedCmd
-                .replace(/^(powershell|pwsh)\s+/i, "")
-                .replace(/^(-command|-c)\s+/i, "")
-                .trim()
-                .replace(/^["'](.*)["']\s*$/, "$1");
-              shell = "powershell.exe";
-              shellArgs = ["-NoLogo", "-NoProfile", "-Command", pwshCmd];
-            } else if (isWin) {
-              shell = "cmd.exe";
-              shellArgs = ["/d", "/c", args.command];
-            } else {
-              shell = "/bin/sh";
-              shellArgs = ["-c", args.command];
-            }
+            const { shell, shellArgs } = isWin && isPwsh
+              ? (() => {
+                  const pwshCmd = trimmedCmd
+                    .replace(/^(powershell|pwsh)\s+/i, "")
+                    .replace(/^(-command|-c)\s+/i, "")
+                    .trim()
+                    .replace(/^["'](.*)["']\s*$/, "$1");
+                  return { shell: "powershell.exe", shellArgs: ["-NoLogo", "-NoProfile", "-Command", pwshCmd] };
+                })()
+              : isWin
+                ? { shell: "cmd.exe", shellArgs: ["/d", "/c", args.command] }
+                : { shell: "/bin/sh", shellArgs: ["-c", args.command] };
 
             const child = spawn(shell, shellArgs, {
               cwd: projectPath,

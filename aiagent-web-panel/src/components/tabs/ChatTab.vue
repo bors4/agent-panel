@@ -116,8 +116,8 @@ import { directChat } from "@/api/client";
 
 const props = defineProps({
   isActive: Boolean,
-  modelName: { type: String, default: "Qwen3.5-9B-OmniCoder-Claude-Polaris.i1-IQ4_NL" },
-  serverUrl: { type: String, default: "http://192.168.1.101:8080/v1" },
+  modelName: { type: String, default: "" },
+  serverUrl: { type: String, default: "http://127.0.0.1:8080/v1" },
   projectPath: { type: String, default: "C:\\" },
   systemPrompt: { type: String, default: "" },
   verbose: { type: Boolean, default: false },

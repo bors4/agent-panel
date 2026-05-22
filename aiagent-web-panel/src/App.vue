@@ -212,8 +212,13 @@ const loadApiBases = async () => {
     }
   }
   if (availableModels.value.length > 0) {
-    modelName.value = availableModels.value[0].id;
-    serverUrl.value = availableModels.value[0].source;
+    const saved = availableModels.value.find((m) => m.id === modelName.value);
+    if (saved) {
+      serverUrl.value = saved.source;
+    } else {
+      modelName.value = availableModels.value[0].id;
+      serverUrl.value = availableModels.value[0].source;
+    }
   }
 };
 

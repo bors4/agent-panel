@@ -16,7 +16,6 @@ import { saveAccounts, getAccounts } from "../lib/accounts.js";
  * @param {Map} deps.chatHistories - История чатов
  * @param {Map} deps.pendingApprovals - Ожидающие подтверждения инструменты
  * @param {Function} deps.addLog - Функция логирования
- * @param {Function} deps.updateAgentConfig - Обновление конфигурации агента
  * @param {Object} deps.state - Общее состояние (botStatus, botStatusMessage, startTime)
  * @param {Object} deps.tokenUsage - Счётчик токенов (prompt, completion, total, cached)
  * @param {Function} deps.resetStats - Сброс статистики
@@ -26,7 +25,7 @@ import { saveAccounts, getAccounts } from "../lib/accounts.js";
  */
 export function createApiRouter(deps) {
   const router = Router();
-  const { config, stats, chatHistories, pendingApprovals, addLog, updateAgentConfig, wsBroadcast } =
+  const { config, stats, chatHistories, pendingApprovals, addLog, wsBroadcast } =
     deps;
 
   // ─── Tools ───────────────────────────────────────────────────────────────
@@ -156,7 +155,6 @@ export function createApiRouter(deps) {
       tokenChanged = true;
       addLog("Token changed — restart bot to apply", "warning");
     }
-    updateAgentConfig(config);
     addLog(`Config updated: ${config.modelName}, projectPath=${config.projectPath}`, "info");
     res.json({ success: true, config, tokenChanged });
   });

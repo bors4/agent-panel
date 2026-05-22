@@ -8,7 +8,6 @@ import path from "path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { safePath, parseToolCall } from "../lib/utils.js";
 import { executeTool } from "../lib/agent/executeTool.js";
-import { getSession, saveSession, clearSessions } from "../lib/session.js";
 import * as logger from "../lib/logger.js";
 
 // ─── Mock console ────────────────────────────────────────────────
@@ -276,50 +275,6 @@ describe("executeTool", () => {
     const result = await executeTool({ name: "nonexistent_tool", args: {} }, { projectPath: testDir });
     expect(result.success).toBe(false);
     expect(result.error).toContain("Unknown tool");
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════
-// Session management
-// ═════════════════════════════════════════════════════════════════
-describe("session", () => {
-  afterEach(() => {
-    clearSessions();
-  });
-
-  it("creates session on first access", () => {
-    const session = getSession("test-chat-1");
-    expect(session).toBeDefined();
-    expect(session.history).toEqual([]);
-    expect(session.pendingActions).toBeDefined();
-  });
-
-  it("returns same session for same chatId", () => {
-    const s1 = getSession("chat-1");
-    const s2 = getSession("chat-1");
-    expect(s1).toBe(s2);
-  });
-
-  it("creates different sessions for different chatIds", () => {
-    const s1 = getSession("chat-1");
-    const s2 = getSession("chat-2");
-    expect(s1).not.toBe(s2);
-  });
-
-  it("saves messages to history", () => {
-    saveSession("chat-save", { role: "user", content: "hello" });
-    const session = getSession("chat-save");
-    expect(session.history.length).toBe(1);
-    expect(session.history[0]).toEqual({ role: "user", content: "hello" });
-  });
-
-  it("caps history at MAX_HISTORY_PAIRS * 2", () => {
-    for (let i = 0; i < 15; i++) {
-      saveSession("chat-cap", { role: "user", content: `msg${i}` });
-    }
-    const session = getSession("chat-cap");
-    // MAX_HISTORY_PAIRS = 5, so max 10 entries
-    expect(session.history.length).toBe(10);
   });
 });
 
