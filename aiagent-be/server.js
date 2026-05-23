@@ -102,7 +102,7 @@ function wsBroadcast(type, data) {
 
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
-import { agentLoopStep, buildSystemMessage } from "./lib/agent/agentLoop.js";
+import { agentLoopStep, buildSystemMessage, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
 import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
@@ -320,7 +320,7 @@ bot.on("message", async (ctx) => {
     await sendDraft(ctx, "⏳ Analyzing request...");
 
     const history = chatHistories.get(chatId) || [];
-    const result = await agentLoopStep(message, chatId, history, config, 5, account);
+    const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account);
     if (result.tokenUsage) {
       tokenUsage.prompt += result.tokenUsage.prompt;
       tokenUsage.completion += result.tokenUsage.completion;
@@ -404,7 +404,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
   // Продолжение (нужен ещё один шаг)
   if (result.response === "continue") {
     const history = result.messages || chatHistories.get(chatId) || [];
-    const retryResult = await agentLoopStep("", chatId, history, config, 5, account);
+    const retryResult = await agentLoopStep("", chatId, history, config, MAX_AGENT_ITERATIONS, account);
     addLog(`agentLoopStep (retry): requiresApproval=${retryResult.requiresApproval}`, "info");
     return await handleAgentResult(ctx, chatId, retryResult, account);
   }
@@ -468,8 +468,9 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       toolMessage.tool_call_id = pending.toolCallId;
     }
 
-    const toolsDef = Object.values(TOOLS)
-      .filter((t) => isToolEnabledForAccount(account, t.name, getToolConfig()))
+    const mergedToolConfig = getToolConfig();
+    const toolsDef = Object.values(mergedToolConfig)
+      .filter((t) => isToolEnabledForAccount(account, t.name, mergedToolConfig))
       .map((t) => ({
         type: "function",
         function: {
@@ -549,8 +550,8 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
         throw new Error("Invalid JSON in tool call");
       }
 
-      const ts = getToolConfig()[tn] || {};
-      if (!getToolConfig()[tn]?.enabled) {
+      const ts = mergedToolConfig[tn] || {};
+      if (!mergedToolConfig[tn]?.enabled) {
         await replyMsg(ctx, `❌ <b>${tn}</b> is disabled globally.`);
         return;
       }

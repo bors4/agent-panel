@@ -260,6 +260,7 @@ const saveConfig = async (name) => {
     delete settings.description;
     delete settings.category;
     delete settings.examples;
+    delete settings.input_schema;
 
     await updateTools({ name, ...settings });
     localStorage.setItem("agent-tool-config", JSON.stringify(config.value));

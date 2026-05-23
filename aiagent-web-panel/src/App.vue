@@ -260,22 +260,15 @@ onMounted(async () => {
     } catch {}
   }
 
-  // 2. If localStorage has projectPath, sync it to backend (overrides .env)
-  if (localConfig.value.projectPath) {
-    try {
-      await updateConfig({
-        projectPath: localConfig.value.projectPath,
-      });
-      addLog(`Synced projectPath to backend: ${localConfig.value.projectPath}`, "info");
-    } catch (e) {
-      addLog(`Failed to sync projectPath: ${e.message}`, "warning");
-    }
-  } else {
-    // 3. No saved projectPath — load from backend (.env)
+  // 2. If localStorage has projectPath, prepare to sync
+  let hasProjectPath = !!localConfig.value.projectPath;
+  if (!hasProjectPath) {
+    // No saved projectPath — load from backend (.env)
     try {
       const backendConfig = await getConfig();
       if (backendConfig?.config?.projectPath) {
         localConfig.value.projectPath = backendConfig.config.projectPath;
+        hasProjectPath = true;
         addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
       }
     } catch (e) {
@@ -288,6 +281,28 @@ onMounted(async () => {
   }
 
   await loadApiBases();
+
+  // 3. Sync all settings to backend (overrides .env defaults)
+  if (hasProjectPath) {
+    try {
+      await updateConfig({
+        projectPath: localConfig.value.projectPath,
+        serverUrl: serverUrl.value,
+        modelName: modelName.value,
+        systemPrompt: systemPrompt.value,
+        maxTokens: localConfig.value.maxTokens,
+        temperature: localConfig.value.temperature,
+        timeout: localConfig.value.timeout,
+        maxFileChars: localConfig.value.maxFileChars,
+        maxHistoryPairs: localConfig.value.maxHistoryPairs,
+        maxSearchResults: localConfig.value.maxSearchResults,
+        maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
+      });
+      addLog(`Synced config to backend (projectPath: ${localConfig.value.projectPath})`, "info");
+    } catch (e) {
+      addLog(`Failed to sync config: ${e.message}`, "warning");
+    }
+  }
 
   if (quickSettings.value.autoStart && localConfig.value.token && localConfig.value.projectPath) {
     await handleStart();
