@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 20 / 60** | `P0: 0/4` · `P1: 0/9` · `P2: 0/14` · `P3: 1/13` · `P4: 4/5`
+> **Прогресс: 21 / 66** | `P0: 0/4` · `P1: 0/11` · `P2: 0/18` · `P3: 2/13` · `P4: 4/5`
 
 ---
 
@@ -80,6 +80,17 @@
   - `agentLoop.js`: при `chatMode=true` — минимальный system prompt, `safePath` по `include_paths`
   - `executeTool.js`: cwd = корень диска или `include_paths[0]` вместо `projectPath`
 
+- [ ] #10 `[bug][backend]` **`temperature || 0.1` — невозможно установить temperature=0**
+  - `agentLoop.js:144`: `cfg.temperature || 0.1` — `0 || 0.1 = 0.1`
+  - `server.js:45`: `parseFloat(process.env.TEMPERATURE) || 0.1` — то же самое
+  - Пользователь может ввести 0 (детерминированный вывод), но сервер использует 0.1
+  - **Фикс:** заменить `||` на `??` (nullish coalescing) в обоих местах
+
+- [ ] #11 `[cleanup][backend]` **`console.log` в production-коде**
+  - `server.js:435,523,604`: заменить на `addLog()`/`logInfo()`
+  - `executeTool.js:446`: `console.log(\`[executeTool] name=${name}, args=${JSON.stringify(args)}...\`)` — args могут содержать секреты
+  - **Фикс:** заменить на `logInfo()`, маскировать `args`
+
 ---
 
 ## 🟢 Low Priority (P2)
@@ -139,6 +150,23 @@
   - `"x-api-key": "agent-secret-key"` в ToolsTab.vue и client.js — если изменить `API_KEY` в `.env`, фронтенд перестанет работать
   - Вынести в env-переменную Vite
 
+- [ ] #15 `[security][backend]` **ReDoS-потенциал в `new RegExp(pattern, "gi")` при поиске**
+  - `executeTool.js:494`: лимит 200 символов есть, но паттерн типа `(a+)+b` даёт экспоненциальное backtracking
+  - **Фикс:** добавить таймаут на выполнение regex (5с), обернуть в try/catch
+
+- [ ] #16 `[perf][backend]` **`getToolConfig()` создаёт новые объекты на каждый вызов**
+  - Вызывается до 5+ раз за цикл агента, каждый раз создаёт 9×N полей → GC pressure
+  - **Фикс:** мемоизация с инвалидацией при `updateToolConfig`
+
+- [ ] #17 `[bug][frontend]` **`loadApiBases()` прямой fetch к AI-серверу — CORS-ошибка на другом origin**
+  - `App.vue:189`: `fetch(${api.url}/models)` напрямую из браузера
+  - **Фикс:** проксировать через `/api/models` на бэкенде
+
+- [ ] #18 `[security][backend]` **`checkAccountToolPermission` execute игнорирует `include_paths`**
+  - `accounts.js`: для `execute` всегда возвращается `{ allowed: true }` если есть право роли
+  - execute выполняется в `projectPath`, а `include_paths` не применяются
+  - **Фикс:** хотя бы добавить лог-предупреждение или документировать, что execute игнорирует include_paths для аккаунтов без роли system
+
 ---
 
 ## 🔵 Low-UI / Perf / Style (P3)
@@ -149,14 +177,17 @@
 - [ ] #2 `[ui][frontend]` Исправить отображение текста тултипа для "Инструменты агента"
   - Текст обрезается — проверить z-index, max-width, overflow для tooltip контейнера
 
-- [ ] #3 `[ui][frontend]` Разместить прогресс-бары для карточки "Контекст модели" под круговой диаграммой
-  - Переместить прогресс-бары ниже диаграммы, улучшить адаптивность
+- [x] #3 `[ui][frontend]` Разместить прогресс-бары для карточки "Контекст модели" под круговой диаграммой
+  - `.token-chart-row`: `flex-direction: row` → `column`, отцентрирован
+  - `.token-bars`: добавлен `width: 100%` для полной ширины
+  - Адаптивность улучшена: на узком сайдбаре (300px) полосы не сжимаются
 
 - [ ] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
   - `server.js` режет до 20, `agentLoop.js` через `maxHistoryPairs*2` — выбрать единый лимит и механизм
 
-- [ ] #5 `[refactor][backend]` **Graceful shutdown**
-  - Добавить `process.on('SIGTERM')` и `process.on('SIGINT')` для остановки бота и закрытия Express
+- [ ] #5 `[refactor][backend]` **Graceful shutdown + heartbeatInterval handle**
+  - `server.js:728`: `setInterval` без переменной — невозможно очистить при shutdown
+  - Добавить `process.on('SIGTERM')` и `process.on('SIGINT')`: сохранить `const heartbeatInterval = setInterval(...)`, `clearInterval(heartbeatInterval)`, остановка бота, закрытие Express
 
 - [ ] #6 `[feature][backend]` **Rate limiting**
   - Добавить `express-rate-limit` на endpoints `/api/chat`, `/api/agent/tool`, `/api/config`
