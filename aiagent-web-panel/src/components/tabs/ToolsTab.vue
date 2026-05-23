@@ -524,7 +524,7 @@ onMounted(async () => {
 }
 
 .badge {
-  background: var(--accent);
+  background: var(--accent-primary);
   color: white;
   padding: 4px 10px;
   border-radius: 12px;

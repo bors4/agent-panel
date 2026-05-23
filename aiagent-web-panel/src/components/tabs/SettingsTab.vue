@@ -217,25 +217,41 @@ const loadingStates = ref({
   models: false,
 });
 
+// Debounce and save state management
 let saveTimer = null;
 let pendingSave = false;
+let isSaving = false;
 let ignoreNextWatch = false;
-const autoSave = () => {
-  if (pendingSave) return;
+
+const debouncedSave = async () => {
+  if (pendingSave || isSaving) return;
+  
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    pendingSave = true;
-    const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
-    emit("save", {
-      config: { ...configCopy },
-      apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
-      modelName: modelNameCopy.value,
-      serverUrl: model ? model.source : "",
-    });
-    setTimeout(() => {
-      pendingSave = false;
-    }, 1000);
+  saveTimer = setTimeout(async () => {
+    try {
+      isSaving = true;
+      pendingSave = true;
+      
+      const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
+      emit("save", {
+        config: { ...configCopy },
+        apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
+        modelName: modelNameCopy.value,
+        serverUrl: model ? model.source : "",
+      });
+    } catch (error) {
+      console.error("Auto-save failed:", error);
+    } finally {
+      isSaving = false;
+      setTimeout(() => {
+        pendingSave = false;
+      }, 500);
+    }
   }, 300);
+};
+
+const autoSave = () => {
+  debouncedSave();
 };
 
 watch(
@@ -246,6 +262,7 @@ watch(
       ignoreNextWatch = false;
       return;
     }
+    
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
     configCopy.projectPath = val.projectPath || "C:\\";
@@ -256,7 +273,10 @@ watch(
     configCopy.maxTokens = val.maxTokens || 1024;
     configCopy.timeout = val.timeout || 120000;
     configCopy.temperature = val.temperature ?? 0.1;
-    setTimeout(() => {
+    
+    // Use setTimeout to reset ignoreNextWatch after debounce period
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
       ignoreNextWatch = false;
     }, 600);
   },
@@ -282,21 +302,28 @@ watch(modelNameCopy, autoSave);
 watch(apiBasesCopy, autoSave, { deep: true });
 
 // Обработчики с loading states
-const handleSave = () => {
+const handleSave = async () => {
+  if (isSaving) return;
+  
   loadingStates.value.save = true;
-  const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
-  emit("save", {
-    config: {
-      ...configCopy,
-      token: configCopy.token.trim().replace(/[^\x00-\x7F]/g, ""),
-    },
-    apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
-    modelName: modelNameCopy.value,
-    serverUrl: model ? model.source : "",
-  });
-  setTimeout(() => {
-    loadingStates.value.save = false;
-  }, 500);
+  try {
+    const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
+    emit("save", {
+      config: {
+        ...configCopy,
+        token: configCopy.token.trim().replace(/[^\x00-\x7F]/g, ""),
+      },
+      apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
+      modelName: modelNameCopy.value,
+      serverUrl: model ? model.source : "",
+    });
+  } catch (error) {
+    console.error("Manual save failed:", error);
+  } finally {
+    setTimeout(() => {
+      loadingStates.value.save = false;
+    }, 500);
+  }
 };
 
 const handleReset = () => {
