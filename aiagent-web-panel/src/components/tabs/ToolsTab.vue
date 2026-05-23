@@ -3,38 +3,26 @@
     <Card>
       <template #header>
         <div class="header-row">
-          <div class="header-left" @click="toolsExpanded = !toolsExpanded">
-            <span class="arrow">{{ toolsExpanded ? "▼" : "▶" }}</span>
+          <div class="header-left">
             <h2>Инструменты агента</h2>
-            <span class="info-trigger">?</span>
+            <AppTooltip>
+              <template #trigger>
+                <span class="info-trigger">?</span>
+              </template>
+              <b>enabled</b> — вкл/выкл<br>
+              <b>permission</b>: ask (подтверждение), always (авто), deny (запрет)<br>
+              <b>exclude_paths</b> — пути без доступа (node_modules, .git)
+            </AppTooltip>
           </div>
           <span class="badge">{{ enabledCount }} / {{ toolsCount }} активны</span>
         </div>
-
-        <div class="params-tooltip">
-          <div class="param">
-            <h4>enabled</h4>
-            <p>Включить/выключить инструмент</p>
-          </div>
-          <div class="param">
-            <h4>permission</h4>
-            <ul>
-              <li><b>ask</b> — запросить подтверждение (inline keyboard в Telegram)</li>
-              <li><b>always</b> — выполнять автоматически</li>
-              <li><b>deny</b> — заблокировать выполнение</li>
-            </ul>
-          </div>
-          <div class="param">
-            <h4>exclude_paths</h4>
-            <p>Пути, к которым инструмент не имеет доступа (node_modules, .git и т.д.)</p>
-          </div>
-        </div>
       </template>
 
-      <div v-show="toolsExpanded" class="tools-list">
+      <div class="tools-list">
         <div v-for="(tool, name) in tools" :key="name" class="tool-item" :class="{ disabled: !config[name]?.enabled }">
           <div class="tool-header">
-            <div class="tool-info">
+            <div class="tool-info" @click="toggleToolSettings(name)">
+              <span class="arrow-detail">{{ toolSettingsExpanded[name] ? "▼" : "▶" }}</span>
               <span class="tool-name">{{ name }}</span>
               <span class="tool-category" :class="tool.category">{{ tool.category }}</span>
             </div>
@@ -48,7 +36,7 @@
             {{ tool.description }}
           </p>
 
-          <div class="tool-settings">
+          <div v-show="toolSettingsExpanded[name]" class="tool-settings">
             <div class="setting-row">
               <label>Permission:</label>
               <select :value="config[name]?.permission || 'ask'" @change="updatePermission(name, $event.target.value)">
@@ -69,7 +57,7 @@
             </div>
           </div>
 
-          <div class="tool-examples">
+          <div v-show="toolSettingsExpanded[name]" class="tool-examples">
             <span class="examples-label">Примеры:</span>
             <ul>
               <li v-for="(example, i) in tool.examples" :key="i">
@@ -84,77 +72,85 @@
     <Card>
       <template #header>
         <div class="header-row">
-          <div class="header-left" @click="accountsExpanded = !accountsExpanded">
-            <span class="arrow">{{ accountsExpanded ? "▼" : "▶" }}</span>
+          <div class="header-left">
             <h2>Управление аккаунтами</h2>
-          </div>
-          <div class="header-actions">
-            <input
-              v-show="accountsExpanded"
-              type="text"
-              :value="accountSearch"
-              placeholder="Поиск по username..."
-              class="search-input"
-              @input="accountSearch = $event.target.value"
-            />
-            <button class="btn btn-secondary" @click="importAccounts">Импортировать</button>
-            <input ref="importFileInput" type="file" accept=".json" style="display: none" @change="handleImportFile" />
           </div>
         </div>
       </template>
 
-      <div v-show="accountsExpanded">
+      <div>
+        <div class="account-toolbar">
+          <input
+            type="text"
+            :value="accountSearch"
+            placeholder="Поиск..."
+            class="search-input search-input-compact"
+            @input="accountSearch = $event.target.value"
+          />
+          <button class="btn btn-secondary btn-sm" @click="importAccounts">Импорт</button>
+          <input ref="importFileInput" type="file" accept=".json" style="display: none" @change="handleImportFile" />
+        </div>
         <div class="accounts-list">
           <div v-for="(acct, idx) in filteredAccounts" :key="idx" class="account-card">
-            <div class="account-header">
-              <div class="account-fields">
-                <div class="field">
-                  <label>Username:</label>
+            <div
+              class="account-header"
+              style="cursor: pointer"
+              @click="toggleAccountSettings(idx)"
+            >
+              <div class="account-header-left">
+                <span class="arrow-detail">{{ accountSettingsExpanded[idx] ? "▼" : "▶" }}</span>
+                <div class="account-fields">
+                  <div class="field">
+                    <label>Username:</label>
+                    <input
+                      type="text"
+                      :value="acct.username"
+                      placeholder="@username"
+                      @input="acct.username = $event.target.value"
+                      @click.stop
+                    />
+                  </div>
+                  <div class="field">
+                    <label>Role:</label>
+                    <select :value="acct.role" @change="onRoleChange(getAccountIndex(acct), $event.target.value)" @click.stop>
+                      <option value="system">system</option>
+                      <option value="user">user</option>
+                      <option value="guest">guest</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-danger btn-sm" @click.stop="removeAccount(getAccountIndex(acct))">Удалить</button>
+            </div>
+
+            <div v-show="accountSettingsExpanded[idx]" class="account-details">
+              <div class="account-permissions">
+                <label class="perm-label">Доступные инструменты:</label>
+                <div class="perm-grid">
+                  <label v-for="toolName in allToolNames" :key="toolName" class="perm-check">
+                    <input
+                      type="checkbox"
+                      :checked="acct.permissions?.[toolName] === true"
+                      @change="toggleAccountTool(getAccountIndex(acct), toolName, $event.target.checked)"
+                    />
+                    <span>{{ toolName }}</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="account-paths">
+                <label class="perm-label">Include paths:</label>
+                <div v-for="(p, pi) in acct.include_paths" :key="pi" class="path-row">
                   <input
                     type="text"
-                    :value="acct.username"
-                    placeholder="@username"
-                    @input="acct.username = $event.target.value"
+                    :value="p"
+                    placeholder="E:\path\to\allowed\dir"
+                    @input="acct.include_paths[pi] = $event.target.value"
                   />
+                  <button class="btn btn-icon" @click="removePath(getAccountIndex(acct), pi)">✕</button>
                 </div>
-                <div class="field">
-                  <label>Role:</label>
-                  <select :value="acct.role" @change="onRoleChange(getAccountIndex(acct), $event.target.value)">
-                    <option value="system">system</option>
-                    <option value="user">user</option>
-                    <option value="guest">guest</option>
-                  </select>
-                </div>
+                <button class="btn btn-link" @click="addPath(getAccountIndex(acct))">+ Add path</button>
               </div>
-              <button class="btn btn-danger btn-sm" @click="removeAccount(getAccountIndex(acct))">Удалить</button>
-            </div>
-
-            <div class="account-permissions">
-              <label class="perm-label">Доступные инструменты:</label>
-              <div class="perm-grid">
-                <label v-for="toolName in allToolNames" :key="toolName" class="perm-check">
-                  <input
-                    type="checkbox"
-                    :checked="acct.permissions?.[toolName] === true"
-                    @change="toggleAccountTool(getAccountIndex(acct), toolName, $event.target.checked)"
-                  />
-                  <span>{{ toolName }}</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="account-paths">
-              <label class="perm-label">Include paths:</label>
-              <div v-for="(p, pi) in acct.include_paths" :key="pi" class="path-row">
-                <input
-                  type="text"
-                  :value="p"
-                  placeholder="E:\path\to\allowed\dir"
-                  @input="acct.include_paths[pi] = $event.target.value"
-                />
-                <button class="btn btn-icon" @click="removePath(getAccountIndex(acct), pi)">✕</button>
-              </div>
-              <button class="btn btn-link" @click="addPath(getAccountIndex(acct))">+ Add path</button>
             </div>
           </div>
           <div v-if="filteredAccounts.length === 0" class="no-results">
@@ -168,6 +164,19 @@
         </div>
       </div>
     </Card>
+
+    <Card>
+      <template #header>
+        <div class="header-row">
+          <div class="header-left">
+            <h2>Настройки</h2>
+          </div>
+        </div>
+      </template>
+      <div class="placeholder-card">
+        <p class="placeholder-text">Будущие настройки</p>
+      </div>
+    </Card>
   </div>
 </template>
 
@@ -179,6 +188,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import Card from "../ui/Card.vue";
+import AppTooltip from "../ui/AppTooltip.vue";
 import { getTools, updateTools } from "@/api/client";
 import { useToast } from "@/composables/useToast";
 
@@ -187,9 +197,9 @@ const { success: toastSuccess, error: toastError } = useToast();
 const tools = ref({});
 const config = ref({});
 const accounts = ref([]);
-const toolsExpanded = ref(false);
-const accountsExpanded = ref(false);
 const accountSearch = ref("");
+const toolSettingsExpanded = ref({});
+const accountSettingsExpanded = ref({});
 const allToolNames = ["read", "write", "search", "list_dir", "execute", "create_dir", "delete", "move", "copy"];
 const importFileInput = ref(null);
 
@@ -268,6 +278,14 @@ const saveConfig = async (name) => {
     console.error("Failed to save tool config:", error);
     toastError("Не удалось сохранить настройки инструмента");
   }
+};
+
+const toggleToolSettings = (name) => {
+  toolSettingsExpanded.value[name] = !toolSettingsExpanded.value[name];
+};
+
+const toggleAccountSettings = (idx) => {
+  accountSettingsExpanded.value[idx] = !accountSettingsExpanded.value[idx];
 };
 
 const fetchAccounts = async () => {
@@ -399,9 +417,21 @@ onMounted(async () => {
 
 <style scoped>
 .tools-tab {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
+}
+
+.header-row h2 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 500;
+  background: none;
+  background-clip: unset;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
 }
 
 .header-row {
@@ -423,16 +453,30 @@ onMounted(async () => {
   color: var(--accent);
 }
 
-.header-left:hover .params-tooltip {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
+.account-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
-.arrow {
-  font-size: 12px;
+.search-input-compact {
+  width: 100px;
+  font-size: 10px;
+  padding: 3px 8px;
+}
+
+.placeholder-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+}
+
+.placeholder-text {
   color: var(--text-muted);
-  transition: transform 0.2s;
+  font-size: 12px;
+  font-style: italic;
 }
 
 .info-trigger {
@@ -455,61 +499,6 @@ onMounted(async () => {
   background: var(--accent);
   color: white;
   border-color: var(--accent);
-}
-
-.params-tooltip {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 100;
-  margin-top: 8px;
-  padding: 12px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  box-shadow: var(--shadow-lg);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-4px);
-  transition:
-    opacity 0.2s ease,
-    visibility 0.2s ease,
-    transform 0.2s ease;
-  pointer-events: none;
-  min-width: 320px;
-}
-
-.params-tooltip .param {
-  margin-bottom: 10px;
-}
-
-.params-tooltip .param:last-child {
-  margin-bottom: 0;
-}
-
-.params-tooltip h4 {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 3px;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.params-tooltip p,
-.params-tooltip li {
-  font-size: 10px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-.params-tooltip ul {
-  margin: 0;
-  padding-left: 14px;
-}
-
-.params-tooltip li {
-  margin-bottom: 2px;
 }
 
 .header-actions {
@@ -544,18 +533,30 @@ onMounted(async () => {
 }
 
 .tools-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 350px;
   overflow-y: auto;
+}
+
+.arrow-detail {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tool-info {
+  cursor: pointer;
 }
 
 .tool-item {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 16px;
+  padding: 10px 12px;
   transition: var(--transition);
 }
 
@@ -571,7 +572,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .tool-info {
@@ -582,7 +583,7 @@ onMounted(async () => {
 
 .tool-name {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-primary);
   font-family: "JetBrains Mono", monospace;
 }
@@ -655,16 +656,16 @@ onMounted(async () => {
 }
 
 .tool-description {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .tool-settings {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .setting-row {
@@ -699,9 +700,9 @@ onMounted(async () => {
 
 .tool-examples {
   background: var(--bg-tertiary);
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .examples-label {
@@ -724,8 +725,8 @@ onMounted(async () => {
 .accounts-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  height: 300px;
+  gap: 8px;
+  height: 350px;
   overflow-y: auto;
 }
 
@@ -740,7 +741,7 @@ onMounted(async () => {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 16px;
+  padding: 10px 12px;
 }
 
 .account-header {
@@ -748,7 +749,17 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+}
+
+.account-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.account-details {
+  margin-top: 12px;
 }
 
 .account-fields {
@@ -800,14 +811,14 @@ onMounted(async () => {
 .perm-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
 }
 
 .perm-check {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 3px;
+  font-size: 10px;
   color: var(--text-secondary);
   cursor: pointer;
   font-family: "JetBrains Mono", monospace;

@@ -41,15 +41,5 @@ onMounted(() => {
   background: var(--bg-hover);
   border-color: var(--accent-primary);
   box-shadow: 0 0 12px var(--accent-glow);
-  transform: scale(1.1);
-}
-
-.theme-icon {
-  font-size: 16px;
-  transition: transform 0.3s ease;
-}
-
-.theme-toggle:hover .theme-icon {
-  transform: scale(1.2);
 }
 </style>

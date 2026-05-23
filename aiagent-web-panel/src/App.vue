@@ -548,8 +548,6 @@ const chatTabRef = ref(null);
 
 .app-container {
   position: relative;
-  max-width: 1440px;
-  margin: 0 auto;
   padding: 24px;
   display: grid;
   grid-template-columns: 300px 1fr;

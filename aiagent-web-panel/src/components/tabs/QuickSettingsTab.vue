@@ -1,15 +1,5 @@
-<!--
-  QuickSettingsTab
-  - autoSave: при false — success-уведомления скрыты, localStorage пишется всегда
-  - verbose: при true — ChatTab логирует тайминги и полные ответы в LogsTab
-  - autoStart: при true + token + projectPath — агент запускается при загрузке
-  - showTokens: StatsCard (диаграмма + мини-бары), ChatTab (токены под ответами)
--->
 <template>
-  <Card>
-    <template #header>
-      <h2>Быстрые настройки</h2>
-    </template>
+  <div class="quick-settings">
     <ToggleSwitch
       :model-value="settings.autoSave"
       label="Автосохранение"
@@ -30,11 +20,10 @@
       label="Показ токенов"
       @update:model-value="updateSetting('showTokens', $event)"
     />
-  </Card>
+  </div>
 </template>
 
 <script setup>
-import Card from "../ui/Card.vue";
 import ToggleSwitch from "../ui/ToggleSwitch.vue";
 
 const props = defineProps({
@@ -48,4 +37,10 @@ const updateSetting = (key, value) => {
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+.quick-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+</style>
