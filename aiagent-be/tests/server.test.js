@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { safePath, parseToolCall } from "../lib/utils.js";
-import { executeTool } from "../lib/agent/executeTool.js";
+import { executeTool, getToolConfig, updateToolConfig, TOOLS, DEFAULT_TOOL_CONFIG } from "../lib/agent/executeTool.js";
 import * as logger from "../lib/logger.js";
 
 // ─── Mock console ────────────────────────────────────────────────
@@ -275,6 +275,74 @@ describe("executeTool", () => {
     const result = await executeTool({ name: "nonexistent_tool", args: {} }, { projectPath: testDir });
     expect(result.success).toBe(false);
     expect(result.error).toContain("Unknown tool");
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════
+// getToolConfig / updateToolConfig
+// ═════════════════════════════════════════════════════════════════
+describe("toolConfig", () => {
+  beforeEach(() => {
+    // Reset toolConfig to defaults before each test
+    for (const name of Object.keys(TOOLS)) {
+      updateToolConfig(name, { ...DEFAULT_TOOL_CONFIG });
+    }
+  });
+
+  it("getToolConfig returns all 9 tools with schema fields", () => {
+    const config = getToolConfig();
+    const names = Object.keys(config);
+    expect(names).toContain("read");
+    expect(names).toContain("write");
+    expect(names).toContain("search");
+    expect(names).toContain("list_dir");
+    expect(names).toContain("execute");
+    expect(names).toContain("create_dir");
+    expect(names).toContain("delete");
+    expect(names).toContain("move");
+    expect(names).toContain("copy");
+    expect(names.length).toBe(9);
+  });
+
+  it("each tool config includes input_schema, description, category, examples", () => {
+    const config = getToolConfig();
+    for (const [name, tool] of Object.entries(config)) {
+      expect(tool).toHaveProperty("name", name);
+      expect(tool).toHaveProperty("description");
+      expect(tool).toHaveProperty("category");
+      expect(tool).toHaveProperty("examples");
+      expect(tool).toHaveProperty("input_schema");
+      expect(tool).toHaveProperty("enabled", true);
+      expect(tool).toHaveProperty("permission", "ask");
+      expect(tool).toHaveProperty("exclude_paths");
+      expect(Array.isArray(tool.exclude_paths)).toBe(true);
+    }
+  });
+
+  it("updateToolConfig overrides enabled and permission", () => {
+    updateToolConfig("read", { enabled: false, permission: "deny" });
+    const config = getToolConfig();
+    expect(config.read.enabled).toBe(false);
+    expect(config.read.permission).toBe("deny");
+    // Schema fields unchanged
+    expect(config.read.description).toBeTruthy();
+    expect(config.read.input_schema).toBeTruthy();
+  });
+
+  it("updateToolConfig merges exclude_paths", () => {
+    updateToolConfig("write", { exclude_paths: ["node_modules", ".git"] });
+    const config = getToolConfig();
+    expect(config.write.exclude_paths).toContain("node_modules");
+    expect(config.write.exclude_paths).toContain(".git");
+    expect(config.write.exclude_paths.length).toBe(2);
+  });
+
+  it("updateToolConfig does not affect other tools", () => {
+    updateToolConfig("delete", { enabled: false });
+    const config = getToolConfig();
+    expect(config.delete.enabled).toBe(false);
+    expect(config.read.enabled).toBe(true);
+    expect(config.write.enabled).toBe(true);
   });
 });
 

@@ -195,7 +195,6 @@ export function createApiRouter(deps) {
         ? "Project path is not configured. Set it in Settings or PROJECT_PATH in .env"
         : undefined,
       stats: {
-        uptime: Math.floor(uptimeMs / 1000),
         requests: stats.requests,
         tools: stats.tools,
         errors: stats.errors,
@@ -260,7 +259,7 @@ export function createApiRouter(deps) {
       pendingApprovals.clear();
       deps.resetTokenUsage();
       deps.updateStatus("idle", "Отключен");
-      wsBroadcast("stats", { requests: 0, tools: 0, errors: 0, uptime: 0 });
+      wsBroadcast("stats", { requests: 0, tools: 0, errors: 0 });
       wsBroadcast("tokenUsage", { prompt: 0, completion: 0, total: 0, cached: 0 });
       addLog("Bot stopped", "warning");
       res.json({ success: true, message: "Bot stopped" });

@@ -47,8 +47,7 @@ export function safePath(userPath, projectRoot) {
  * using brace counting to handle nested objects.
  */
 function extractJsonBlock(str, startIdx) {
-  let depth = 0;
-  let i = startIdx;
+  let depth = 0, i = startIdx;
   const len = str.length;
 
   for (; i < len; i++) {

@@ -187,6 +187,13 @@ export const TOOLS = {
 
 export const toolConfig = {};
 
+// Seed toolConfig at startup with defaults for all tools
+(function seedToolConfig() {
+  for (const name of Object.keys(TOOLS)) {
+    toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
+  }
+})();
+
 export function updateToolConfig(name, settings) {
   if (!toolConfig[name]) {
     toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
@@ -200,9 +207,11 @@ export function getToolConfig() {
     config[name] = {
       ...DEFAULT_TOOL_CONFIG,
       ...(toolConfig[name] || {}),
+      name: tool.name,
       description: tool.description,
       category: tool.category,
       examples: tool.examples,
+      input_schema: tool.input_schema,
     };
   }
   return config;

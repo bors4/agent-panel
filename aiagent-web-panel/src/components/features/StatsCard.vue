@@ -412,8 +412,9 @@ function formatNumber(n) {
 
 .token-chart-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .token-donut {
@@ -447,6 +448,7 @@ function formatNumber(n) {
 }
 
 .token-bars {
+  width: 100%;
   flex: 1;
   display: flex;
   flex-direction: column;

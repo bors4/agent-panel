@@ -4,19 +4,21 @@
  * @module agentLoop
  */
 
-import { executeTool, getToolConfig, TOOLS } from "./executeTool.js";
+import { executeTool, getToolConfig } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
+
+export const MAX_AGENT_ITERATIONS = 5;
 
 function buildToolsDescription(account, globalToolConfig) {
   const enabled = [];
   const disabled = [];
-  for (const t of Object.values(TOOLS)) {
-    const desc = t.name + ": " + t.description;
-    if (isToolEnabledForAccount(account, t.name, globalToolConfig)) {
+  for (const [name, t] of Object.entries(globalToolConfig)) {
+    const desc = name + ": " + (t.description || name);
+    if (isToolEnabledForAccount(account, name, globalToolConfig)) {
       enabled.push(desc);
     } else {
-      disabled.push(t.name);
+      disabled.push(name);
     }
   }
   let result = "";
@@ -117,7 +119,7 @@ function buildToolExecConfig(account, cfg) {
  * @param {Object|null} account - Аккаунт пользователя
  * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
  */
-export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = 5, account = null) {
+export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null) {
   const toolConfig = getToolConfig();
   let messages = [
     {
@@ -142,7 +144,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         temperature: cfg.temperature || 0.1,
       };
       if (useFunctionCalling) {
-        body.tools = Object.values(TOOLS)
+        body.tools = Object.values(toolConfig)
           .filter((t) => isToolEnabledForAccount(account, t.name, toolConfig))
           .map((t) => ({
             type: "function",

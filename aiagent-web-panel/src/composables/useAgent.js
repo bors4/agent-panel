@@ -37,7 +37,7 @@ export function useAgent() {
       const statusData = await apiGetStatus();
       status.value = statusData.status || "idle";
       isRunning.value = statusData.isRunning || false;
-      stats.value = statusData.stats || {};
+      stats.value = { ...statusData.stats, uptime: statusData.uptime || 0 };
       if (statusData.tokenUsage) {
         tokenUsage.value = statusData.tokenUsage;
       }
