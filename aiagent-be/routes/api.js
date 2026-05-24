@@ -6,7 +6,7 @@
 import { Router } from "express";
 import path from "path";
 import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
-import { saveAccounts, getAccounts } from "../lib/accounts.js";
+import { loadAccounts, saveAccounts, getAccounts } from "../lib/accounts.js";
 import { configDefaults } from "../lib/configDefaults.js";
 
 /**
@@ -139,7 +139,8 @@ export function createApiRouter(deps) {
     if (body.projectPath !== undefined && body.projectPath !== null && body.projectPath !== "") {
       const resolved = path.resolve(body.projectPath);
       config.projectPath = resolved;
-      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}"`, "info");
+      loadAccounts(config.projectPath);
+      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}", accounts: ${getAccounts().length}`, "info");
     } else {
       addLog(`projectPath: skipped (value=${JSON.stringify(body.projectPath)})`, "warning");
     }
@@ -278,6 +279,8 @@ export function createApiRouter(deps) {
         await deps.bot.stop();
         await new Promise((r) => setTimeout(r, 1000));
       }
+      loadAccounts(config.projectPath);
+      addLog(`Accounts reloaded: ${getAccounts().length}`, "info");
       deps.bot.start();
       deps.updateStatus("running", "Работает");
       addLog("Bot restarted", "success");

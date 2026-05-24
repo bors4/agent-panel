@@ -10,6 +10,8 @@ import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import fs from "fs";
 import { Bot, InlineKeyboard } from "grammy";
+import { stream } from "@grammyjs/stream";
+import { autoRetry } from "@grammyjs/auto-retry";
 import dotenv from "dotenv";
 import { configDefaults } from "./lib/configDefaults.js";
 
@@ -19,6 +21,8 @@ dotenv.config();
 
 const app = express();
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
+bot.api.config.use(autoRetry());
+bot.use(stream());
 
 // ─── Состояние приложения ──────────────────────────────────────────────────
 
@@ -110,6 +114,7 @@ function wsBroadcast(type, data) {
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
 import { agentLoopStep, buildSystemMessage, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
+import { parseStreamedResponse } from "./lib/parseSSE.js";
 import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
@@ -155,11 +160,19 @@ function updateStatus(newStatus, message = "") {
 
 // ─── Загрузка аккаунтов ────────────────────────────────────────────────────
 
-if (config.projectPath && fs.existsSync(config.projectPath)) {
-  addLog(`Project path: ${config.projectPath}`, "info");
+// Всегда загружаем accounts.json из корня проекта (рядом с package.json)
+loadAccounts(process.cwd());
+let loaded = getAccounts().length;
+if (loaded > 0) {
+  addLog(`Accounts loaded from project root: ${loaded}`, "info");
+}
+
+// Затем, если projectPath задан и отличается от корня — загружаем оттуда
+if (config.projectPath && config.projectPath !== process.cwd() && fs.existsSync(config.projectPath)) {
   loadAccounts(config.projectPath);
-  addLog(`Accounts loaded: ${getAccounts().length}`, "info");
-} else {
+  const more = getAccounts().length;
+  addLog(`Project path: ${config.projectPath}, accounts: ${more}`, "info");
+} else if (!config.projectPath) {
   config.projectPath = "";
   addLog("Project path is not configured. Agent blocked until path is set via API or .env", "warning");
 }
@@ -263,6 +276,33 @@ async function sendTyping(ctx) {
   try {
     await ctx.replyWithChatAction("typing");
   } catch {}
+}
+
+/**
+ * Разбивает текст на чанки для streaming в Telegram.
+ * Генерирует части по 80-150 символов, стараясь не разрывать слова.
+ * @param {string} text - Исходный текст
+ * @returns {AsyncGenerator<string>}
+ */
+async function* chunkText(text) {
+  const maxChunk = 150;
+  const minChunk = 80;
+  let start = 0;
+  while (start < text.length) {
+    const remaining = text.length - start;
+    if (remaining <= maxChunk) {
+      yield text.slice(start);
+      return;
+    }
+    let end = start + maxChunk;
+    // Ищем границу слова (пробел) перед maxChunk
+    const boundary = text.lastIndexOf(" ", end);
+    if (boundary > start + minChunk) {
+      end = boundary;
+    }
+    yield text.slice(start, end);
+    start = end + 1;
+  }
 }
 
 /**
@@ -386,9 +426,12 @@ async function handleAgentResult(ctx, chatId, result, account) {
       account,
     });
     chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
+    const paramStr = JSON.stringify(result.args);
+    const displayParams =
+      paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
     await replyMsg(
       ctx,
-      `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
+      `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${displayParams}</code>`,
       { reply_markup: KEYBOARD_YES_NO(result.toolName) }
     );
     return true;
@@ -408,7 +451,11 @@ async function handleAgentResult(ctx, chatId, result, account) {
   if (result.response !== undefined && result.response !== "continue") {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
     const cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() || result.response;
-    await replyMsg(ctx, cleanResponse);
+    if (ctx.chat?.type === "private") {
+      await ctx.replyWithStream(chunkText(cleanResponse));
+    } else {
+      await replyMsg(ctx, cleanResponse);
+    }
     return true;
   }
 
@@ -516,6 +563,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
           temperature: config.temperature ?? configDefaults.temperature,
           tools: toolsDef,
           tool_choice: "auto",
+          stream: true,
         }),
         signal: controller.signal,
       });
@@ -527,10 +575,18 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       throw new Error(`AI API error: ${response.status}`);
     }
 
-    const data = await response.json();
-    const nextMessage = data.choices?.[0]?.message;
-    const finishReason = data.choices?.[0]?.finish_reason;
-    const usage = data.usage;
+    const { content: streamedContent, toolCalls: streamedToolCalls, finishReason, usage } =
+      await parseStreamedResponse(response);
+    const nextMessage = {
+      content: streamedContent || null,
+      tool_calls: streamedToolCalls
+        ? streamedToolCalls.map((tc) => ({
+            id: tc.id,
+            type: tc.type,
+            function: { name: tc.function.name, arguments: tc.function.arguments },
+          }))
+        : undefined,
+    };
     if (usage) {
       tokenUsage.prompt += usage.prompt_tokens || 0;
       tokenUsage.completion += usage.completion_tokens || 0;
@@ -612,7 +668,11 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     }
 
     const finalText = nextMessage.content || "✅ Готово.";
-    await replyMsg(ctx, finalText);
+    if (ctx.chat?.type === "private") {
+      await ctx.replyWithStream(chunkText(finalText));
+    } else {
+      await replyMsg(ctx, finalText);
+    }
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
     console.error("[continueAfterApproval] Full error:", error);

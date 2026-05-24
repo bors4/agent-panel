@@ -8,6 +8,7 @@ import { executeTool, getToolConfig } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
+import { parseStreamedResponse } from "../parseSSE.js";
 
 /** Максимальное количество итераций (вызовов инструментов) за один запрос. */
 export const MAX_AGENT_ITERATIONS = 5;
@@ -187,6 +188,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           }));
         body.tool_choice = "auto";
       }
+      body.stream = true;
       const controller = new AbortController();
       const timeout = cfg.timeout ?? configDefaults.timeout;
       const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -210,11 +212,22 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         continue;
       }
       if (!resp.ok) return { error: "AI error: " + resp.status };
-      const data = await resp.json();
-      const asst = data.choices?.[0]?.message;
-      if (!asst) return { error: "Empty response" };
-      const msg = data.choices?.[0]?.message;
-      const usage = data.usage;
+      const { content: streamedContent, toolCalls: streamedToolCalls, usage } =
+        await parseStreamedResponse(resp);
+      const msg = {
+        content: streamedContent || null,
+        tool_calls: streamedToolCalls
+          ? streamedToolCalls.map((tc) => ({
+              id: tc.id,
+              type: tc.type,
+              function: {
+                name: tc.function.name,
+                arguments: tc.function.arguments,
+              },
+            }))
+          : undefined,
+      };
+      if (!msg.content && !msg.tool_calls?.length) return { error: "Empty response" };
       if (usage) {
         accumulatedUsage.prompt += usage.prompt_tokens || 0;
         accumulatedUsage.completion += usage.completion_tokens || 0;
@@ -226,8 +239,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       messages.push(msg);
       const content = msg?.content || "";
 
-      if (asst.tool_calls?.length > 0) {
-        for (const tc of asst.tool_calls) {
+      if (msg.tool_calls?.length > 0) {
+        for (const tc of msg.tool_calls) {
           const tn = tc.function.name;
           let ta;
           try {
