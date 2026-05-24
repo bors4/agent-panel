@@ -7,6 +7,7 @@ import { Router } from "express";
 import path from "path";
 import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
 import { saveAccounts, getAccounts } from "../lib/accounts.js";
+import { configDefaults } from "../lib/configDefaults.js";
 
 /**
  * Создаёт Express Router с API маршрутами.
@@ -145,7 +146,7 @@ export function createApiRouter(deps) {
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
     if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
     if (body.temperature !== undefined) config.temperature = parseFloat(body.temperature);
-    if (body.timeout) config.timeout = parseInt(body.timeout);
+    if (body.timeout !== undefined) config.timeout = parseInt(body.timeout);
     if (body.maxFileChars) config.maxFileChars = parseInt(body.maxFileChars);
     if (body.maxHistoryPairs) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
     if (body.maxSearchResults) config.maxSearchResults = parseInt(body.maxSearchResults);
@@ -308,22 +309,31 @@ export function createApiRouter(deps) {
       let systemContext = `Ты работаешь в проекте: ${workPath}. Все операции выполняй относительно этого пути.`;
       if (sysPrompt) systemContext += `\n\n${sysPrompt}`;
 
-      const response = await fetch(`${actualServerUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: "system", content: systemContext },
-            { role: "user", content: message },
-          ],
-          max_tokens: 4096,
-          temperature: 0.1,
-        }),
-      });
+      const controller = new AbortController();
+      const timeout = config.timeout ?? configDefaults.timeout;
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      let response;
+      try {
+        response = await fetch(`${actualServerUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              { role: "system", content: systemContext },
+              { role: "user", content: message },
+            ],
+            max_tokens: config.maxTokens ?? configDefaults.maxTokens,
+            temperature: config.temperature ?? configDefaults.temperature,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         stats.errors++;
@@ -349,6 +359,51 @@ export function createApiRouter(deps) {
       addLog(`Chat error: ${error.message}`, "error");
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ─── Health ──────────────────────────────────────────────────────────────
+
+  /**
+   * GET /api/health — Health check endpoint for monitoring.
+   * Returns bot status and AI server reachability.
+   */
+  router.get("/health", async (req, res) => {
+    const uptimeMs = deps.state.startTime ? Date.now() - deps.state.startTime : 0;
+    const botRunning = deps.state.botStatus === "running";
+
+    let aiReachable = false;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const aiResp = await fetch(`${config.serverUrl}/models`, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+      });
+      clearTimeout(timeoutId);
+      aiReachable = aiResp.ok;
+    } catch {} // AI server unreachable, aiReachable stays false
+
+    let status;
+    if (botRunning && aiReachable) {
+      status = "healthy";
+    } else if (aiReachable) {
+      status = "degraded";
+    } else {
+      status = "unhealthy";
+    }
+
+    res.json({
+      status,
+      bot: {
+        isRunning: botRunning,
+        status: deps.state.botStatus,
+        uptime: Math.floor(uptimeMs / 1000),
+      },
+      aiServer: {
+        reachable: aiReachable,
+      },
+      timestamp: new Date().toISOString(),
+    });
   });
 
   return router;

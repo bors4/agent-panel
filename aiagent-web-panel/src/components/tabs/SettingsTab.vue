@@ -63,15 +63,21 @@
       </div>
       <div class="model-name-row">
         <select v-model="modelNameCopy" class="form-input">
+          <option value="" disabled>Выберите модель</option>
           <option v-for="model in availableModels" :key="model.id" :value="model.id">
             {{ model.id }} ({{ model.source }})
           </option>
         </select>
-        <Button class="btn-refresh-models" :disabled="loadingStates.models" @click="handleRefreshModels">
+        <Button
+          class="btn-refresh-models"
+          :disabled="loadingStates.models"
+          @click="handleRefreshModels"
+        >
           <span v-if="loadingStates.models" class="btn-loading" />
-          <span v-else>🔄</span>
+          <span v-else>🔄 Обновить список</span>
         </Button>
       </div>
+      <p v-if="availableModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
     </div>
   </Card>
 
@@ -126,7 +132,7 @@
         type="number"
         class="form-input"
         min="10000"
-        max="300000"
+        max="3000000"
         step="10000"
       />
     </div>
@@ -184,6 +190,7 @@
 import { ref, reactive, watch } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
+import { configDefaults } from "@backend/lib/configDefaults.js";
 
 const props = defineProps({
   config: { type: Object, default: () => ({}) },
@@ -199,13 +206,13 @@ const emit = defineEmits(["save", "reset", "models-updated"]);
 const configCopy = reactive({
   token: props.config.token || "",
   projectPath: props.config.projectPath || "C:\\",
-  maxFileChars: props.config.maxFileChars || 2000,
-  maxHistoryPairs: props.config.maxHistoryPairs || 5,
-  maxSearchResults: props.config.maxSearchResults || 15,
-  maxFilesInPrompt: props.config.maxFilesInPrompt || 2,
-  maxTokens: props.config.maxTokens || 1024,
-  timeout: props.config.timeout || 120000,
-  temperature: props.config.temperature || 0.1,
+  maxFileChars: props.config.maxFileChars ?? configDefaults.maxFileChars,
+  maxHistoryPairs: props.config.maxHistoryPairs ?? configDefaults.maxHistoryPairs,
+  maxSearchResults: props.config.maxSearchResults ?? configDefaults.maxSearchResults,
+  maxFilesInPrompt: props.config.maxFilesInPrompt ?? configDefaults.maxFilesInPrompt,
+  maxTokens: props.config.maxTokens ?? configDefaults.maxTokens,
+  timeout: props.config.timeout ?? configDefaults.timeout,
+  temperature: props.config.temperature ?? configDefaults.temperature,
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
@@ -266,13 +273,13 @@ watch(
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
     configCopy.projectPath = val.projectPath || "C:\\";
-    configCopy.maxFileChars = val.maxFileChars || 2000;
-    configCopy.maxHistoryPairs = val.maxHistoryPairs || 5;
-    configCopy.maxSearchResults = val.maxSearchResults || 15;
-    configCopy.maxFilesInPrompt = val.maxFilesInPrompt || 2;
-    configCopy.maxTokens = val.maxTokens || 1024;
-    configCopy.timeout = val.timeout || 120000;
-    configCopy.temperature = val.temperature ?? 0.1;
+    configCopy.maxFileChars = val.maxFileChars ?? configDefaults.maxFileChars;
+    configCopy.maxHistoryPairs = val.maxHistoryPairs ?? configDefaults.maxHistoryPairs;
+    configCopy.maxSearchResults = val.maxSearchResults ?? configDefaults.maxSearchResults;
+    configCopy.maxFilesInPrompt = val.maxFilesInPrompt ?? configDefaults.maxFilesInPrompt;
+    configCopy.maxTokens = val.maxTokens ?? configDefaults.maxTokens;
+    configCopy.timeout = val.timeout ?? configDefaults.timeout;
+    configCopy.temperature = val.temperature ?? configDefaults.temperature;
     
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
@@ -450,13 +457,6 @@ const adjustTokens = (delta) => {
 }
 .btn-refresh-models {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
 }
 .form-label {
   display: flex;
@@ -562,6 +562,12 @@ select.form-input {
   border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+}
+
+.model-error {
+  color: #e74c3c;
+  font-size: 11px;
+  margin-top: 6px;
 }
 
 @keyframes spin {

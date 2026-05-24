@@ -8,10 +8,10 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import path from "path";
 import fs from "fs";
 import { Bot, InlineKeyboard } from "grammy";
 import dotenv from "dotenv";
+import { configDefaults } from "./lib/configDefaults.js";
 
 dotenv.config();
 
@@ -24,26 +24,31 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 
 /**
  * Конфигурация приложения. Обновляется через API /api/config.
+ * Все дефолтные значения — в lib/configDefaults.js.
+ * .env используется только для TELEGRAM_BOT_TOKEN и API_KEY.
  * @type {Object}
  * @property {string} serverUrl - URL AI сервера
- * @property {string} modelName - Имя модели
- * @property {string} projectPath - Путь к проекту. Если PROJECT_PATH не установлен в .env,
- *   значение = "" (не cwd). Обновляется через POST /api/config из UI.
+ * @property {string} modelName - Имя модели (из UI или .env)
+ * @property {string} projectPath - Путь к проекту
  * @property {string} systemPrompt - Системный промпт
  * @property {string} apiKey - Ключ авторизации
  * @property {number} maxTokens - Максимальное количество токенов
  * @property {number} temperature - Температура генерации
  * @property {number} timeout - Таймаут запросов
+ * @property {number} maxFileChars - Макс. символов при чтении файла
+ * @property {number} maxHistoryPairs - Макс. пар сообщений в истории
+ * @property {number} maxSearchResults - Макс. результатов поиска
+ * @property {number} maxFilesInPrompt - Макс. файлов в промпте
  */
 const config = {
-  serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
-  modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-  projectPath: process.env.PROJECT_PATH ? path.resolve(process.env.PROJECT_PATH) : "",
-  systemPrompt: process.env.SYSTEM_PROMPT || "",
-  apiKey: process.env.API_KEY || "agent-secret-key",
-  maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
-  temperature: parseFloat(process.env.TEMPERATURE) || 0.1,
-  timeout: parseInt(process.env.TIMEOUT) || 120000,
+  serverUrl: configDefaults.serverUrl,
+  modelName: configDefaults.modelName,
+  projectPath: configDefaults.projectPath,
+  systemPrompt: configDefaults.systemPrompt,
+  apiKey: process.env.API_KEY || configDefaults.apiKey,
+  maxTokens: configDefaults.maxTokens,
+  temperature: configDefaults.temperature,
+  timeout: configDefaults.timeout,
 };
 
 /**
@@ -62,12 +67,14 @@ let stats = { requests: 0, tools: 0, errors: 0 };
 /** @type {{prompt: number, completion: number, total: number, cached: number}} */
 const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
 
+/** Сбросить статистику запросов, инструментов и ошибок. */
 function resetStats() {
   stats.requests = 0;
   stats.tools = 0;
   stats.errors = 0;
 }
 
+/** Сбросить счётчик использования токенов. */
 function resetTokenUsage() {
   tokenUsage.prompt = 0;
   tokenUsage.completion = 0;
@@ -84,7 +91,7 @@ const chatHistories = new Map();
 /** @type {Map.<string, Object>} */
 const pendingApprovals = new Map();
 
-/** @type {import("ws").WebSocketServer | null} */
+/** @type {Object | null} */
 let wss = null;
 
 /**
@@ -185,7 +192,7 @@ app.use("/api", apiRouter);
 
 // ─── Telegram HTML Helpers ─────────────────────────────────────────────────
 
-/** Опции ответа по умолчанию для Telegram (HTML parse mode). */
+/** Опции ответа по умолчанию для Telegram (HTML parse mode). @type {{parse_mode: string, link_preview_options: {is_disabled: boolean}}} */
 const REPLY_OPTS = {
   parse_mode: "HTML",
   link_preview_options: { is_disabled: true },
@@ -250,6 +257,7 @@ const KEYBOARD_YES_NO = (toolName) =>
 /**
  * Отправить сообщение с индикатором набора текста.
  * @param {Object} ctx - GrammY контекст
+ * @returns {Promise<void>}
  */
 async function sendTyping(ctx) {
   try {
@@ -260,6 +268,7 @@ async function sendTyping(ctx) {
 /**
  * Убрать inline-кнопки из сообщения.
  * @param {Object} ctx - GrammY контекст
+ * @returns {Promise<void>}
  */
 async function clearButtons(ctx) {
   try {
@@ -279,6 +288,8 @@ async function clearButtons(ctx) {
 /**
  * Обработать входящее сообщение от пользователя Telegram.
  * Маршрутизирует через agent loop и обрабатывает результат.
+ * @param {Object} ctx - GrammY контекст сообщения
+ * @returns {Promise<void>}
  */
 bot.on("message", async (ctx) => {
   const message = ctx.message?.text || ctx.message?.caption;
@@ -422,6 +433,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
  * @param {Object} ctx - GrammY контекст
  * @param {Object} pending - Ожидающий инструмент
  * @param {number} depth - Текущая глубина рекурсии (default: 0)
+ * @returns {Promise<void>}
  */
 const MAX_APPROVAL_DEPTH = 10;
 
@@ -486,21 +498,30 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       content: buildSystemMessage(config.projectPath, config.systemPrompt, true, account),
     };
 
-    const response = await fetch(config.serverUrl + "/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + config.apiKey,
-      },
-      body: JSON.stringify({
-        model: config.modelName,
-        messages: [systemMessage, ...history, toolMessage],
-        max_tokens: config.maxTokens ?? 4096,
-        temperature: config.temperature ?? 0.1,
-        tools: toolsDef,
-        tool_choice: "auto",
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = config.timeout ?? configDefaults.timeout;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let response;
+    try {
+      response = await fetch(config.serverUrl + "/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + config.apiKey,
+        },
+        body: JSON.stringify({
+          model: config.modelName,
+          messages: [systemMessage, ...history, toolMessage],
+          max_tokens: config.maxTokens ?? configDefaults.maxTokens,
+          temperature: config.temperature ?? configDefaults.temperature,
+          tools: toolsDef,
+          tool_choice: "auto",
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       throw new Error(`AI API error: ${response.status}`);
@@ -599,7 +620,11 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   }
 }
 
-/** Обработка callback-запросов (inline keyboard). */
+/**
+ * Обработка callback-запросов (inline keyboard).
+ * @param {Object} ctx - GrammY контекст callback query
+ * @returns {Promise<void>}
+ */
 bot.on("callback_query", async (ctx) => {
   console.log(`[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`);
   const callbackData = ctx.callbackQuery.data;
@@ -652,6 +677,10 @@ bot.on("callback_query", async (ctx) => {
 // ─── Telegram Commands ─────────────────────────────────────────────────────
 
 bot.command("start", (ctx) => {
+  if (config.modelName === "Имя модели") {
+    ctx.reply("⚠️ Модель не выбрана. Настройте модель в веб-интерфейсе.", REPLY_OPTS);
+    return;
+  }
   updateStatus("running", "Работает");
   ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
 });

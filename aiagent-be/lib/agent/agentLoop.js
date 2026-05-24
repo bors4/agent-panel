@@ -7,9 +7,17 @@
 import { executeTool, getToolConfig } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
+import { configDefaults } from "../configDefaults.js";
 
+/** Максимальное количество итераций (вызовов инструментов) за один запрос. */
 export const MAX_AGENT_ITERATIONS = 5;
 
+/**
+ * Формирует текстовое описание доступных и недоступных инструментов для system prompt.
+ * @param {Object|null} account - Аккаунт пользователя
+ * @param {Object} globalToolConfig - Глобальная конфигурация инструментов
+ * @returns {string} Описание инструментов
+ */
 function buildToolsDescription(account, globalToolConfig) {
   const enabled = [];
   const disabled = [];
@@ -32,6 +40,15 @@ function buildToolsDescription(account, globalToolConfig) {
   return result;
 }
 
+/**
+ * Собирает system message для AI модели на основе конфигурации и аккаунта.
+ * Включает описание инструментов, правила работы и пути проекта.
+ * @param {string} projectPath - Путь к проекту
+ * @param {string} systemPrompt - Кастомный system prompt
+ * @param {boolean} useFunctionCalling - Использовать function calling (true) или XML-формат (false)
+ * @param {Object|null} [account=null] - Аккаунт пользователя
+ * @returns {string} Полный system prompt
+ */
 export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
   let ctx =
     "You are AI assistant in: " +
@@ -69,6 +86,12 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
   }
 }
 
+/**
+ * Извлекает bash-команду из блока с обратными кавычками.
+ * Используется как fallback, когда function calling недоступен.
+ * @param {string} content - Текст ответа модели
+ * @returns {string|null} Извлечённая команда или null
+ */
 function extractBash(content) {
   const m = content.match(/`(?:bash|sh)?[\s\S]*?`/);
   return m ? m[0].replace(/`[a-z]*\n?/g, "").trim() : null;
@@ -97,6 +120,12 @@ function truncateHistory(messages, maxPairs) {
   return nonSystem.slice(startIdx);
 }
 
+/**
+ * Формирует конфигурацию для executeTool на основе аккаунта и глобальной конфигурации.
+ * @param {Object|null} account - Аккаунт пользователя
+ * @param {Object} cfg - Глобальная конфигурация агента
+ * @returns {Object} Конфигурация выполнения инструмента
+ */
 function buildToolExecConfig(account, cfg) {
   return {
     projectPath: cfg.projectPath,
@@ -105,6 +134,7 @@ function buildToolExecConfig(account, cfg) {
     maxSearchResults: cfg.maxSearchResults,
     maxHistoryPairs: cfg.maxHistoryPairs,
     maxFilesInPrompt: cfg.maxFilesInPrompt,
+    filesRead: 0,
   };
 }
 
@@ -133,6 +163,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     finalResponse = "",
     useFunctionCalling = true,
     accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
+  const toolExecConfig = buildToolExecConfig(account, cfg);
 
   while (iterations < maxIterations) {
     iterations++;
@@ -140,8 +171,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const body = {
         model: cfg.modelName,
         messages,
-        max_tokens: cfg.maxTokens ?? 8192,
-        temperature: cfg.temperature || 0.1,
+        max_tokens: cfg.maxTokens ?? configDefaults.maxTokens,
+        temperature: cfg.temperature ?? configDefaults.temperature,
       };
       if (useFunctionCalling) {
         body.tools = Object.values(toolConfig)
@@ -156,14 +187,23 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           }));
         body.tool_choice = "auto";
       }
-      const resp = await fetch(cfg.serverUrl + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + cfg.apiKey,
-        },
-        body: JSON.stringify(body),
-      });
+      const controller = new AbortController();
+      const timeout = cfg.timeout ?? configDefaults.timeout;
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      let resp;
+      try {
+        resp = await fetch(cfg.serverUrl + "/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + cfg.apiKey,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (!resp.ok && useFunctionCalling) {
         useFunctionCalling = false;
         messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account);
@@ -209,7 +249,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
               messages,
             };
           }
-          const r = await executeTool({ name: tn, args: ta }, buildToolExecConfig(account, cfg));
+          const r = await executeTool({ name: tn, args: ta }, toolExecConfig);
+          if (tn === "read" && r.success) toolExecConfig.filesRead++;
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -229,7 +270,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             args: tc.args,
             messages,
           };
-        const r = await executeTool(tc, buildToolExecConfig(account, cfg));
+        const r = await executeTool(tc, toolExecConfig);
+        if (tc.name === "read" && r.success) toolExecConfig.filesRead++;
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -240,7 +282,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
 
       const bash = extractBash(content);
       if (bash && !useFunctionCalling) {
-        const r = await executeTool({ name: "execute", args: { command: bash } }, buildToolExecConfig(account, cfg));
+        const r = await executeTool({ name: "execute", args: { command: bash } }, toolExecConfig);
         messages.push({
           role: "tool",
           tool_call_id: `bash_${Date.now()}`,

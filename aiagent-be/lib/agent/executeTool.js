@@ -26,11 +26,13 @@ import path from "path";
 import { spawn } from "child_process";
 import { safePath } from "../utils.js";
 import { checkAccountToolPermission } from "../accounts.js";
+import { configDefaults } from "../configDefaults.js";
 
 // ============================================================================
 // DEFAULT CONFIGURATION
 // ============================================================================
 
+/** Значения конфигурации инструмента по умолчанию. */
 export const DEFAULT_TOOL_CONFIG = {
   enabled: true,
   permission: "ask",
@@ -41,6 +43,11 @@ export const DEFAULT_TOOL_CONFIG = {
 // TOOL DEFINITIONS
 // ============================================================================
 
+/**
+ * Определения всех доступных инструментов AI агента.
+ * Каждый инструмент содержит name, description, category, examples и input_schema.
+ * @type {Object.<string, {name: string, description: string, category: string, examples: string[], input_schema: Object}>}
+ */
 export const TOOLS = {
   read: {
     name: "read",
@@ -185,15 +192,24 @@ export const TOOLS = {
 // CONFIGURATION STORE
 // ============================================================================
 
+/**
+ * Текущая конфигурация инструментов (мутабельная, инициализируется при старте).
+ * @type {Object.<string, {enabled: boolean, permission: string, exclude_paths: string[]}>}
+ */
 export const toolConfig = {};
 
-// Seed toolConfig at startup with defaults for all tools
+/** Инициализировать toolConfig значениями по умолчанию для всех инструментов. */
 (function seedToolConfig() {
   for (const name of Object.keys(TOOLS)) {
     toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
   }
 })();
 
+/**
+ * Обновить конфигурацию конкретного инструмента.
+ * @param {string} name - Название инструмента
+ * @param {Object} settings - Новые настройки (enabled, permission, exclude_paths)
+ */
 export function updateToolConfig(name, settings) {
   if (!toolConfig[name]) {
     toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
@@ -201,6 +217,11 @@ export function updateToolConfig(name, settings) {
   Object.assign(toolConfig[name], settings);
 }
 
+/**
+ * Получить полную конфигурацию всех инструментов.
+ * Сливает DEFAULT_TOOL_CONFIG с текущими настройками и метаданными из TOOLS.
+ * @returns {Object.<string, Object>} Конфигурация всех инструментов
+ */
 export function getToolConfig() {
   const config = {};
   for (const [name, tool] of Object.entries(TOOLS)) {
@@ -221,6 +242,15 @@ export function getToolConfig() {
 // PERMISSION CHECK
 // ============================================================================
 
+/**
+ * Проверить, разрешено ли использование инструмента с указанными аргументами.
+ * Учитывает глобальный конфиг инструмента (enabled, permission, exclude_paths) и права аккаунта.
+ * @param {string} toolName - Название инструмента
+ * @param {Object} args - Аргументы вызова
+ * @param {string} projectPath - Путь к проекту
+ * @param {Object} [account] - Аккаунт пользователя
+ * @returns {Object} Результат проверки вида {allowed: boolean, reason?: string}
+ */
 function checkToolPermission(toolName, args, projectPath, account) {
   const accountCheck = checkAccountToolPermission(account, toolName, args, projectPath);
   if (!accountCheck.allowed) return accountCheck;
@@ -258,8 +288,11 @@ function checkToolPermission(toolName, args, projectPath, account) {
 // ============================================================================
 
 /**
- * Recursively formats any value for safe display in Telegram messages.
- * Handles nested objects, arrays, and special file/directory structures.
+ * Рекурсивно форматирует любое значение для безопасного отображения в Telegram.
+ * Обрабатывает вложенные объекты, массивы и структуры файлов/директорий.
+ * @param {*} v - Значение для форматирования
+ * @param {number} [depth=0] - Текущая глубина рекурсии
+ * @returns {string} Отформатированная строка
  */
 export function formatValue(v, depth = 0) {
   if (v === null || v === undefined) return "N/A";
@@ -298,8 +331,12 @@ export function formatValue(v, depth = 0) {
 // ============================================================================
 
 /**
- * Lists directory contents as a flat array of formatted strings.
- * Returns: ["📁 src/", "📄 server.js", "📄 package.json", ...]
+ * Рекурсивно обходит директорию, возвращая плоский массив отформатированных строк.
+ * Пропускает скрытые файлы, node_modules, .git и другие стандартные исключения.
+ * @param {string} dirPath - Путь к директории
+ * @param {number} maxDepth - Максимальная глубина обхода
+ * @param {number} [currentDepth=0] - Текущая глубина (для рекурсии)
+ * @returns {Promise<string[]>} Массив строк вида "📁 src/" / "📄 file.js"
  */
 async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
   if (currentDepth >= maxDepth) return [];
@@ -341,6 +378,17 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
 // HELPER: SEARCH DIRECTORY
 // ============================================================================
 
+/**
+ * Рекурсивно обходит директорию в поиске файлов, соответствующих паттерну.
+ * Мутирует переданный массив results, добавляя найденные совпадения.
+ * @param {string} dirPath - Путь к директории
+ * @param {RegExp} pattern - Regex для поиска
+ * @param {Array} results - Массив для накопления результатов (мутируется)
+ * @param {number} depth - Текущая глубина рекурсии
+ * @param {string|null} extension - Фильтр по расширению (e.g. "*.js") или null
+ * @param {number} maxResults - Максимальное количество результатов
+ * @param {string} projectPath - Корень проекта для вычисления относительных путей
+ */
 async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath) {
   if (depth > 5 || results.length >= maxResults) return;
 
@@ -400,6 +448,8 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
  * @param {Object} [config.account] - Аккаунт пользователя
  * @param {number} [config.maxSearchResults=15] - Макс. результатов поиска
  * @param {number} [config.maxFileChars=2000] - Макс. символов при чтении файла
+ * @param {number} [config.maxFilesInPrompt=2] - Макс. файлов в промпте
+ * @param {number} [config.filesRead=0] - Счётчик прочитанных файлов
  * @returns {Promise<ToolResult>} Результат выполнения
  */
 export async function executeTool(toolCall, config = {}) {
@@ -415,7 +465,7 @@ export async function executeTool(toolCall, config = {}) {
     };
   }
   const projectPath = path.resolve(rawPath);
-  const maxResults = config.maxSearchResults || 15;
+  const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
 
   // Validate project directory exists
   if (!fs.existsSync(projectPath)) {
@@ -449,6 +499,10 @@ export async function executeTool(toolCall, config = {}) {
     switch (name) {
       // ────────────────────────────────────────────────────────────────────
       case "read": {
+        const maxFiles = config.maxFilesInPrompt ?? configDefaults.maxFilesInPrompt;
+        if ((config.filesRead ?? 0) >= maxFiles) {
+          return { success: true, data: { content: "[File omitted: max files in prompt reached]" } };
+        }
         const filePath = safePath(args.filePath, projectPath);
         if (!fs.existsSync(filePath)) {
           return {
@@ -457,7 +511,7 @@ export async function executeTool(toolCall, config = {}) {
           };
         }
         const content = fs.readFileSync(filePath, "utf-8");
-        const maxChars = config.maxFileChars || 2000;
+        const maxChars = config.maxFileChars ?? configDefaults.maxFileChars;
         const truncated =
           content.length > maxChars
             ? content.slice(0, maxChars) + `\n\n... [truncated, ${content.length - maxChars} more chars]`

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import supertest from "supertest";
 import express from "express";
 import { createApiRouter } from "../routes/api.js";
@@ -236,6 +236,59 @@ describe("API Routes", () => {
         .post("/api/chat")
         .send({ message: "" });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("GET /api/health", () => {
+    let fetchMock;
+
+    beforeEach(() => {
+      fetchMock = vi.spyOn(global, "fetch");
+    });
+
+    afterEach(() => {
+      fetchMock.mockRestore();
+    });
+
+    it("returns bot and aiServer fields in response", async () => {
+      fetchMock.mockResolvedValue({ ok: true });
+      const res = await supertest(app).get("/api/health");
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("status");
+      expect(res.body).toHaveProperty("bot");
+      expect(res.body).toHaveProperty("aiServer");
+      expect(res.body).toHaveProperty("timestamp");
+      expect(res.body.bot).toHaveProperty("isRunning");
+      expect(res.body.bot).toHaveProperty("status");
+      expect(res.body.bot).toHaveProperty("uptime");
+      expect(res.body.aiServer).toHaveProperty("reachable");
+    });
+
+    it("reports degraded when bot idle and AI reachable", async () => {
+      deps.state.botStatus = "idle";
+      fetchMock.mockResolvedValue({ ok: true });
+      const res = await supertest(app).get("/api/health");
+      expect(res.body.status).toBe("degraded");
+      expect(res.body.bot.isRunning).toBe(false);
+      expect(res.body.aiServer.reachable).toBe(true);
+    });
+
+    it("reports unhealthy when AI server unreachable", async () => {
+      fetchMock.mockRejectedValue(new Error("Connection refused"));
+      const res = await supertest(app).get("/api/health");
+      expect(res.body.status).toBe("unhealthy");
+      expect(res.body.aiServer.reachable).toBe(false);
+    });
+
+    it("reports healthy when bot running and AI reachable", async () => {
+      deps.state.botStatus = "running";
+      deps.state.startTime = Date.now();
+      fetchMock.mockResolvedValue({ ok: true });
+      const res = await supertest(app).get("/api/health");
+      expect(res.body.status).toBe("healthy");
+      expect(res.body.bot.isRunning).toBe(true);
+      expect(res.body.aiServer.reachable).toBe(true);
+      expect(res.body.bot.uptime).toBeGreaterThanOrEqual(0);
     });
   });
 });
