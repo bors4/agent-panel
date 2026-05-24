@@ -26,6 +26,18 @@ defineEmits(["start", "stop", "restart"]);
 </script>
 
 <style scoped>
+h2 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 500;
+  background: none;
+  background-clip: unset;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+}
+
 .controls-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -53,12 +65,8 @@ defineEmits(["start", "stop", "restart"]);
 }
 
 .controls-grid .btn:hover:not(.disabled) {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
-}
-
-.controls-grid .btn:active:not(.disabled) {
-  transform: translateY(0);
+  border-color: var(--border-focus);
 }
 
 .controls-grid .btn.primary {
@@ -73,10 +81,6 @@ defineEmits(["start", "stop", "restart"]);
 .controls-grid .btn.danger:hover:not(.disabled) {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(239, 68, 68, 0.1));
   box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
-}
-
-.controls-grid .btn:hover:not(.disabled) {
-  border-color: var(--border-focus);
 }
 
 .controls-grid .btn.disabled {

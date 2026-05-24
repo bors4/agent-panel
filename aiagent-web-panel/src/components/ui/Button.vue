@@ -66,7 +66,6 @@ defineEmits(["click"]);
 .btn:hover:not(.disabled) {
   border-color: var(--border-focus);
   background: var(--bg-hover);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
 
@@ -108,7 +107,6 @@ defineEmits(["click"]);
 .btn.primary:hover:not(.disabled) {
   background: linear-gradient(135deg, var(--accent-hover), #6d28d9);
   box-shadow: 0 4px 20px var(--accent-glow);
-  transform: translateY(-2px);
 }
 
 .btn.danger {
@@ -121,7 +119,6 @@ defineEmits(["click"]);
 .btn.danger:hover:not(.disabled) {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.1));
   border-color: var(--error);
-  transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
 }
 
@@ -135,7 +132,6 @@ defineEmits(["click"]);
 .btn.success:hover:not(.disabled) {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.1));
   border-color: var(--success);
-  transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
 }
 

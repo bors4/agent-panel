@@ -14,14 +14,12 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
   position: relative;
   transition: var(--transition);
   backdrop-filter: blur(10px);
 }
 
 .card:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
   border-color: var(--border-hover);
 }
@@ -44,7 +42,7 @@
   align-items: center;
   justify-content: space-between;
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .card-header h2 {
@@ -63,6 +61,7 @@
   padding: 16px 18px;
   position: relative;
   z-index: 1;
+  overflow: hidden;
 }
 
 /* Card с контентом */

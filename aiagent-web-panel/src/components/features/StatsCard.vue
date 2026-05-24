@@ -191,6 +191,18 @@ function formatNumber(n) {
 </script>
 
 <style scoped>
+h2 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 500;
+  background: none;
+  background-clip: unset;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+}
+
 .refresh-btn {
   background: transparent;
   border: none;
@@ -205,7 +217,6 @@ function formatNumber(n) {
 .refresh-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-  transform: rotate(180deg);
 }
 
 .stats-grid {
@@ -237,7 +248,6 @@ function formatNumber(n) {
 }
 
 .stat-item:hover {
-  transform: translateY(-2px);
   box-shadow: var(--shadow-sm);
   border-color: var(--border-hover);
 }

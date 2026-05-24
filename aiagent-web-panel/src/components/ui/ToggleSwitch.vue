@@ -6,7 +6,6 @@
       <span class="toggle-slider" />
     </label>
   </div>
-  <div class="toggle-divider" />
 </template>
 
 <script setup>
@@ -22,19 +21,19 @@ defineEmits(["update:modelValue"]);
 .toggle-container {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
+  padding: 8px 0;
 }
 
 .toggle-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
+  min-width: 400px;
 }
 
 .toggle {
   position: relative;
-  width: 40px;
-  height: 22px;
+  width: 34px;
+  height: 20px;
   cursor: pointer;
 }
 
@@ -56,8 +55,8 @@ defineEmits(["update:modelValue"]);
 .toggle-slider::before {
   content: "";
   position: absolute;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   left: 2px;
   top: 2px;
   background: var(--text-muted);
@@ -71,7 +70,7 @@ defineEmits(["update:modelValue"]);
 }
 
 .toggle input:checked + .toggle-slider::before {
-  transform: translateX(18px);
+  transform: translateX(14px);
   background: var(--text-primary);
 }
 

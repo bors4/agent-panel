@@ -1,13 +1,9 @@
 <template>
   <Card>
     <template #header>
-      <h2>Системный промпт агента</h2>
-      <span style="font-size: 11px; color: var(--text-muted)"> {{ charCount }} символов </span>
-    </template>
-    <div class="prompt-editor">
-      <div class="editor-toolbar">
-        <span>Markdown / Plain text</span>
-        <div class="editor-actions">
+      <div class="header-row">
+        <h2>Системный промпт агента</h2>
+        <div class="header-actions">
           <Button :disabled="loadingStates.reset" @click="handleReset">
             <span v-if="loadingStates.reset" class="btn-loading" />
             <span v-else>↩️ Сброс</span>
@@ -20,40 +16,42 @@
             <span v-if="loadingStates.copy" class="btn-loading" />
             <span v-else>📋 Копировать</span>
           </Button>
+          <span class="action-separator" />
+          <Button variant="primary" :disabled="loadingStates.save" @click="handleSave">
+            <span v-if="loadingStates.save" class="btn-loading" />
+            <span v-else>💾 Сохранить</span>
+          </Button>
+          <Button :disabled="loadingStates.export" @click="handleExport">
+            <span v-if="loadingStates.export" class="btn-loading" />
+            <span v-else>📤 Экспорт</span>
+          </Button>
+          <Button :disabled="loadingStates.import" @click="handleImport">
+            <span v-if="loadingStates.import" class="btn-loading" />
+            <span v-else>📥 Импорт</span>
+          </Button>
         </div>
       </div>
+    </template>
+    <div class="prompt-editor">
       <div class="editor-container">
-        <textarea
-          v-model="localPrompt"
-          class="form-textarea"
-          spellcheck="false"
-          placeholder="Введите системный промпт..."
-          @input="handleInput"
-        />
-        <div class="preview-container">
-          <div class="preview-header">
-            <span>Preview</span>
-            <Button style="font-size: 10px; padding: 4px 8px" @click="togglePreview">
-              {{ previewVisible ? "Hide" : "Show" }}
-            </Button>
+        <div class="editor-column">
+          <div class="column-header">
+            <span>Markdown / Plain text</span>
+            <span class="char-count">{{ charCount }} символов</span>
           </div>
-          <div v-if="previewVisible" class="preview-content" v-html="compiledMarkdown" />
+          <textarea
+            v-model="localPrompt"
+            class="form-textarea"
+            spellcheck="false"
+            placeholder="Введите системный промпт..."
+            @input="handleInput"
+          />
+        </div>
+        <div class="preview-container">
+          <div class="column-header">Preview</div>
+          <div class="preview-content" v-html="compiledMarkdown" />
         </div>
       </div>
-    </div>
-    <div style="margin-top: 12px; display: flex; gap: 8px">
-      <Button variant="primary" :disabled="loadingStates.save" style="flex: 1" @click="handleSave">
-        <span v-if="loadingStates.save" class="btn-loading" />
-        <span v-else>💾 Сохранить промпт</span>
-      </Button>
-      <Button :disabled="loadingStates.export" @click="handleExport">
-        <span v-if="loadingStates.export" class="btn-loading" />
-        <span v-else>📤 Экспорт</span>
-      </Button>
-      <Button :disabled="loadingStates.import" @click="handleImport">
-        <span v-if="loadingStates.import" class="btn-loading" />
-        <span v-else>📥 Импорт</span>
-      </Button>
     </div>
   </Card>
 </template>
@@ -74,7 +72,6 @@ const emit = defineEmits(["update:modelValue", "save", "reset", "format", "copy"
 
 const localPrompt = ref(props.modelValue);
 const charCount = ref(props.modelValue.length);
-const previewVisible = ref(false);
 const compiledMarkdown = ref("");
 const loadingStates = ref({
   reset: false,
@@ -95,10 +92,6 @@ marked.setOptions({
   smartypants: false,
   xhtml: false,
 });
-
-const togglePreview = () => {
-  previewVisible.value = !previewVisible.value;
-};
 
 watch(
   () => props.modelValue,
@@ -195,76 +188,127 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.header-row h2 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 500;
+  background: none;
+  background-clip: unset;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-actions button {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.action-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
 .prompt-editor {
   display: flex;
   flex-direction: column;
 }
 
-.editor-toolbar {
+.editor-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.editor-column {
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+  overflow-y: hidden;
+}
+
+.column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: var(--bg-card);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-bottom: none;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  backdrop-filter: blur(10px);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.editor-actions {
-  display: flex;
-  gap: 5px;
-}
-
-.editor-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.column-header .char-count {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: "JetBrains Mono", monospace;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .form-textarea {
   width: 100%;
-  min-height: 320px;
-  resize: vertical;
-  line-height: 1.7;
-  font-size: 11.5px;
+  flex: 1;
+  resize: none;
+  line-height: 1.6;
+  font-size: 13px;
   tab-size: 2;
   font-family: "JetBrains Mono", monospace;
-  padding: 14px;
+  padding: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   color: var(--text-primary);
   overflow-y: auto;
-  backdrop-filter: blur(10px);
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .preview-container {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
-  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+  overflow-y: hidden;
 }
 
-.preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-muted);
+.preview-container .column-header {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
 .preview-content {
-  padding: 14px;
-  font-size: 12px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--text-primary);
-  overflow-y: auto;
 }
 
 .preview-content h1,
@@ -274,47 +318,28 @@ onMounted(() => {
 .preview-content h5,
 .preview-content h6 {
   color: var(--accent-primary);
-  margin-top: 16px;
-  margin-bottom: 8px;
+  margin-top: 12px;
+  margin-bottom: 6px;
 }
 
 .preview-content p {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .preview-content code {
   background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
   font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .preview-content pre {
   background: var(--bg-tertiary);
-  padding: 12px;
+  padding: 10px;
   border-radius: var(--radius-sm);
   overflow-x: auto;
-  margin: 12px 0;
-}
-
-.btn-loading {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  margin: 8px 0;
 }
 
 .preview-content pre code {
@@ -325,19 +350,19 @@ onMounted(() => {
 
 .preview-content ul,
 .preview-content ol {
-  margin: 12px 0;
-  padding-left: 20px;
+  margin: 8px 0;
+  padding-left: 18px;
 }
 
 .preview-content li {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .preview-content blockquote {
-  border-left: 4px solid var(--accent-primary);
-  padding-left: 12px;
+  border-left: 3px solid var(--accent-primary);
+  padding-left: 10px;
   color: var(--text-muted);
-  margin: 12px 0;
+  margin: 8px 0;
 }
 
 .error {
@@ -345,13 +370,13 @@ onMounted(() => {
   padding: 8px;
   background: var(--error-bg);
   border-radius: var(--radius-sm);
+  font-size: 12px;
 }
 
-/* Loading spinner для кнопок */
 .btn-loading {
   display: inline-block;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border: 2px solid transparent;
   border-top-color: currentColor;
   border-radius: 50%;
@@ -359,11 +384,7 @@ onMounted(() => {
 }
 
 @keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

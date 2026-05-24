@@ -1,7 +1,10 @@
 <template>
+  <div class="settings-tab">
   <Card>
     <template #header>
-      <h2>Основные параметры</h2>
+      <div class="header-row">
+        <h2>Основные параметры</h2>
+      </div>
     </template>
     <div class="form-group">
       <div class="form-label">
@@ -74,82 +77,80 @@
 
   <Card>
     <template #header>
-      <h2>Лимиты и производительность</h2>
+      <div class="header-row">
+        <h2>Лимиты и производительность</h2>
+      </div>
     </template>
-    <div class="form-row-3">
-      <div class="form-group">
-        <div class="form-label">
-          <label>MAX_FILE_CHARS</label>
-          <span class="hint">Макс. символов файла</span>
-        </div>
-        <input
-          v-model.number="configCopy.maxFileChars"
-          type="number"
-          class="form-input"
-          min="500"
-          max="20000"
-          step="500"
-        />
+    <div class="form-group">
+      <div class="form-label">
+        <label>MAX_FILE_CHARS</label>
+        <span class="hint">Макс. символов файла</span>
       </div>
-      <div class="form-group">
-        <div class="form-label">
-          <label>MAX_HISTORY_PAIRS</label>
-          <span class="hint">Пар сообщений</span>
-        </div>
-        <input v-model.number="configCopy.maxHistoryPairs" type="number" class="form-input" min="2" max="20" />
-      </div>
-      <div class="form-group">
-        <div class="form-label">
-          <label>MAX_SEARCH_RESULTS</label>
-          <span class="hint">Результатов поиска</span>
-        </div>
-        <input v-model.number="configCopy.maxSearchResults" type="number" class="form-input" min="5" max="50" />
-      </div>
+      <input
+        v-model.number="configCopy.maxFileChars"
+        type="number"
+        class="form-input"
+        min="500"
+        max="20000"
+        step="500"
+      />
     </div>
-    <div class="form-row-3">
-      <div class="form-group">
-        <div class="form-label">
-          <label>MAX_FILES_IN_PROMPT</label>
-          <span class="hint">Файлов в контексте</span>
-        </div>
-        <input v-model.number="configCopy.maxFilesInPrompt" type="number" class="form-input" min="1" max="10" />
+    <div class="form-group">
+      <div class="form-label">
+        <label>MAX_HISTORY_PAIRS</label>
+        <span class="hint">Пар сообщений</span>
       </div>
-      <div class="form-group">
-        <div class="form-label">
-          <label>TIMEOUT (мс)</label>
-          <span class="hint">Таймаут запроса</span>
-        </div>
+      <input v-model.number="configCopy.maxHistoryPairs" type="number" class="form-input" min="2" max="20" />
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>MAX_SEARCH_RESULTS</label>
+        <span class="hint">Результатов поиска</span>
+      </div>
+      <input v-model.number="configCopy.maxSearchResults" type="number" class="form-input" min="5" max="50" />
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>MAX_FILES_IN_PROMPT</label>
+        <span class="hint">Файлов в контексте</span>
+      </div>
+      <input v-model.number="configCopy.maxFilesInPrompt" type="number" class="form-input" min="1" max="10" />
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>TIMEOUT (мс)</label>
+        <span class="hint">Таймаут запроса</span>
+      </div>
+      <input
+        v-model.number="configCopy.timeout"
+        type="number"
+        class="form-input"
+        min="10000"
+        max="300000"
+        step="10000"
+      />
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>MAX_TOKENS</label>
+        <span class="hint">Контекст ответа</span>
+      </div>
+      <div class="form-number-wrapper">
+        <Button style="border-radius: var(--radius-sm) 0 0 var(--radius-sm)" @click="adjustTokens(-4096)">
+          −4K
+        </Button>
         <input
-          v-model.number="configCopy.timeout"
+          v-model.number="configCopy.maxTokens"
           type="number"
           class="form-input"
-          min="10000"
-          max="300000"
-          step="10000"
+          min="256"
+          max="65536"
+          step="256"
+          style="border-radius: 0; border-right: none; text-align: center"
         />
-      </div>
-      <div class="form-group">
-        <div class="form-label">
-          <label>MAX_TOKENS</label>
-          <span class="hint">Контекст ответа</span>
-        </div>
-        <div class="form-number-wrapper">
-          <Button style="border-radius: var(--radius-sm) 0 0 var(--radius-sm)" @click="adjustTokens(-4096)">
-            −4K
-          </Button>
-          <input
-            v-model.number="configCopy.maxTokens"
-            type="number"
-            class="form-input"
-            min="256"
-            max="65536"
-            step="256"
-            style="border-radius: 0; border-right: none; text-align: center"
-          />
-          <Button style="border-radius: 0 var(--radius-sm) var(--radius-sm) 0" @click="adjustTokens(4096)">
-            +4K
-          </Button>
-        </div>
+        <Button style="border-radius: 0 var(--radius-sm) var(--radius-sm) 0" @click="adjustTokens(4096)">
+          +4K
+        </Button>
       </div>
     </div>
     <div class="form-group">
@@ -175,6 +176,7 @@
       <span v-if="loadingStates.reset" class="btn-loading" />
       <span v-else>↩️ Сброс</span>
     </Button>
+  </div>
   </div>
 </template>
 
@@ -215,25 +217,41 @@ const loadingStates = ref({
   models: false,
 });
 
+// Debounce and save state management
 let saveTimer = null;
 let pendingSave = false;
+let isSaving = false;
 let ignoreNextWatch = false;
-const autoSave = () => {
-  if (pendingSave) return;
+
+const debouncedSave = async () => {
+  if (pendingSave || isSaving) return;
+  
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    pendingSave = true;
-    const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
-    emit("save", {
-      config: { ...configCopy },
-      apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
-      modelName: modelNameCopy.value,
-      serverUrl: model ? model.source : "",
-    });
-    setTimeout(() => {
-      pendingSave = false;
-    }, 1000);
+  saveTimer = setTimeout(async () => {
+    try {
+      isSaving = true;
+      pendingSave = true;
+      
+      const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
+      emit("save", {
+        config: { ...configCopy },
+        apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
+        modelName: modelNameCopy.value,
+        serverUrl: model ? model.source : "",
+      });
+    } catch (error) {
+      console.error("Auto-save failed:", error);
+    } finally {
+      isSaving = false;
+      setTimeout(() => {
+        pendingSave = false;
+      }, 500);
+    }
   }, 300);
+};
+
+const autoSave = () => {
+  debouncedSave();
 };
 
 watch(
@@ -244,6 +262,7 @@ watch(
       ignoreNextWatch = false;
       return;
     }
+    
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
     configCopy.projectPath = val.projectPath || "C:\\";
@@ -254,7 +273,10 @@ watch(
     configCopy.maxTokens = val.maxTokens || 1024;
     configCopy.timeout = val.timeout || 120000;
     configCopy.temperature = val.temperature ?? 0.1;
-    setTimeout(() => {
+    
+    // Use setTimeout to reset ignoreNextWatch after debounce period
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
       ignoreNextWatch = false;
     }, 600);
   },
@@ -280,21 +302,28 @@ watch(modelNameCopy, autoSave);
 watch(apiBasesCopy, autoSave, { deep: true });
 
 // Обработчики с loading states
-const handleSave = () => {
+const handleSave = async () => {
+  if (isSaving) return;
+  
   loadingStates.value.save = true;
-  const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
-  emit("save", {
-    config: {
-      ...configCopy,
-      token: configCopy.token.trim().replace(/[^\x00-\x7F]/g, ""),
-    },
-    apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
-    modelName: modelNameCopy.value,
-    serverUrl: model ? model.source : "",
-  });
-  setTimeout(() => {
-    loadingStates.value.save = false;
-  }, 500);
+  try {
+    const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
+    emit("save", {
+      config: {
+        ...configCopy,
+        token: configCopy.token.trim().replace(/[^\x00-\x7F]/g, ""),
+      },
+      apiBases: JSON.parse(JSON.stringify(apiBasesCopy.value)),
+      modelName: modelNameCopy.value,
+      serverUrl: model ? model.source : "",
+    });
+  } catch (error) {
+    console.error("Manual save failed:", error);
+  } finally {
+    setTimeout(() => {
+      loadingStates.value.save = false;
+    }, 500);
+  }
 };
 
 const handleReset = () => {
@@ -337,6 +366,24 @@ const adjustTokens = (delta) => {
 </script>
 
 <style scoped>
+.settings-tab {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.header-row h2 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 500;
+  background: none;
+  background-clip: unset;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+}
+
 .api-base-table {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -345,43 +392,41 @@ const adjustTokens = (delta) => {
 .table-header {
   display: flex;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 8px;
   background: var(--bg-card);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
-  gap: 8px;
-  backdrop-filter: blur(10px);
+  gap: 6px;
 }
 .table-row {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
-  gap: 8px;
+  padding: 4px 8px;
+  gap: 6px;
   border-top: 1px solid var(--border);
 }
 .col-url {
   flex: 1;
 }
 .col-connect {
-  width: 60px;
+  width: 50px;
   text-align: center;
 }
 .btn-add,
 .btn-remove {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: var(--transition);
-  backdrop-filter: blur(10px);
 }
 .btn-add:hover,
 .btn-remove:hover {
@@ -390,7 +435,7 @@ const adjustTokens = (delta) => {
   border-color: var(--accent-primary);
 }
 .form-group {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .form-group:last-child {
   margin-bottom: 0;
@@ -398,15 +443,15 @@ const adjustTokens = (delta) => {
 .model-name-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .model-name-row .form-input {
   flex: 1;
 }
 .btn-refresh-models {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   display: flex;
   align-items: center;
@@ -417,12 +462,14 @@ const adjustTokens = (delta) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .form-label label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .form-label .hint {
   font-size: 10px;
@@ -430,7 +477,7 @@ const adjustTokens = (delta) => {
 }
 .form-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 6px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -438,7 +485,6 @@ const adjustTokens = (delta) => {
   font-size: 12px;
   font-family: "JetBrains Mono", monospace;
   transition: var(--transition);
-  backdrop-filter: blur(10px);
 }
 .form-input:focus {
   outline: none;
@@ -454,13 +500,9 @@ select.form-input {
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 8px;
 }
-.form-row-3 {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
-}
+
 .form-number-wrapper {
   display: flex;
   align-items: center;
@@ -469,58 +511,53 @@ select.form-input {
   position: relative;
 }
 .token-input-wrapper .form-input {
-  padding-right: 36px;
+  padding-right: 32px;
 }
 .token-toggle {
   position: absolute;
-  right: 8px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-muted);
   cursor: pointer;
-  padding: 3px;
-  font-size: 14px;
+  padding: 2px;
+  font-size: 12px;
   border-radius: var(--radius-sm);
   transition: var(--transition);
-  backdrop-filter: blur(10px);
 }
 .range-input {
   width: 100%;
   accent-color: var(--accent-primary);
   background: var(--bg-card);
-  backdrop-filter: blur(10px);
 }
 .range-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
-  margin-top: 3px;
+  margin-top: 2px;
 }
 .range-value {
   color: var(--accent-primary);
   font-weight: 600;
 }
 
-/* Кнопки действий */
 .settings-actions {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  backdrop-filter: blur(10px);
+  grid-column: 1 / -1;
 }
 
-/* Loading spinner для кнопок */
 .btn-loading {
   display: inline-block;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border: 2px solid transparent;
   border-top-color: currentColor;
   border-radius: 50%;
@@ -528,11 +565,7 @@ select.form-input {
 }
 
 @keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

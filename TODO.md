@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 21 / 66** | `P0: 0/4` · `P1: 0/11` · `P2: 0/18` · `P3: 2/13` · `P4: 4/5`
+> **Прогресс: 23 / 66** | `P0: 0/4` · `P1: 0/11` · `P2: 0/18` · `P3: 4/13` · `P4: 4/5`
 
 ---
 
@@ -174,8 +174,10 @@
 - [ ] #1 `[ui][frontend]` Добавить тултипы для параметров настроек
   - PROJECT_PATH, TELEGRAM_TOKEN, API-BASE, Model_Name, MaxTokens, Temperature, Timeout, MaxFileChars, MaxHistoryPairs, MaxSearchResults, MaxFilesInPrompt
 
-- [ ] #2 `[ui][frontend]` Исправить отображение текста тултипа для "Инструменты агента"
-  - Текст обрезается — проверить z-index, max-width, overflow для tooltip контейнера
+- [x] #2 `[ui][frontend]` Исправить отображение текста тултипа для "Инструменты агента"
+  - Создан `AppTooltip.vue` — переиспользуемый компонент (#trigger + default slot)
+  - `Card.vue`: `overflow: hidden` перенесён с `.card` на `.card-body`; `z-index: 2` на `.card-header`
+  - `ToolsTab.vue`: тултип через `<AppTooltip>`, список инструментов в одну колонку, настройки сворачиваются
 
 - [x] #3 `[ui][frontend]` Разместить прогресс-бары для карточки "Контекст модели" под круговой диаграммой
   - `.token-chart-row`: `flex-direction: row` → `column`, отцентрирован
