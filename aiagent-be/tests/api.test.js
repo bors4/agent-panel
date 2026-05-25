@@ -57,9 +57,10 @@ describe("API Routes", () => {
       expect(res.body.config.modelName).toBe("test-model");
     });
 
-    it("includes telegram token in response", async () => {
+    it("includes hasToken flag (not raw token)", async () => {
       const res = await supertest(app).get("/api/config");
-      expect(res.body.config).toHaveProperty("token");
+      expect(res.body.config).toHaveProperty("hasToken");
+      expect(res.body.config).not.toHaveProperty("token");
     });
   });
 

@@ -168,6 +168,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     latestTimings = null;
   const toolExecConfig = buildToolExecConfig(account, cfg);
   let currentTemperature = cfg.temperature ?? configDefaults.temperature;
+  let emptyRetries = 0;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -277,9 +278,14 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         }
       }
       if (!msg.content?.trim() && !msg.tool_calls?.length) {
+        emptyRetries++;
+        if (emptyRetries > 2) {
+          return { error: "Model returned empty responses repeatedly. Check model configuration or increase max tokens." };
+        }
         currentTemperature = Math.min(currentTemperature + 0.3, 1.0);
         continue;
       }
+      emptyRetries = 0;
       if (!usage && (msg.content || msg.tool_calls?.length)) {
         if (latestTimings) {
           usage = {

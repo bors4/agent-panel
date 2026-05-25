@@ -28,9 +28,14 @@ export function loadAccounts(projectPath) {
   if (!projectPath) return;
   const filePath = path.join(projectPath, "accounts.json");
   if (fs.existsSync(filePath)) {
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    accounts = parsed.accounts || [];
+    try {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const parsed = JSON.parse(raw);
+      accounts = parsed.accounts || [];
+    } catch (e) {
+      console.error(`[accounts] Failed to parse ${filePath}:`, e.message);
+      accounts = [];
+    }
   }
 }
 
@@ -96,7 +101,7 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
     return { allowed: false, reason: `Tool '${toolName}' is not available for your account` };
   }
 
-  if (toolName !== "execute" && account.include_paths?.length > 0) {
+  if (account.include_paths?.length > 0) {
     const toolPath = args.filePath || args.path || args.source || args.destination || "";
     if (toolPath) {
       const resolved = path.resolve(projectPath, toolPath);

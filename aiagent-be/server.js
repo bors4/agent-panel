@@ -69,8 +69,25 @@ const state = {
 /** @type {{requests: number, tools: number, errors: number}} */
 let stats = { requests: 0, tools: 0, errors: 0 };
 
-/** @type {{prompt: number, completion: number, total: number, cached: number}} */
+/** @type {{prompt: number, completion: number, total: number, cached: number, tokensCached: number}} */
 const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0, tokensCached: 0 };
+
+/** Rate limiter: map of chatId → { count, windowStart }. */
+const rateLimitMap = new Map();
+const RATE_LIMIT = 10;
+const RATE_WINDOW = 60_000;
+
+function checkRateLimit(chatId) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(chatId) || { count: 0, windowStart: now };
+  if (now - entry.windowStart > RATE_WINDOW) {
+    entry.count = 0;
+    entry.windowStart = now;
+  }
+  entry.count++;
+  rateLimitMap.set(chatId, entry);
+  return entry.count <= RATE_LIMIT;
+}
 
 /** Сбросить статистику запросов, инструментов и ошибок. */
 function resetStats() {
@@ -95,18 +112,18 @@ function resetTokenUsage() {
  */
 function buildPerfStats(timings) {
   return {
-    prompt_n: timings.prompt_n || 0,
-    predicted_n: timings.predicted_n || 0,
-    prompt_ms: Math.round(timings.prompt_ms || 0),
-    predicted_ms: Math.round(timings.predicted_ms || 0),
-    prompt_per_second: timings.prompt_per_second || 0,
-    predicted_per_second: timings.predicted_per_second || 0,
+    prompt_n: timings.prompt_n ?? 0,
+    predicted_n: timings.predicted_n ?? 0,
+    prompt_ms: Math.round(timings.prompt_ms ?? 0),
+    predicted_ms: Math.round(timings.predicted_ms ?? 0),
+    prompt_per_second: timings.prompt_per_second ?? 0,
+    predicted_per_second: timings.predicted_per_second ?? 0,
     cache_n: timings.cache_n ?? 0,
     tokens_cached: timings.tokens_cached ?? 0,
-    draft_n: timings.draft_n || 0,
-    draft_n_accepted: timings.draft_n_accepted || 0,
+    draft_n: timings.draft_n ?? 0,
+    draft_n_accepted: timings.draft_n_accepted ?? 0,
     draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
-    total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
+    total_ms: Math.round((timings.prompt_ms ?? 0) + (timings.predicted_ms ?? 0)),
   };
 }
 
@@ -386,6 +403,10 @@ bot.on("message", async (ctx) => {
   }
 
   const chatId = ctx.chat.id.toString();
+  if (!checkRateLimit(chatId)) {
+    await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
+    return;
+  }
   addLog(`Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`, "info");
   stats.requests++;
   wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });

@@ -123,7 +123,7 @@ export function createApiRouter(deps) {
   router.get("/config", (req, res) => {
     res.json({
       success: true,
-      config: { ...config, token: process.env.TELEGRAM_BOT_TOKEN || "" },
+      config: { ...config, hasToken: !!process.env.TELEGRAM_BOT_TOKEN },
     });
   });
 
@@ -146,13 +146,13 @@ export function createApiRouter(deps) {
       addLog(`projectPath: skipped (value=${JSON.stringify(body.projectPath)})`, "warning");
     }
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
-    if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
+    if (body.maxTokens !== undefined) config.maxTokens = parseInt(body.maxTokens) || configDefaults.maxTokens;
     if (body.temperature !== undefined) config.temperature = parseFloat(body.temperature);
     if (body.timeout !== undefined) config.timeout = parseInt(body.timeout);
-    if (body.maxFileChars) config.maxFileChars = parseInt(body.maxFileChars);
-    if (body.maxHistoryPairs) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
-    if (body.maxSearchResults) config.maxSearchResults = parseInt(body.maxSearchResults);
-    if (body.maxFilesInPrompt) config.maxFilesInPrompt = parseInt(body.maxFilesInPrompt);
+    if (body.maxFileChars !== undefined) config.maxFileChars = parseInt(body.maxFileChars);
+    if (body.maxHistoryPairs !== undefined) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
+    if (body.maxSearchResults !== undefined) config.maxSearchResults = parseInt(body.maxSearchResults);
+    if (body.maxFilesInPrompt !== undefined) config.maxFilesInPrompt = parseInt(body.maxFilesInPrompt);
     if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
       process.env.TELEGRAM_BOT_TOKEN = body.token;

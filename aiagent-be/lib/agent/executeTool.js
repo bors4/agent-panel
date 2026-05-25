@@ -589,7 +589,7 @@ export async function executeTool(toolCall, config = {}) {
 
       // ────────────────────────────────────────────────────────────────────
       case "execute": {
-        const timeoutSec = Math.min(Math.max(args.timeout || 30, 1), 3600);
+        const timeoutSec = args.timeout != null ? Math.min(Math.max(args.timeout, 1), 3600) : 30;
         const isWin = process.platform === "win32";
         const trimmedCmd = args.command.trimStart();
         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
