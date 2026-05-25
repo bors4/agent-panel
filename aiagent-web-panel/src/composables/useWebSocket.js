@@ -16,6 +16,7 @@ export function useWebSocket() {
   const stats = ref({ requests: 0, tools: 0, errors: 0, uptime: 0 });
   const logs = ref([]);
   const tokenUsage = ref({ prompt: 0, completion: 0, total: 0, cached: 0 });
+  const perfStats = ref({});
   const statusMessage = ref("");
   const startTime = ref(null);
 
@@ -68,6 +69,9 @@ export function useWebSocket() {
             break;
           case "tokenUsage":
             tokenUsage.value = { ...data };
+            break;
+          case "perfStats":
+            perfStats.value = data;
             break;
         }
       } catch (e) {
@@ -135,6 +139,7 @@ export function useWebSocket() {
     stats,
     logs,
     tokenUsage,
+    perfStats,
     statusMessage,
     startTime,
   };

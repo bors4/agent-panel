@@ -22,8 +22,9 @@
             {{ msg.role === "user" ? "👤" : "🤖" }}
           </div>
           <div class="chat-msg-col">
-            <div class="chat-bubble">
+            <div class="chat-bubble" :class="{ streaming: msg.streaming }">
               {{ msg.content }}
+              <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
             </div>
             <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
               <span>⚡ {{ msg.usage.total_tokens }} tokens</span>
@@ -112,7 +113,7 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
-import { directChat } from "@/api/client";
+import { directChat, directChatStream } from "@/api/client";
 
 const props = defineProps({
   isActive: Boolean,
@@ -122,6 +123,7 @@ const props = defineProps({
   systemPrompt: { type: String, default: "" },
   verbose: { type: Boolean, default: false },
   showTokens: { type: Boolean, default: true },
+  streamEnabled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["log", "token-usage"]);
@@ -129,6 +131,8 @@ const emit = defineEmits(["log", "token-usage"]);
 const messages = ref([]);
 const inputMessage = ref("");
 const isTyping = ref(false);
+const isStreaming = ref(false);
+const streamingContent = ref("");
 const chatContainer = ref(null);
 
 // 🔥 Константы для localStorage
@@ -235,48 +239,112 @@ const sendMessage = async () => {
   }
 
   try {
-    const data = await directChat({
-      message: text,
-      modelName: props.modelName,
-      serverUrl: props.serverUrl,
-      projectPath: props.projectPath,
-      systemPrompt: props.systemPrompt,
-    });
+    if (props.streamEnabled) {
+      // Потоковый режим
+      isStreaming.value = true;
+      isTyping.value = false;
+      streamingContent.value = "";
 
-    const latency = Date.now() - startTime;
-    isTyping.value = false;
+      // Добавляем пустое сообщение бота, которое будем обновлять
+      const botMsgIdx = messages.value.length;
+      messages.value.push({ role: "bot", content: "", streaming: true });
 
-    const botMsg = {
-      role: "bot",
-      content: data.reply || "Пустой ответ",
-      usage: data.usage || null,
-    };
-    messages.value.push(botMsg);
+      let fullContent = "";
+      let lastUsage = null;
 
-    if (props.verbose) {
-      emit("log", {
-        message: `[VERBOSE] Response ← model (${latency}ms): ${data.reply || "empty"}`,
-        type: "success",
-      });
-      if (data.usage) {
+      await directChatStream(
+        {
+          message: text,
+          modelName: props.modelName,
+          serverUrl: props.serverUrl,
+          projectPath: props.projectPath,
+          systemPrompt: props.systemPrompt,
+        },
+        {
+          onContent: (chunk, accumulated) => {
+            fullContent = accumulated;
+            streamingContent.value = accumulated;
+            messages.value[botMsgIdx].content = accumulated;
+            nextTick(() => scrollToBottom());
+          },
+          onDone: (usage) => {
+            lastUsage = usage;
+            messages.value[botMsgIdx].streaming = false;
+            messages.value[botMsgIdx].usage = usage || null;
+            if (usage) emit("token-usage", usage);
+          },
+          onError: (error) => {
+            throw new Error(error);
+          },
+        }
+      );
+
+      const latency = Date.now() - startTime;
+      isStreaming.value = false;
+
+      if (props.verbose) {
         emit("log", {
-          message: `[VERBOSE] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}, cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
-          type: "info",
+          message: `[VERBOSE] Response ← model (${latency}ms): ${fullContent.substring(0, 100) || "empty"}`,
+          type: "success",
+        });
+        if (lastUsage) {
+          emit("log", {
+            message: `[VERBOSE] Tokens: prompt=${lastUsage.prompt_tokens}, completion=${lastUsage.completion_tokens}, total=${lastUsage.total_tokens}, cached=${lastUsage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
+            type: "info",
+          });
+        }
+      } else {
+        emit("log", {
+          message: `Model response (${props.modelName}): ${fullContent.substring(0, 100)}...`,
+          type: "success",
         });
       }
     } else {
-      emit("log", {
-        message: `Model response (${props.modelName}): ${data.reply?.substring(0, 100)}...`,
-        type: "success",
+      // Обычный режим
+      const data = await directChat({
+        message: text,
+        modelName: props.modelName,
+        serverUrl: props.serverUrl,
+        projectPath: props.projectPath,
+        systemPrompt: props.systemPrompt,
       });
-    }
 
-    if (data.usage) {
-      emit("token-usage", data.usage);
+      const latency = Date.now() - startTime;
+      isTyping.value = false;
+
+      const botMsg = {
+        role: "bot",
+        content: data.reply || "Пустой ответ",
+        usage: data.usage || null,
+      };
+      messages.value.push(botMsg);
+
+      if (props.verbose) {
+        emit("log", {
+          message: `[VERBOSE] Response ← model (${latency}ms): ${data.reply || "empty"}`,
+          type: "success",
+        });
+        if (data.usage) {
+          emit("log", {
+            message: `[VERBOSE] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}, cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
+            type: "info",
+          });
+        }
+      } else {
+        emit("log", {
+          message: `Model response (${props.modelName}): ${data.reply?.substring(0, 100)}...`,
+          type: "success",
+        });
+      }
+
+      if (data.usage) {
+        emit("token-usage", data.usage);
+      }
     }
   } catch (error) {
     const latency = Date.now() - startTime;
     isTyping.value = false;
+    isStreaming.value = false;
     messages.value.push({
       role: "bot",
       content: `❌ Ошибка: ${error.message}`,
@@ -701,6 +769,26 @@ defineExpose({ clearChatHistory });
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
+}
+
+.chat-msg.bot .chat-bubble.streaming {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  background: var(--accent-primary);
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: blink 0.8s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
 }
 
 .token-info {

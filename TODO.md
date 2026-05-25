@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 23 / 66** | `P0: 0/4` · `P1: 0/11` · `P2: 0/18` · `P3: 4/13` · `P4: 4/5`
+> **Прогресс: 24 / 67** | `P0: 0/4` · `P1: 0/12` · `P2: 0/18` · `P3: 4/13` · `P4: 5/5`
 
 ---
 
@@ -90,6 +90,13 @@
   - `server.js:435,523,604`: заменить на `addLog()`/`logInfo()`
   - `executeTool.js:446`: `console.log(\`[executeTool] name=${name}, args=${JSON.stringify(args)}...\`)` — args могут содержать секреты
   - **Фикс:** заменить на `logInfo()`, маскировать `args`
+
+- [ ] #12 `[feature][backend][frontend]` **Поддержка моделей через OpenRouter**
+  - OpenRouter предоставляет единый API к 300+ моделям (Claude, Gemini, GPT, DeepSeek, Mistral и др.)
+  - **Бэкенд:** добавить в `config` поле `openrouterApiKey`; в `agentLoop.js` определить провайдера по URL (если `serverUrl` содержит `openrouter` → использовать OpenRouter-формат запроса)
+  - **Фронтенд:** добавить кнопку "Загрузить модели из OpenRouter" рядом с полем Model_Name (аналогично кнопке обновления моделей для LM Studio)
+  - **Нюансы:** OpenRouter требует заголовок `HTTP-Referer` (можно `https://agent-panel.local`) и `X-Title`; модели возвращаются через `GET /v1/models`; стоимость токенов отличается от локальных моделей
+  - `GET /api/models` должен уметь переключаться между LM Studio и OpenRouter по типу `serverUrl`
 
 ---
 
@@ -226,8 +233,11 @@
 
 ## ⚪ Wishlist / Trivial (P4)
 
-- [ ] #1 `[feature][backend]` Prometheus `/health` endpoint
+- [x] #1 `[feature][backend]` Prometheus `/health` endpoint
   - Добавить `GET /api/health` для мониторинга (бот запущен, AI server reachable)
+  - Реализован в `routes/api.js`: проверка botStatus + AI server (`/v1/models` c 5s timeout)
+  - Статусы: `healthy`, `degraded` (бот idle), `unhealthy` (AI недоступен)
+  - 4 теста в `api.test.js`, lint clean
 
 - [x] #2 `[bug][backend]` **`/api/status` возвращает `uptime` дважды**
   - `routes/api.js`: убран `uptime` из `stats`-объекта; убран `uptime: 0` из wsBroadcast("stats") при stop
@@ -266,3 +276,4 @@
 - `[tests][frontend]` Компонентные тесты Vue — ControlsCard, ChatTab, SettingsTab, StatsCard
 - `[refactor][backend]` `let shell, shellArgs` → `const` внутри блоков
 - `[refactor][backend]` `useFC` → `useFunctionCalling`
+- `[feature][backend]` Prometheus `/health` endpoint — `GET /api/health` с проверкой botStatus + AI server reachable

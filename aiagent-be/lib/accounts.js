@@ -7,16 +7,23 @@
 import path from "path";
 import fs from "fs";
 
+/** Список всех доступных инструментов агента. @type {string[]} */
 const ALL_TOOLS = ["read", "write", "search", "list_dir", "execute", "create_dir", "delete", "move", "copy"];
 
+/** Разрешения по умолчанию для каждой роли. @type {Object.<string, Object.<string, boolean>>} */
 const ROLE_DEFAULTS = {
   system: ALL_TOOLS.reduce((m, t) => ({ ...m, [t]: true }), {}),
   user: { read: true, write: true, list_dir: true, search: true, create_dir: true },
   guest: { read: true },
 };
 
+/** Текущий список загруженных аккаунтов. @type {Array} */
 let accounts = [];
 
+/**
+ * Загрузить аккаунты из accounts.json в корне проекта.
+ * @param {string} projectPath - Путь к проекту
+ */
 export function loadAccounts(projectPath) {
   if (!projectPath) return;
   const filePath = path.join(projectPath, "accounts.json");
@@ -27,6 +34,11 @@ export function loadAccounts(projectPath) {
   }
 }
 
+/**
+ * Сохранить аккаунты в accounts.json в корне проекта.
+ * @param {string} projectPath - Путь к проекту
+ * @param {Array} data - Массив аккаунтов
+ */
 export function saveAccounts(projectPath, data) {
   if (!projectPath) return;
   const filePath = path.join(projectPath, "accounts.json");
@@ -34,16 +46,30 @@ export function saveAccounts(projectPath, data) {
   accounts = data;
 }
 
+/**
+ * Получить копию списка аккаунтов.
+ * @returns {Array} Копия массива аккаунтов
+ */
 export function getAccounts() {
   return [...accounts];
 }
 
+/**
+ * Найти аккаунт по Telegram username.
+ * @param {string} username - Имя пользователя (с @ или без)
+ * @returns {Object|null} Найденный аккаунт или null
+ */
 export function getAccountByUsername(username) {
   if (!username) return null;
   const normalized = username.replace(/^@/, "");
   return accounts.find((a) => (a.username || "").replace(/^@/, "") === normalized) || null;
 }
 
+/**
+ * Получить разрешения по умолчанию для указанной роли.
+ * @param {string} role - Роль (system, user, guest)
+ * @returns {Object.<string, boolean>} Разрешения
+ */
 export function getRoleDefaultPermissions(role) {
   return { ...(ROLE_DEFAULTS[role] || ROLE_DEFAULTS.guest) };
 }
@@ -92,6 +118,13 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
   return { allowed: true };
 }
 
+/**
+ * Проверить, включён ли инструмент для аккаунта (учитывая глобальную конфигурацию).
+ * @param {Object|null} account - Аккаунт пользователя
+ * @param {string} toolName - Название инструмента
+ * @param {Object} globalToolConfig - Глобальная конфигурация инструментов
+ * @returns {boolean} Доступен ли инструмент
+ */
 export function isToolEnabledForAccount(account, toolName, globalToolConfig) {
   const globalEnabled = globalToolConfig?.[toolName]?.enabled !== false;
   const accountEnabled = account ? account.permissions?.[toolName] !== false : true;

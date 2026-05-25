@@ -30,8 +30,9 @@ describe("SettingsTab", () => {
     const wrapper = mount(SettingsTab, { props: defaultProps });
     const select = wrapper.find("select");
     const options = select.findAll("option");
-    expect(options.length).toBe(1);
-    expect(options[0].text()).toContain("model-1");
+    expect(options.length).toBe(2);
+    expect(options[0].text()).toContain("Выберите модель");
+    expect(options[1].text()).toContain("model-1");
   });
 
   it("has save button", () => {

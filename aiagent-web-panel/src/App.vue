@@ -14,6 +14,7 @@
         :uptime="stats.uptime"
         :stats="stats"
         :token-usage="tokenUsage"
+        :perf-stats="perfStats"
         :max-tokens="localConfig.maxTokens"
         :show-tokens="quickSettings.showTokens"
         @refresh="refreshStatus"
@@ -74,6 +75,7 @@
         :system-prompt="systemPrompt"
         :verbose="quickSettings.verbose"
         :show-tokens="quickSettings.showTokens"
+        :stream-enabled="localConfig.stream === true"
         @log="addLog"
         @token-usage="handleTokenUsage"
       />
@@ -105,20 +107,21 @@ import ChatTab from "@/components/tabs/ChatTab.vue";
 import LogsTab from "@/components/tabs/LogsTab.vue";
 import ToolsTab from "@/components/tabs/ToolsTab.vue";
 import ToastContainer from "@/components/ui/ToastContainer.vue";
+import { configDefaults } from "@backend/lib/configDefaults.js";
 
-// В начале setup(), после импортов:
 const defaultConfig = {
   token: "",
-  projectPath: "",
-  serverUrl: "http://192.168.1.101:8080/v1",
-  modelName: "gemma-4.gguf",
-  maxFileChars: 2000,
-  maxHistoryPairs: 5,
-  maxSearchResults: 15,
-  maxFilesInPrompt: 2,
-  maxTokens: 1024,
-  timeout: 120000,
-  temperature: 0.1,
+  projectPath: configDefaults.projectPath,
+  serverUrl: configDefaults.serverUrl,
+  modelName: "",
+  maxFileChars: configDefaults.maxFileChars,
+  maxHistoryPairs: configDefaults.maxHistoryPairs,
+  maxSearchResults: configDefaults.maxSearchResults,
+  maxFilesInPrompt: configDefaults.maxFilesInPrompt,
+  maxTokens: configDefaults.maxTokens,
+  timeout: configDefaults.timeout,
+  temperature: configDefaults.temperature,
+  stream: configDefaults.stream,
 };
 
 const localConfig = ref({ ...defaultConfig });
@@ -130,6 +133,7 @@ const {
   stats,
   logs,
   tokenUsage,
+  perfStats,
   refreshStatus,
   startAgent,
   stopAgent,
@@ -297,6 +301,7 @@ onMounted(async () => {
         maxHistoryPairs: localConfig.value.maxHistoryPairs,
         maxSearchResults: localConfig.value.maxSearchResults,
         maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
+        stream: localConfig.value.stream,
       });
       addLog(`Synced config to backend (projectPath: ${localConfig.value.projectPath})`, "info");
     } catch (e) {
@@ -494,6 +499,7 @@ const saveSettings = async () => {
       maxTokens: localConfig.value.maxTokens,
       timeout: localConfig.value.timeout,
       temperature: localConfig.value.temperature,
+      stream: localConfig.value.stream,
     };
     try {
       await updateConfig(payload);
@@ -562,6 +568,10 @@ const chatTabRef = ref(null);
   flex-direction: column;
   gap: 16px;
   position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100%;
+  scrollbar-width: thin;
 }
 
 .sidebar::before {

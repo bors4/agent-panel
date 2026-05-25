@@ -8,10 +8,12 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
-import path from "path";
 import fs from "fs";
 import { Bot, InlineKeyboard } from "grammy";
+import { stream } from "@grammyjs/stream";
+import { autoRetry } from "@grammyjs/auto-retry";
 import dotenv from "dotenv";
+import { configDefaults } from "./lib/configDefaults.js";
 
 dotenv.config();
 
@@ -19,31 +21,39 @@ dotenv.config();
 
 const app = express();
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
+bot.api.config.use(autoRetry());
+bot.use(stream());
 
 // ─── Состояние приложения ──────────────────────────────────────────────────
 
 /**
  * Конфигурация приложения. Обновляется через API /api/config.
+ * Все дефолтные значения — в lib/configDefaults.js.
+ * .env используется только для TELEGRAM_BOT_TOKEN и API_KEY.
  * @type {Object}
  * @property {string} serverUrl - URL AI сервера
- * @property {string} modelName - Имя модели
- * @property {string} projectPath - Путь к проекту. Если PROJECT_PATH не установлен в .env,
- *   значение = "" (не cwd). Обновляется через POST /api/config из UI.
+ * @property {string} modelName - Имя модели (из UI или .env)
+ * @property {string} projectPath - Путь к проекту
  * @property {string} systemPrompt - Системный промпт
  * @property {string} apiKey - Ключ авторизации
  * @property {number} maxTokens - Максимальное количество токенов
  * @property {number} temperature - Температура генерации
  * @property {number} timeout - Таймаут запросов
+ * @property {number} maxFileChars - Макс. символов при чтении файла
+ * @property {number} maxHistoryPairs - Макс. пар сообщений в истории
+ * @property {number} maxSearchResults - Макс. результатов поиска
+ * @property {number} maxFilesInPrompt - Макс. файлов в промпте
  */
 const config = {
-  serverUrl: process.env.SERVER_URL || "http://192.168.1.101:1234/v1",
-  modelName: process.env.MODEL_NAME || "qwen3.5-2b",
-  projectPath: process.env.PROJECT_PATH ? path.resolve(process.env.PROJECT_PATH) : "",
-  systemPrompt: process.env.SYSTEM_PROMPT || "",
-  apiKey: process.env.API_KEY || "agent-secret-key",
-  maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
-  temperature: parseFloat(process.env.TEMPERATURE) || 0.1,
-  timeout: parseInt(process.env.TIMEOUT) || 120000,
+  serverUrl: configDefaults.serverUrl,
+  modelName: configDefaults.modelName,
+  projectPath: configDefaults.projectPath,
+  systemPrompt: configDefaults.systemPrompt,
+  apiKey: process.env.API_KEY || configDefaults.apiKey,
+  maxTokens: configDefaults.maxTokens,
+  temperature: configDefaults.temperature,
+  timeout: configDefaults.timeout,
+  stream: configDefaults.stream,
 };
 
 /**
@@ -60,19 +70,44 @@ const state = {
 let stats = { requests: 0, tools: 0, errors: 0 };
 
 /** @type {{prompt: number, completion: number, total: number, cached: number}} */
-const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
+const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0, tokensCached: 0 };
 
+/** Сбросить статистику запросов, инструментов и ошибок. */
 function resetStats() {
   stats.requests = 0;
   stats.tools = 0;
   stats.errors = 0;
 }
 
+/** Сбросить счётчик использования токенов. */
 function resetTokenUsage() {
   tokenUsage.prompt = 0;
   tokenUsage.completion = 0;
   tokenUsage.total = 0;
   tokenUsage.cached = 0;
+  tokenUsage.tokensCached = 0;
+}
+
+/**
+ * Преобразует сырые timings от llama.cpp в объект perfStats для WebSocket.
+ * @param {Object} timings - Сырые timings из ответа llama.cpp
+ * @returns {Object} Нормализованный объект статистики
+ */
+function buildPerfStats(timings) {
+  return {
+    prompt_n: timings.prompt_n || 0,
+    predicted_n: timings.predicted_n || 0,
+    prompt_ms: Math.round(timings.prompt_ms || 0),
+    predicted_ms: Math.round(timings.predicted_ms || 0),
+    prompt_per_second: timings.prompt_per_second || 0,
+    predicted_per_second: timings.predicted_per_second || 0,
+    cache_n: timings.cache_n ?? 0,
+    tokens_cached: timings.tokens_cached ?? 0,
+    draft_n: timings.draft_n || 0,
+    draft_n_accepted: timings.draft_n_accepted || 0,
+    draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
+    total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
+  };
 }
 
 /** @type {Array.<{time: string, message: string, type: string}>} */
@@ -84,7 +119,7 @@ const chatHistories = new Map();
 /** @type {Map.<string, Object>} */
 const pendingApprovals = new Map();
 
-/** @type {import("ws").WebSocketServer | null} */
+/** @type {Object | null} */
 let wss = null;
 
 /**
@@ -103,6 +138,7 @@ function wsBroadcast(type, data) {
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
 import { agentLoopStep, buildSystemMessage, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
+import { parseStreamedResponse } from "./lib/parseSSE.js";
 import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
@@ -148,11 +184,19 @@ function updateStatus(newStatus, message = "") {
 
 // ─── Загрузка аккаунтов ────────────────────────────────────────────────────
 
-if (config.projectPath && fs.existsSync(config.projectPath)) {
-  addLog(`Project path: ${config.projectPath}`, "info");
+// Всегда загружаем accounts.json из корня проекта (рядом с package.json)
+loadAccounts(process.cwd());
+let loaded = getAccounts().length;
+if (loaded > 0) {
+  addLog(`Accounts loaded from project root: ${loaded}`, "info");
+}
+
+// Затем, если projectPath задан и отличается от корня — загружаем оттуда
+if (config.projectPath && config.projectPath !== process.cwd() && fs.existsSync(config.projectPath)) {
   loadAccounts(config.projectPath);
-  addLog(`Accounts loaded: ${getAccounts().length}`, "info");
-} else {
+  const more = getAccounts().length;
+  addLog(`Project path: ${config.projectPath}, accounts: ${more}`, "info");
+} else if (!config.projectPath) {
   config.projectPath = "";
   addLog("Project path is not configured. Agent blocked until path is set via API or .env", "warning");
 }
@@ -185,7 +229,7 @@ app.use("/api", apiRouter);
 
 // ─── Telegram HTML Helpers ─────────────────────────────────────────────────
 
-/** Опции ответа по умолчанию для Telegram (HTML parse mode). */
+/** Опции ответа по умолчанию для Telegram (HTML parse mode). @type {{parse_mode: string, link_preview_options: {is_disabled: boolean}}} */
 const REPLY_OPTS = {
   parse_mode: "HTML",
   link_preview_options: { is_disabled: true },
@@ -250,6 +294,7 @@ const KEYBOARD_YES_NO = (toolName) =>
 /**
  * Отправить сообщение с индикатором набора текста.
  * @param {Object} ctx - GrammY контекст
+ * @returns {Promise<void>}
  */
 async function sendTyping(ctx) {
   try {
@@ -258,8 +303,36 @@ async function sendTyping(ctx) {
 }
 
 /**
+ * Разбивает текст на чанки для streaming в Telegram.
+ * Генерирует части по 80-150 символов, стараясь не разрывать слова.
+ * @param {string} text - Исходный текст
+ * @returns {AsyncGenerator<string>}
+ */
+async function* chunkText(text) {
+  const maxChunk = 150;
+  const minChunk = 80;
+  let start = 0;
+  while (start < text.length) {
+    const remaining = text.length - start;
+    if (remaining <= maxChunk) {
+      yield text.slice(start);
+      return;
+    }
+    let end = start + maxChunk;
+    // Ищем границу слова (пробел) перед maxChunk
+    const boundary = text.lastIndexOf(" ", end);
+    if (boundary > start + minChunk) {
+      end = boundary;
+    }
+    yield text.slice(start, end);
+    start = end + 1;
+  }
+}
+
+/**
  * Убрать inline-кнопки из сообщения.
  * @param {Object} ctx - GrammY контекст
+ * @returns {Promise<void>}
  */
 async function clearButtons(ctx) {
   try {
@@ -279,6 +352,8 @@ async function clearButtons(ctx) {
 /**
  * Обработать входящее сообщение от пользователя Telegram.
  * Маршрутизирует через agent loop и обрабатывает результат.
+ * @param {Object} ctx - GrammY контекст сообщения
+ * @returns {Promise<void>}
  */
 bot.on("message", async (ctx) => {
   const message = ctx.message?.text || ctx.message?.caption;
@@ -317,23 +392,47 @@ bot.on("message", async (ctx) => {
 
   try {
     await sendTyping(ctx);
-    await sendDraft(ctx, "⏳ Analyzing request...");
+    const draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
 
     const history = chatHistories.get(chatId) || [];
-    const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account);
+    let accumulatedContent = "";
+    let lastEditTime = 0;
+    const MIN_EDIT_INTERVAL = 1000; // Не чаще раза в секунду
+
+    const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
+      if (progress.type === "content") {
+        accumulatedContent = progress.accumulated;
+        const now = Date.now();
+        if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
+          lastEditTime = now;
+          const display = accumulatedContent.length > 300
+            ? accumulatedContent.substring(0, 300) + "..."
+            : accumulatedContent;
+          await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
+        }
+      } else if (progress.type === "tool") {
+        await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
+      } else if (progress.type === "response") {
+        await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
+      }
+    });
     if (result.tokenUsage) {
       tokenUsage.prompt += result.tokenUsage.prompt;
       tokenUsage.completion += result.tokenUsage.completion;
       tokenUsage.total += result.tokenUsage.total;
       tokenUsage.cached += result.tokenUsage.cached;
+      if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
       wsBroadcast("tokenUsage", { ...tokenUsage });
+    }
+    if (result.timings) {
+      wsBroadcast("perfStats", buildPerfStats(result.timings));
     }
     addLog(
       `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
       "info"
     );
 
-    await handleAgentResult(ctx, chatId, result, account);
+    await handleAgentResult(ctx, chatId, result, account, draftMsgId);
   } catch (error) {
     await replyMsg(ctx, `❌ Error: ${error.message}`);
     addLog(`Bot error: ${error.message}`, "error");
@@ -356,15 +455,37 @@ async function sendDraft(ctx, text, extra = {}) {
 }
 
 /**
+ * Обновить существующее сообщение (для потокового вывода).
+ * @param {Object} ctx - GrammY контекст
+ * @param {number} messageId - ID сообщения для обновления
+ * @param {string} text - Новый текст
+ * @returns {Promise<void>}
+ */
+async function editDraftMessage(ctx, messageId, text) {
+  if (!messageId) return;
+  try {
+    await ctx.api.editMessageText(ctx.chat.id, messageId, sanitizeTelegramHtml(text), {
+      ...REPLY_OPTS,
+    });
+  } catch (e) {
+    const ignore = ["message is not modified", "message to edit not found", "MESSAGE_ID_INVALID"];
+    if (!ignore.some((i) => e.message?.includes(i))) {
+      console.error("[editDraftMessage] Error:", e.message);
+    }
+  }
+}
+
+/**
  * Унифицированная обработка результата agent loop.
  * Избегает дублирования кода для первичного и повторного вызовов.
  * @param {Object} ctx - GrammY контекст
  * @param {string} chatId - ID чата
  * @param {Object} result - Результат agentLoopStep
  * @param {Object} account - Аккаунт пользователя
+ * @param {number} [draftMsgId] - ID черновика для обновления (streaming mode)
  * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен)
  */
-async function handleAgentResult(ctx, chatId, result, account) {
+async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   // Требуется подтверждение
   if (result.requiresApproval) {
     pendingApprovals.set(chatId, {
@@ -375,9 +496,12 @@ async function handleAgentResult(ctx, chatId, result, account) {
       account,
     });
     chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
+    const paramStr = JSON.stringify(result.args);
+    const displayParams =
+      paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
     await replyMsg(
       ctx,
-      `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${JSON.stringify(result.args)}</code>`,
+      `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${displayParams}</code>`,
       { reply_markup: KEYBOARD_YES_NO(result.toolName) }
     );
     return true;
@@ -396,8 +520,16 @@ async function handleAgentResult(ctx, chatId, result, account) {
   // Финальный ответ
   if (result.response !== undefined && result.response !== "continue") {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
-    const cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() || result.response;
-    await replyMsg(ctx, cleanResponse);
+    let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
+    if (!cleanResponse) cleanResponse = "✅ Done.";
+    if (draftMsgId) {
+      // Если есть черновик — обновляем его (streaming mode)
+      await editDraftMessage(ctx, draftMsgId, "✅ " + cleanResponse);
+    } else if (ctx.chat?.type === "private") {
+      await ctx.replyWithStream(chunkText(cleanResponse));
+    } else {
+      await replyMsg(ctx, cleanResponse);
+    }
     return true;
   }
 
@@ -422,6 +554,7 @@ async function handleAgentResult(ctx, chatId, result, account) {
  * @param {Object} ctx - GrammY контекст
  * @param {Object} pending - Ожидающий инструмент
  * @param {number} depth - Текущая глубина рекурсии (default: 0)
+ * @returns {Promise<void>}
  */
 const MAX_APPROVAL_DEPTH = 10;
 
@@ -486,38 +619,125 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       content: buildSystemMessage(config.projectPath, config.systemPrompt, true, account),
     };
 
-    const response = await fetch(config.serverUrl + "/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + config.apiKey,
-      },
-      body: JSON.stringify({
-        model: config.modelName,
-        messages: [systemMessage, ...history, toolMessage],
-        max_tokens: config.maxTokens ?? 4096,
-        temperature: config.temperature ?? 0.1,
-        tools: toolsDef,
-        tool_choice: "auto",
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = config.timeout ?? configDefaults.timeout;
+    let timeoutId = setTimeout(() => controller.abort(), timeout);
+    let response;
+    try {
+      response = await fetch(config.serverUrl + "/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + config.apiKey,
+        },
+        body: JSON.stringify({
+          model: config.modelName,
+          messages: [systemMessage, ...history, toolMessage],
+          max_tokens: config.maxTokens ?? configDefaults.maxTokens,
+          temperature: config.temperature ?? configDefaults.temperature,
+          tools: toolsDef,
+          tool_choice: "auto",
+          stream: config.stream ?? false,
+        }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (e.name === "AbortError") {
+        throw new Error("Request timed out. Try again or increase the timeout setting.", { cause: e });
+      }
+      throw e;
+    }
 
     if (!response.ok) {
+      clearTimeout(timeoutId);
       throw new Error(`AI API error: ${response.status}`);
     }
 
-    const data = await response.json();
-    const nextMessage = data.choices?.[0]?.message;
-    const finishReason = data.choices?.[0]?.finish_reason;
-    const usage = data.usage;
-    if (usage) {
-      tokenUsage.prompt += usage.prompt_tokens || 0;
-      tokenUsage.completion += usage.completion_tokens || 0;
-      tokenUsage.total += usage.total_tokens || 0;
-      if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-        tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+    let nextMessage, finishReason;
+    if (config.stream) {
+      try {
+        const { content, toolCalls, finishReason: fr, usage, timings } = await parseStreamedResponse(response, {
+          onContent: () => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => controller.abort(), timeout);
+          },
+        });
+        finishReason = fr;
+        nextMessage = {
+          role: "assistant",
+          content: content || null,
+          tool_calls: toolCalls
+            ? toolCalls.map((tc) => ({
+                id: tc.id,
+                type: tc.type,
+                function: { name: tc.function.name, arguments: tc.function.arguments },
+              }))
+            : undefined,
+        };
+        let effectiveUsage = usage;
+        if (!effectiveUsage && timings) {
+          effectiveUsage = {
+            prompt_tokens: timings.prompt_n || 0,
+            completion_tokens: timings.predicted_n || 0,
+            total_tokens: (timings.prompt_n || 0) + (timings.predicted_n || 0),
+            prompt_tokens_details: {
+              cached_tokens: timings.cache_n || 0,
+            },
+          };
+        }
+          if (effectiveUsage) {
+            tokenUsage.prompt += effectiveUsage.prompt_tokens || 0;
+            tokenUsage.completion += effectiveUsage.completion_tokens || 0;
+            tokenUsage.total += effectiveUsage.total_tokens || 0;
+            if (effectiveUsage.prompt_tokens_details?.cached_tokens !== undefined) {
+              tokenUsage.cached += effectiveUsage.prompt_tokens_details.cached_tokens;
+            }
+            if (timings?.tokens_cached) tokenUsage.tokensCached = timings.tokens_cached;
+            wsBroadcast("tokenUsage", { ...tokenUsage });
+          }
+          if (timings) {
+            wsBroadcast("perfStats", buildPerfStats(timings));
+          }
+        } catch (e) {
+          if (e.name === "AbortError") {
+          throw new Error("Generation timed out. Try again or increase the timeout setting.", { cause: e });
+        }
+        throw e;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      wsBroadcast("tokenUsage", { ...tokenUsage });
+    } else {
+      clearTimeout(timeoutId);
+      const data = await response.json();
+      finishReason = data.choices?.[0]?.finish_reason;
+      nextMessage = data.choices?.[0]?.message || {};
+      const usage = data.usage;
+      const timings = data.timings;
+      let effectiveUsage = usage;
+      if (!effectiveUsage && timings) {
+        effectiveUsage = {
+          prompt_tokens: timings.prompt_n || 0,
+          completion_tokens: timings.predicted_n || 0,
+          total_tokens: (timings.prompt_n || 0) + (timings.predicted_n || 0),
+          prompt_tokens_details: {
+            cached_tokens: timings.cache_n || 0,
+          },
+        };
+      }
+      if (effectiveUsage) {
+        tokenUsage.prompt += effectiveUsage.prompt_tokens || 0;
+        tokenUsage.completion += effectiveUsage.completion_tokens || 0;
+        tokenUsage.total += effectiveUsage.total_tokens || 0;
+        if (effectiveUsage.prompt_tokens_details?.cached_tokens !== undefined) {
+          tokenUsage.cached += effectiveUsage.prompt_tokens_details.cached_tokens;
+        }
+        if (timings?.tokens_cached) tokenUsage.tokensCached = timings.tokens_cached;
+        wsBroadcast("tokenUsage", { ...tokenUsage });
+      }
+      if (timings) {
+        wsBroadcast("perfStats", buildPerfStats(timings));
+      }
     }
 
     console.log("[agent] Model response:", {
@@ -591,7 +811,11 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     }
 
     const finalText = nextMessage.content || "✅ Готово.";
-    await replyMsg(ctx, finalText);
+    if (ctx.chat?.type === "private") {
+      await ctx.replyWithStream(chunkText(finalText));
+    } else {
+      await replyMsg(ctx, finalText);
+    }
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
     console.error("[continueAfterApproval] Full error:", error);
@@ -599,7 +823,11 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   }
 }
 
-/** Обработка callback-запросов (inline keyboard). */
+/**
+ * Обработка callback-запросов (inline keyboard).
+ * @param {Object} ctx - GrammY контекст callback query
+ * @returns {Promise<void>}
+ */
 bot.on("callback_query", async (ctx) => {
   console.log(`[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`);
   const callbackData = ctx.callbackQuery.data;
@@ -652,6 +880,10 @@ bot.on("callback_query", async (ctx) => {
 // ─── Telegram Commands ─────────────────────────────────────────────────────
 
 bot.command("start", (ctx) => {
+  if (config.modelName === "Имя модели") {
+    ctx.reply("⚠️ Модель не выбрана. Настройте модель в веб-интерфейсе.", REPLY_OPTS);
+    return;
+  }
   updateStatus("running", "Работает");
   ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
 });

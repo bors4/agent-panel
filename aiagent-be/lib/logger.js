@@ -1,5 +1,6 @@
 /**
  * Улучшенный логгер с поддержкой уровней, файлового вывода и ротации.
+ * @module logger
  */
 
 import fs from "fs";
@@ -8,6 +9,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Уровни логирования и их числовые приоритеты. @type {Object.<string, number>} */
 const LOG_LEVELS = {
   debug: 0,
   info: 1,
@@ -15,23 +17,36 @@ const LOG_LEVELS = {
   error: 3,
 };
 
+/** Текущий уровень логирования из env (LOG_LEVEL) или "info". @type {string} */
 const LOG_LEVEL = (process.env.LOG_LEVEL || "info").toLowerCase();
+/** Минимальный числовой уровень для фильтрации сообщений. @type {number} */
 const MIN_LEVEL = LOG_LEVELS[LOG_LEVEL] ?? LOG_LEVELS.info;
 
+/** Директория для хранения логов. @type {string} */
 const LOG_DIR = path.resolve(__dirname, "..", "logs");
+/** Основной файл лога. @type {string} */
 const LOG_FILE = path.join(LOG_DIR, "app.log");
+/** Файл для сообщений уровня warn и error. @type {string} */
 const ERROR_LOG_FILE = path.join(LOG_DIR, "error.log");
-const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
+/** Максимальный размер файла лога перед ротацией (5 MB). @type {number} */
+const MAX_LOG_SIZE = 5 * 1024 * 1024;
+/** Максимальное количество файлов лога при ротации. @type {number} */
 const MAX_LOG_FILES = 5;
 
 // ─── Утилиты ротации ────────────────────────────────────────────
 
+/** Создать директорию для логов, если она не существует. */
 function ensureLogDir() {
   if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true });
   }
 }
 
+/**
+ * Проверить размер файла и выполнить ротацию при превышении лимита.
+ * Сдвигает старые файлы: app.log.1 → app.log.2 и т.д., удаляет самый старый.
+ * @param {string} filePath - Путь к файлу лога
+ */
 function rotateIfNeeded(filePath) {
   if (!fs.existsSync(filePath)) return;
   try {
@@ -58,10 +73,21 @@ function rotateIfNeeded(filePath) {
 
 // ─── Форматирование ─────────────────────────────────────────────
 
+/**
+ * Отформатировать текущее время в ISO строку.
+ * @returns {string} ISO timestamp
+ */
 function formatTimestamp() {
   return new Date().toISOString();
 }
 
+/**
+ * Собрать JSON-строку лога с метаданными.
+ * @param {string} level - Уровень логирования
+ * @param {string} message - Текст сообщения
+ * @param {*} [meta] - Метаданные (Error, объект или строка)
+ * @returns {string} JSON-строка для записи
+ */
 function formatLog(level, message, meta) {
   const entry = {
     ts: formatTimestamp(),
@@ -81,6 +107,11 @@ function formatLog(level, message, meta) {
 
 // ─── Запись в файл ───────────────────────────────────────────────
 
+/**
+ * Записать строку в файл лога с ротацией при необходимости.
+ * @param {string} filePath - Путь к файлу
+ * @param {string} line - JSON-строка для записи
+ */
 function writeToFile(filePath, line) {
   try {
     ensureLogDir();
@@ -93,6 +124,11 @@ function writeToFile(filePath, line) {
 
 // ─── Публичный API ──────────────────────────────────────────────
 
+/**
+ * Записать лог уровня debug.
+ * @param {string} message - Текст сообщения
+ * @param {*} [meta] - Метаданные
+ */
 export function logDebug(message, meta) {
   if (MIN_LEVEL > LOG_LEVELS.debug) return;
   const line = formatLog("debug", message, meta);
@@ -100,6 +136,11 @@ export function logDebug(message, meta) {
   writeToFile(LOG_FILE, line);
 }
 
+/**
+ * Записать лог уровня info.
+ * @param {string} message - Текст сообщения
+ * @param {*} [meta] - Метаданные
+ */
 export function logInfo(message, meta) {
   if (MIN_LEVEL > LOG_LEVELS.info) return;
   const line = formatLog("info", message, meta);
@@ -107,6 +148,11 @@ export function logInfo(message, meta) {
   writeToFile(LOG_FILE, line);
 }
 
+/**
+ * Записать лог уровня warn (также дублируется в error.log).
+ * @param {string} message - Текст сообщения
+ * @param {*} [meta] - Метаданные
+ */
 export function logWarn(message, meta) {
   if (MIN_LEVEL > LOG_LEVELS.warn) return;
   const line = formatLog("warn", message, meta);
@@ -115,6 +161,11 @@ export function logWarn(message, meta) {
   writeToFile(ERROR_LOG_FILE, line);
 }
 
+/**
+ * Записать лог уровня error (дублируется в error.log).
+ * @param {string} message - Текст сообщения
+ * @param {*} [meta] - Метаданные
+ */
 export function logError(message, meta) {
   if (MIN_LEVEL > LOG_LEVELS.error) return;
   const line = formatLog("error", message, meta);
@@ -125,6 +176,13 @@ export function logError(message, meta) {
 
 // ─── Express middleware ──────────────────────────────────────────
 
+/**
+ * Express middleware для логирования всех HTTP запросов.
+ * Добавляет requestId в req, логирует метод, URL, статус и длительность.
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @param {Function} next - Next middleware
+ */
 export function requestLogger(req, res, next) {
   const start = Date.now();
   const id = crypto.randomUUID().slice(0, 8);

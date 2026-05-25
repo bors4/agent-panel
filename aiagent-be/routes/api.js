@@ -6,7 +6,9 @@
 import { Router } from "express";
 import path from "path";
 import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
-import { saveAccounts, getAccounts } from "../lib/accounts.js";
+import { loadAccounts, saveAccounts, getAccounts } from "../lib/accounts.js";
+import { configDefaults } from "../lib/configDefaults.js";
+import { parseStreamedResponse } from "../lib/parseSSE.js";
 
 /**
  * Создаёт Express Router с API маршрутами.
@@ -138,18 +140,20 @@ export function createApiRouter(deps) {
     if (body.projectPath !== undefined && body.projectPath !== null && body.projectPath !== "") {
       const resolved = path.resolve(body.projectPath);
       config.projectPath = resolved;
-      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}"`, "info");
+      loadAccounts(config.projectPath);
+      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}", accounts: ${getAccounts().length}`, "info");
     } else {
       addLog(`projectPath: skipped (value=${JSON.stringify(body.projectPath)})`, "warning");
     }
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
     if (body.maxTokens) config.maxTokens = parseInt(body.maxTokens);
     if (body.temperature !== undefined) config.temperature = parseFloat(body.temperature);
-    if (body.timeout) config.timeout = parseInt(body.timeout);
+    if (body.timeout !== undefined) config.timeout = parseInt(body.timeout);
     if (body.maxFileChars) config.maxFileChars = parseInt(body.maxFileChars);
     if (body.maxHistoryPairs) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
     if (body.maxSearchResults) config.maxSearchResults = parseInt(body.maxSearchResults);
     if (body.maxFilesInPrompt) config.maxFilesInPrompt = parseInt(body.maxFilesInPrompt);
+    if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
       process.env.TELEGRAM_BOT_TOKEN = body.token;
       tokenChanged = true;
@@ -277,6 +281,8 @@ export function createApiRouter(deps) {
         await deps.bot.stop();
         await new Promise((r) => setTimeout(r, 1000));
       }
+      loadAccounts(config.projectPath);
+      addLog(`Accounts reloaded: ${getAccounts().length}`, "info");
       deps.bot.start();
       deps.updateStatus("running", "Работает");
       addLog("Bot restarted", "success");
@@ -295,60 +301,225 @@ export function createApiRouter(deps) {
    */
   router.post("/chat", async (req, res) => {
     try {
-      const { message, modelName, serverUrl, projectPath, systemPrompt } = req.body;
+      const { message, modelName, serverUrl, projectPath, systemPrompt, stream: useStream } = req.body;
       if (!message) return res.status(400).json({ error: "Message required" });
 
       const actualServerUrl = serverUrl || config.serverUrl;
       const model = modelName || config.modelName;
       const workPath = projectPath || config.projectPath;
       const sysPrompt = systemPrompt !== undefined ? systemPrompt : config.systemPrompt;
+      const isStream = useStream ?? config.stream ?? false;
 
       stats.requests++;
 
       let systemContext = `Ты работаешь в проекте: ${workPath}. Все операции выполняй относительно этого пути.`;
       if (sysPrompt) systemContext += `\n\n${sysPrompt}`;
 
-      const response = await fetch(`${actualServerUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: "system", content: systemContext },
-            { role: "user", content: message },
-          ],
-          max_tokens: 4096,
-          temperature: 0.1,
-        }),
-      });
+      const controller = new AbortController();
+      const timeout = config.timeout ?? configDefaults.timeout;
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      let response;
+      try {
+        response = await fetch(`${actualServerUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              { role: "system", content: systemContext },
+              { role: "user", content: message },
+            ],
+            max_tokens: config.maxTokens ?? configDefaults.maxTokens,
+            temperature: config.temperature ?? configDefaults.temperature,
+            stream: isStream,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         stats.errors++;
         throw new Error(`AI API error: ${response.status}`);
       }
 
-      const data = await response.json();
-      const reply = data.choices?.[0]?.message?.content || "Пустой ответ от модели";
-      const usage = data.usage || null;
-      if (usage) {
-        deps.tokenUsage.prompt += usage.prompt_tokens || 0;
-        deps.tokenUsage.completion += usage.completion_tokens || 0;
-        deps.tokenUsage.total += usage.total_tokens || 0;
-        if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-          deps.tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+      // SSE режим
+      if (isStream) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+
+        const { usage: sseUsage, timings: sseTimings, tokensCached } = await parseStreamedResponse(response, {
+          onContent: (chunk, accumulated) => {
+            res.write(`data: ${JSON.stringify({ reply: chunk, accumulated })}\n\n`);
+          },
+          onFinish: (reason) => {
+            res.write(`data: ${JSON.stringify({ finishReason: reason })}\n\n`);
+          },
+          onUsage: (u) => {
+            if (u) {
+              deps.tokenUsage.prompt += u.prompt_tokens || 0;
+              deps.tokenUsage.completion += u.completion_tokens || 0;
+              deps.tokenUsage.total += u.total_tokens || 0;
+              if (u.prompt_tokens_details?.cached_tokens !== undefined) {
+                deps.tokenUsage.cached += u.prompt_tokens_details.cached_tokens;
+              }
+              wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+            }
+          },
+          onTimings: (t) => {
+            if (t) {
+              deps.tokenUsage.prompt += t.prompt_n || 0;
+              deps.tokenUsage.completion += t.predicted_n || 0;
+              deps.tokenUsage.total += (t.prompt_n || 0) + (t.predicted_n || 0);
+              if (t.cache_n) deps.tokenUsage.cached += t.cache_n;
+              if (t.tokens_cached) deps.tokenUsage.tokensCached = t.tokens_cached;
+              wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+              wsBroadcast("perfStats", {
+                prompt_n: t.prompt_n || 0,
+                predicted_n: t.predicted_n || 0,
+                prompt_ms: Math.round(t.prompt_ms || 0),
+                predicted_ms: Math.round(t.predicted_ms || 0),
+                prompt_per_second: t.prompt_per_second || 0,
+                predicted_per_second: t.predicted_per_second || 0,
+                cache_n: t.cache_n ?? 0,
+                tokens_cached: t.tokens_cached ?? 0,
+                draft_n: t.draft_n || 0,
+                draft_n_accepted: t.draft_n_accepted || 0,
+                draft_acceptance_rate: t.draft_n > 0 ? t.draft_n_accepted / t.draft_n : 0,
+                total_ms: Math.round((t.prompt_ms || 0) + (t.predicted_ms || 0)),
+              });
+            }
+          },
+        });
+
+        // Строим synthetic usage из timings, если модель не прислала usage
+        const finalTimings = sseTimings;
+        let finalUsage = sseUsage;
+        if (!finalUsage && finalTimings?.prompt_n) {
+          finalUsage = {
+            prompt_tokens: finalTimings.prompt_n || 0,
+            completion_tokens: finalTimings.predicted_n || 0,
+            total_tokens: (finalTimings.prompt_n || 0) + (finalTimings.predicted_n || 0),
+            prompt_tokens_details: {
+              cached_tokens: finalTimings.tokens_cached ?? tokensCached ?? 0,
+            },
+          };
         }
-        wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+
+        res.write(`data: ${JSON.stringify({ reply: "", usage: finalUsage, done: true })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      } else {
+        // JSON режим (обратная совместимость)
+        const data = await response.json();
+        const msg = data.choices?.[0]?.message || {};
+        const reply = msg.content || msg.reasoning_content || "Пустой ответ от модели";
+        const usage = data.usage || null;
+
+        // Извлекаем tokens_cached (общий размер KV-кэша) и встраиваем в timings
+        const dataTokensCached = data.tokens_cached ?? data.__verbose?.tokens_cached ?? 0;
+        const timings = data.timings ? { ...data.timings, tokens_cached: dataTokensCached } : null;
+
+          if (usage || timings) {
+            if (usage) {
+              deps.tokenUsage.prompt += usage.prompt_tokens || 0;
+              deps.tokenUsage.completion += usage.completion_tokens || 0;
+              deps.tokenUsage.total += usage.total_tokens || 0;
+              if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
+                deps.tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+              } else if (timings?.cache_n) {
+                deps.tokenUsage.cached += timings.cache_n;
+              }
+            } else if (timings) {
+              deps.tokenUsage.prompt += timings.prompt_n || 0;
+              deps.tokenUsage.completion += timings.predicted_n || 0;
+              deps.tokenUsage.total += (timings.prompt_n || 0) + (timings.predicted_n || 0);
+              if (timings.cache_n) deps.tokenUsage.cached += timings.cache_n;
+            }
+            if (timings?.tokens_cached) deps.tokenUsage.tokensCached = timings.tokens_cached;
+          wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+        }
+        if (timings) {
+          wsBroadcast("perfStats", {
+            prompt_n: timings.prompt_n || 0,
+            predicted_n: timings.predicted_n || 0,
+            prompt_ms: Math.round(timings.prompt_ms || 0),
+            predicted_ms: Math.round(timings.predicted_ms || 0),
+            prompt_per_second: timings.prompt_per_second || 0,
+            predicted_per_second: timings.predicted_per_second || 0,
+            cache_n: timings.cache_n ?? 0,
+            tokens_cached: timings.tokens_cached ?? 0,
+            draft_n: timings.draft_n || 0,
+            draft_n_accepted: timings.draft_n_accepted || 0,
+            draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
+            total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
+          });
+        }
+        wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
+        res.json({ success: true, reply, usage, timings });
       }
-      wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
-      res.json({ success: true, reply, usage });
     } catch (error) {
       stats.errors++;
       addLog(`Chat error: ${error.message}`, "error");
-      res.status(500).json({ error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      }
     }
+  });
+
+  // ─── Health ──────────────────────────────────────────────────────────────
+
+  /**
+   * GET /api/health — Health check endpoint for monitoring.
+   * Returns bot status and AI server reachability.
+   */
+  router.get("/health", async (req, res) => {
+    const uptimeMs = deps.state.startTime ? Date.now() - deps.state.startTime : 0;
+    const botRunning = deps.state.botStatus === "running";
+
+    let aiReachable = false;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const aiResp = await fetch(`${config.serverUrl}/models`, {
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+      });
+      clearTimeout(timeoutId);
+      aiReachable = aiResp.ok;
+    } catch {} // AI server unreachable, aiReachable stays false
+
+    let status;
+    if (botRunning && aiReachable) {
+      status = "healthy";
+    } else if (aiReachable) {
+      status = "degraded";
+    } else {
+      status = "unhealthy";
+    }
+
+    res.json({
+      status,
+      bot: {
+        isRunning: botRunning,
+        status: deps.state.botStatus,
+        uptime: Math.floor(uptimeMs / 1000),
+      },
+      aiServer: {
+        reachable: aiReachable,
+      },
+      timestamp: new Date().toISOString(),
+    });
   });
 
   return router;

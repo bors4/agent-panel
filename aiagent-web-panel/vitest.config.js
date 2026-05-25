@@ -12,6 +12,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@backend": fileURLToPath(new URL("../aiagent-be", import.meta.url)),
     },
   },
 });

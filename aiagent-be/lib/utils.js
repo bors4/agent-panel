@@ -43,8 +43,11 @@ export function safePath(userPath, projectRoot) {
 }
 
 /**
- * Extracts a complete JSON block from a string starting at the given index,
- * using brace counting to handle nested objects.
+ * Извлекает полный JSON-блок из строки, начиная с указанного индекса.
+ * Использует подсчёт фигурных скобок для обработки вложенных объектов.
+ * @param {string} str - Исходная строка
+ * @param {number} startIdx - Индекс открывающей скобки {
+ * @returns {string|null} Извлечённый JSON или null при ошибке
  */
 function extractJsonBlock(str, startIdx) {
   let depth = 0, i = startIdx;

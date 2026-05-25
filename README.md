@@ -66,8 +66,17 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 89 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, sessions, logger
-- **Frontend**: 22 tests covering composables, stores, API client, and StatsCard
+- **Backend**: 114 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, logger, and API
+- **Frontend**: 27 tests covering composables, stores, API client, ControlsCard, ChatTab, SettingsTab, and StatsCard
+
+## Documentation
+
+```bash
+# Generate JSDoc HTML documentation
+npm run --prefix aiagent-web-panel docs:generate
+```
+
+Output goes to `docs/` directory — open `docs/index.html` in a browser.
 
 ## Build & Deploy
 
@@ -81,10 +90,11 @@ npm start
 
 ## API Endpoints
 
-All endpoints require `x-api-key: agent-secret-key` header:
+Most endpoints require `x-api-key: agent-secret-key` header. Only `/api/health` is public.
 
 | Method | Endpoint               | Description                                 |
 | ------ | ---------------------- | ------------------------------------------- |
+| GET    | `/api/health`          | Health check (bot status, AI reachability)  |
 | GET    | `/api/status`          | Server status, botStatus, stats, uptime     |
 | GET    | `/api/logs?limit=N`    | Recent logs                                 |
 | GET    | `/api/config`          | Current configuration                       |
@@ -156,7 +166,6 @@ aiagent-be/
 │   │   └── executeTool.js # Tool implementations
 │   ├── accounts.js        # Account management
 │   ├── logger.js          # Structured logging with rotation
-│   ├── session.js         # Session management
 │   └── utils.js           # Path safety and tool call parsing
 ├── tests/                 # Backend tests (Vitest)
 └── logs/                  # Application logs

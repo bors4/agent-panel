@@ -7,9 +7,18 @@
 import { executeTool, getToolConfig } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
+import { configDefaults } from "../configDefaults.js";
+import { parseStreamedResponse } from "../parseSSE.js";
 
+/** Максимальное количество итераций (вызовов инструментов) за один запрос. */
 export const MAX_AGENT_ITERATIONS = 5;
 
+/**
+ * Формирует текстовое описание доступных и недоступных инструментов для system prompt.
+ * @param {Object|null} account - Аккаунт пользователя
+ * @param {Object} globalToolConfig - Глобальная конфигурация инструментов
+ * @returns {string} Описание инструментов
+ */
 function buildToolsDescription(account, globalToolConfig) {
   const enabled = [];
   const disabled = [];
@@ -32,6 +41,15 @@ function buildToolsDescription(account, globalToolConfig) {
   return result;
 }
 
+/**
+ * Собирает system message для AI модели на основе конфигурации и аккаунта.
+ * Включает описание инструментов, правила работы и пути проекта.
+ * @param {string} projectPath - Путь к проекту
+ * @param {string} systemPrompt - Кастомный system prompt
+ * @param {boolean} useFunctionCalling - Использовать function calling (true) или XML-формат (false)
+ * @param {Object|null} [account=null] - Аккаунт пользователя
+ * @returns {string} Полный system prompt
+ */
 export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
   let ctx =
     "You are AI assistant in: " +
@@ -69,6 +87,12 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
   }
 }
 
+/**
+ * Извлекает bash-команду из блока с обратными кавычками.
+ * Используется как fallback, когда function calling недоступен.
+ * @param {string} content - Текст ответа модели
+ * @returns {string|null} Извлечённая команда или null
+ */
 function extractBash(content) {
   const m = content.match(/`(?:bash|sh)?[\s\S]*?`/);
   return m ? m[0].replace(/`[a-z]*\n?/g, "").trim() : null;
@@ -97,6 +121,12 @@ function truncateHistory(messages, maxPairs) {
   return nonSystem.slice(startIdx);
 }
 
+/**
+ * Формирует конфигурацию для executeTool на основе аккаунта и глобальной конфигурации.
+ * @param {Object|null} account - Аккаунт пользователя
+ * @param {Object} cfg - Глобальная конфигурация агента
+ * @returns {Object} Конфигурация выполнения инструмента
+ */
 function buildToolExecConfig(account, cfg) {
   return {
     projectPath: cfg.projectPath,
@@ -105,6 +135,7 @@ function buildToolExecConfig(account, cfg) {
     maxSearchResults: cfg.maxSearchResults,
     maxHistoryPairs: cfg.maxHistoryPairs,
     maxFilesInPrompt: cfg.maxFilesInPrompt,
+    filesRead: 0,
   };
 }
 
@@ -117,9 +148,10 @@ function buildToolExecConfig(account, cfg) {
  * @param {Object} cfg - Конфигурация агента (из server.js)
  * @param {number} maxIterations - Максимальное число итераций (default: 5)
  * @param {Object|null} account - Аккаунт пользователя
+ * @param {Function} [onProgress] - Колбэк прогресса: ({ type: 'content'|'tool'|'response'|'error', ... })
  * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
  */
-export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null) {
+export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null) {
   const toolConfig = getToolConfig();
   let messages = [
     {
@@ -132,7 +164,10 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   let iterations = 0,
     finalResponse = "",
     useFunctionCalling = true,
-    accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
+    accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 },
+    latestTimings = null;
+  const toolExecConfig = buildToolExecConfig(account, cfg);
+  let currentTemperature = cfg.temperature ?? configDefaults.temperature;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -140,8 +175,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const body = {
         model: cfg.modelName,
         messages,
-        max_tokens: cfg.maxTokens ?? 8192,
-        temperature: cfg.temperature || 0.1,
+        max_tokens: cfg.maxTokens ?? configDefaults.maxTokens,
+        temperature: currentTemperature,
       };
       if (useFunctionCalling) {
         body.tools = Object.values(toolConfig)
@@ -156,25 +191,121 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           }));
         body.tool_choice = "auto";
       }
-      const resp = await fetch(cfg.serverUrl + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + cfg.apiKey,
-        },
-        body: JSON.stringify(body),
-      });
+      body.stream = cfg.stream ?? false;
+      const controller = new AbortController();
+      const timeout = cfg.timeout ?? configDefaults.timeout;
+      let timeoutId = setTimeout(() => controller.abort(), timeout);
+      let resp;
+      try {
+        resp = await fetch(cfg.serverUrl + "/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + cfg.apiKey,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === "AbortError") {
+          return { error: "Request timed out. Generate a shorter response or increase the timeout setting." };
+        }
+        throw e;
+      }
       if (!resp.ok && useFunctionCalling) {
+        clearTimeout(timeoutId);
         useFunctionCalling = false;
         messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account);
         continue;
       }
-      if (!resp.ok) return { error: "AI error: " + resp.status };
-      const data = await resp.json();
-      const asst = data.choices?.[0]?.message;
-      if (!asst) return { error: "Empty response" };
-      const msg = data.choices?.[0]?.message;
-      const usage = data.usage;
+      if (!resp.ok) {
+        clearTimeout(timeoutId);
+        return { error: "AI error: " + resp.status };
+      }
+      let msg, usage;
+      if (body.stream) {
+        try {
+          const { content, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
+            onContent: (chunk, accumulated) => {
+              // Per-chunk timeout reset — длинные генерации не обрываются
+              clearTimeout(timeoutId);
+              timeoutId = setTimeout(() => controller.abort(), timeout);
+              onProgress?.({ type: "content", chunk, accumulated });
+            },
+            onToolCall: (idx, tc) => {
+              onProgress?.({ type: "tool_call_delta", index: idx, delta: tc });
+            },
+            onFinish: (reason) => {
+              onProgress?.({ type: "finish", reason });
+            },
+          });
+          usage = u;
+          if (t) latestTimings = t;
+          msg = {
+            role: "assistant",
+            content: content || null,
+            tool_calls: toolCalls
+              ? toolCalls.map((tc) => ({
+                  id: tc.id,
+                  type: tc.type,
+                  function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                  },
+                }))
+              : undefined,
+          };
+        } catch (e) {
+          if (e.name === "AbortError") {
+            return { error: "Generation timed out. Try again or increase the timeout setting." };
+          }
+          throw e;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      } else {
+        clearTimeout(timeoutId);
+        const data = await resp.json();
+        const asst = data.choices?.[0]?.message;
+        if (!asst) return { error: "AI error: empty response" };
+        msg = asst;
+        usage = data.usage;
+        if (data.timings) {
+          const tc = data.tokens_cached ?? data.__verbose?.tokens_cached ?? 0;
+          latestTimings = { ...data.timings, tokens_cached: tc };
+        }
+      }
+      if (!msg.content?.trim() && !msg.tool_calls?.length) {
+        currentTemperature = Math.min(currentTemperature + 0.3, 1.0);
+        continue;
+      }
+      if (!usage && (msg.content || msg.tool_calls?.length)) {
+        if (latestTimings) {
+          usage = {
+            prompt_tokens: latestTimings.prompt_n || 0,
+            completion_tokens: latestTimings.predicted_n || 0,
+            total_tokens: (latestTimings.prompt_n || 0) + (latestTimings.predicted_n || 0),
+            prompt_tokens_details: {
+              cached_tokens: latestTimings.cache_n || 0,
+            },
+          };
+        } else {
+          const completionText = msg.content || "";
+          const completionTokens = Math.ceil(completionText.length / 4);
+          const promptText = messages.map((m) => {
+            const c = m.content || "";
+            const tc = m.tool_calls ? JSON.stringify(m.tool_calls) : "";
+            return c + tc;
+          }).join(" ");
+          const promptTokens = Math.ceil(promptText.length / 4);
+          usage = {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens,
+          };
+        }
+      }
       if (usage) {
         accumulatedUsage.prompt += usage.prompt_tokens || 0;
         accumulatedUsage.completion += usage.completion_tokens || 0;
@@ -186,8 +317,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       messages.push(msg);
       const content = msg?.content || "";
 
-      if (asst.tool_calls?.length > 0) {
-        for (const tc of asst.tool_calls) {
+      if (msg.tool_calls?.length > 0) {
+        for (const tc of msg.tool_calls) {
           const tn = tc.function.name;
           let ta;
           try {
@@ -209,7 +340,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
               messages,
             };
           }
-          const r = await executeTool({ name: tn, args: ta }, buildToolExecConfig(account, cfg));
+          onProgress?.({ type: "tool", toolName: tn, args: ta });
+          const r = await executeTool({ name: tn, args: ta }, toolExecConfig);
+          if (tn === "read" && r.success) toolExecConfig.filesRead++;
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
@@ -229,7 +362,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             args: tc.args,
             messages,
           };
-        const r = await executeTool(tc, buildToolExecConfig(account, cfg));
+        onProgress?.({ type: "tool", toolName: tc.name, args: tc.args });
+        const r = await executeTool(tc, toolExecConfig);
+        if (tc.name === "read" && r.success) toolExecConfig.filesRead++;
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -240,7 +375,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
 
       const bash = extractBash(content);
       if (bash && !useFunctionCalling) {
-        const r = await executeTool({ name: "execute", args: { command: bash } }, buildToolExecConfig(account, cfg));
+        onProgress?.({ type: "tool", toolName: "execute", args: { command: bash } });
+        const r = await executeTool({ name: "execute", args: { command: bash } }, toolExecConfig);
         messages.push({
           role: "tool",
           tool_call_id: `bash_${Date.now()}`,
@@ -250,11 +386,13 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       }
 
       finalResponse = content || "Empty response";
+      onProgress?.({ type: "response", response: finalResponse });
       break;
     } catch (e) {
       return { error: e.message };
     }
   }
+  if (!finalResponse) finalResponse = "Empty response";
   const finalMessages = messages.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
-  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage };
+  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
 }
