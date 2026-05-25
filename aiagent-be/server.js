@@ -160,6 +160,7 @@ import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 import { createApiRouter } from "./routes/api.js";
+import { parseToolCall } from "./lib/utils.js";
 
 // ─── Утилиты логирования ───────────────────────────────────────────────────
 
@@ -411,9 +412,10 @@ bot.on("message", async (ctx) => {
   stats.requests++;
   wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
 
+  let draftMsgId;
   try {
     await sendTyping(ctx);
-    const draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
+    draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
 
     const history = chatHistories.get(chatId) || [];
     let accumulatedContent = "";
@@ -455,6 +457,7 @@ bot.on("message", async (ctx) => {
 
     await handleAgentResult(ctx, chatId, result, account, draftMsgId);
   } catch (error) {
+    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
     await replyMsg(ctx, `❌ Error: ${error.message}`);
     addLog(`Bot error: ${error.message}`, "error");
   }
@@ -534,6 +537,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system"
     );
     chatHistories.set(chatId, cleanHistory.slice(-10));
+    if (draftMsgId) ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
     await replyMsg(ctx, `❌ Error: ${result.error}`);
     return true;
   }
@@ -563,6 +567,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   }
 
   // Лимит итераций
+  if (draftMsgId) ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
   await replyMsg(ctx, "Iteration limit reached");
   return true;
 }
@@ -779,6 +784,18 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
     const newHistory = [...history, toolMessage, nextMessage].filter((m) => m.role !== "system").slice(-20);
     chatHistories.set(chatId, newHistory);
+
+    // XML fallback: parse XML tool call if native function calling absent
+    if (!nextMessage.tool_calls?.length) {
+      const xmlTc = parseToolCall(nextMessage.content || "");
+      if (xmlTc) {
+        nextMessage.tool_calls = [{
+          id: xmlTc.id,
+          type: "function",
+          function: { name: xmlTc.name, arguments: JSON.stringify(xmlTc.args) },
+        }];
+      }
+    }
 
     // Модель вернула новый tool_call
     if (nextMessage.tool_calls?.length > 0) {
