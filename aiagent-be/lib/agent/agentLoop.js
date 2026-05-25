@@ -148,9 +148,10 @@ function buildToolExecConfig(account, cfg) {
  * @param {Object} cfg - Конфигурация агента (из server.js)
  * @param {number} maxIterations - Максимальное число итераций (default: 5)
  * @param {Object|null} account - Аккаунт пользователя
+ * @param {Function} [onProgress] - Колбэк прогресса: ({ type: 'content'|'tool'|'response'|'error', ... })
  * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
  */
-export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null) {
+export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null) {
   const toolConfig = getToolConfig();
   let messages = [
     {
@@ -163,8 +164,10 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   let iterations = 0,
     finalResponse = "",
     useFunctionCalling = true,
-    accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
+    accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 },
+    latestTimings = null;
   const toolExecConfig = buildToolExecConfig(account, cfg);
+  let currentTemperature = cfg.temperature ?? configDefaults.temperature;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -173,7 +176,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         model: cfg.modelName,
         messages,
         max_tokens: cfg.maxTokens ?? configDefaults.maxTokens,
-        temperature: cfg.temperature ?? configDefaults.temperature,
+        temperature: currentTemperature,
       };
       if (useFunctionCalling) {
         body.tools = Object.values(toolConfig)
@@ -188,10 +191,10 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           }));
         body.tool_choice = "auto";
       }
-      body.stream = true;
+      body.stream = cfg.stream ?? false;
       const controller = new AbortController();
       const timeout = cfg.timeout ?? configDefaults.timeout;
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      let timeoutId = setTimeout(() => controller.abort(), timeout);
       let resp;
       try {
         resp = await fetch(cfg.serverUrl + "/chat/completions", {
@@ -203,31 +206,106 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           body: JSON.stringify(body),
           signal: controller.signal,
         });
-      } finally {
+      } catch (e) {
         clearTimeout(timeoutId);
+        if (e.name === "AbortError") {
+          return { error: "Request timed out. Generate a shorter response or increase the timeout setting." };
+        }
+        throw e;
       }
       if (!resp.ok && useFunctionCalling) {
+        clearTimeout(timeoutId);
         useFunctionCalling = false;
         messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account);
         continue;
       }
-      if (!resp.ok) return { error: "AI error: " + resp.status };
-      const { content: streamedContent, toolCalls: streamedToolCalls, usage } =
-        await parseStreamedResponse(resp);
-      const msg = {
-        content: streamedContent || null,
-        tool_calls: streamedToolCalls
-          ? streamedToolCalls.map((tc) => ({
-              id: tc.id,
-              type: tc.type,
-              function: {
-                name: tc.function.name,
-                arguments: tc.function.arguments,
-              },
-            }))
-          : undefined,
-      };
-      if (!msg.content && !msg.tool_calls?.length) return { error: "Empty response" };
+      if (!resp.ok) {
+        clearTimeout(timeoutId);
+        return { error: "AI error: " + resp.status };
+      }
+      let msg, usage;
+      if (body.stream) {
+        try {
+          const { content, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
+            onContent: (chunk, accumulated) => {
+              // Per-chunk timeout reset — длинные генерации не обрываются
+              clearTimeout(timeoutId);
+              timeoutId = setTimeout(() => controller.abort(), timeout);
+              onProgress?.({ type: "content", chunk, accumulated });
+            },
+            onToolCall: (idx, tc) => {
+              onProgress?.({ type: "tool_call_delta", index: idx, delta: tc });
+            },
+            onFinish: (reason) => {
+              onProgress?.({ type: "finish", reason });
+            },
+          });
+          usage = u;
+          if (t) latestTimings = t;
+          msg = {
+            role: "assistant",
+            content: content || null,
+            tool_calls: toolCalls
+              ? toolCalls.map((tc) => ({
+                  id: tc.id,
+                  type: tc.type,
+                  function: {
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                  },
+                }))
+              : undefined,
+          };
+        } catch (e) {
+          if (e.name === "AbortError") {
+            return { error: "Generation timed out. Try again or increase the timeout setting." };
+          }
+          throw e;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      } else {
+        clearTimeout(timeoutId);
+        const data = await resp.json();
+        const asst = data.choices?.[0]?.message;
+        if (!asst) return { error: "AI error: empty response" };
+        msg = asst;
+        usage = data.usage;
+        if (data.timings) {
+          const tc = data.tokens_cached ?? data.__verbose?.tokens_cached ?? 0;
+          latestTimings = { ...data.timings, tokens_cached: tc };
+        }
+      }
+      if (!msg.content?.trim() && !msg.tool_calls?.length) {
+        currentTemperature = Math.min(currentTemperature + 0.3, 1.0);
+        continue;
+      }
+      if (!usage && (msg.content || msg.tool_calls?.length)) {
+        if (latestTimings) {
+          usage = {
+            prompt_tokens: latestTimings.prompt_n || 0,
+            completion_tokens: latestTimings.predicted_n || 0,
+            total_tokens: (latestTimings.prompt_n || 0) + (latestTimings.predicted_n || 0),
+            prompt_tokens_details: {
+              cached_tokens: latestTimings.cache_n || 0,
+            },
+          };
+        } else {
+          const completionText = msg.content || "";
+          const completionTokens = Math.ceil(completionText.length / 4);
+          const promptText = messages.map((m) => {
+            const c = m.content || "";
+            const tc = m.tool_calls ? JSON.stringify(m.tool_calls) : "";
+            return c + tc;
+          }).join(" ");
+          const promptTokens = Math.ceil(promptText.length / 4);
+          usage = {
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens,
+          };
+        }
+      }
       if (usage) {
         accumulatedUsage.prompt += usage.prompt_tokens || 0;
         accumulatedUsage.completion += usage.completion_tokens || 0;
@@ -262,6 +340,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
               messages,
             };
           }
+          onProgress?.({ type: "tool", toolName: tn, args: ta });
           const r = await executeTool({ name: tn, args: ta }, toolExecConfig);
           if (tn === "read" && r.success) toolExecConfig.filesRead++;
           messages.push({
@@ -283,6 +362,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             args: tc.args,
             messages,
           };
+        onProgress?.({ type: "tool", toolName: tc.name, args: tc.args });
         const r = await executeTool(tc, toolExecConfig);
         if (tc.name === "read" && r.success) toolExecConfig.filesRead++;
         messages.push({
@@ -295,6 +375,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
 
       const bash = extractBash(content);
       if (bash && !useFunctionCalling) {
+        onProgress?.({ type: "tool", toolName: "execute", args: { command: bash } });
         const r = await executeTool({ name: "execute", args: { command: bash } }, toolExecConfig);
         messages.push({
           role: "tool",
@@ -305,11 +386,13 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       }
 
       finalResponse = content || "Empty response";
+      onProgress?.({ type: "response", response: finalResponse });
       break;
     } catch (e) {
       return { error: e.message };
     }
   }
+  if (!finalResponse) finalResponse = "Empty response";
   const finalMessages = messages.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
-  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage };
+  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
 }

@@ -14,6 +14,7 @@
         :uptime="stats.uptime"
         :stats="stats"
         :token-usage="tokenUsage"
+        :perf-stats="perfStats"
         :max-tokens="localConfig.maxTokens"
         :show-tokens="quickSettings.showTokens"
         @refresh="refreshStatus"
@@ -74,6 +75,7 @@
         :system-prompt="systemPrompt"
         :verbose="quickSettings.verbose"
         :show-tokens="quickSettings.showTokens"
+        :stream-enabled="localConfig.stream === true"
         @log="addLog"
         @token-usage="handleTokenUsage"
       />
@@ -119,6 +121,7 @@ const defaultConfig = {
   maxTokens: configDefaults.maxTokens,
   timeout: configDefaults.timeout,
   temperature: configDefaults.temperature,
+  stream: configDefaults.stream,
 };
 
 const localConfig = ref({ ...defaultConfig });
@@ -130,6 +133,7 @@ const {
   stats,
   logs,
   tokenUsage,
+  perfStats,
   refreshStatus,
   startAgent,
   stopAgent,
@@ -297,6 +301,7 @@ onMounted(async () => {
         maxHistoryPairs: localConfig.value.maxHistoryPairs,
         maxSearchResults: localConfig.value.maxSearchResults,
         maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
+        stream: localConfig.value.stream,
       });
       addLog(`Synced config to backend (projectPath: ${localConfig.value.projectPath})`, "info");
     } catch (e) {
@@ -494,6 +499,7 @@ const saveSettings = async () => {
       maxTokens: localConfig.value.maxTokens,
       timeout: localConfig.value.timeout,
       temperature: localConfig.value.temperature,
+      stream: localConfig.value.stream,
     };
     try {
       await updateConfig(payload);
@@ -562,6 +568,10 @@ const chatTabRef = ref(null);
   flex-direction: column;
   gap: 16px;
   position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100%;
+  scrollbar-width: thin;
 }
 
 .sidebar::before {

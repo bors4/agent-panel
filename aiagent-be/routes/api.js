@@ -8,6 +8,7 @@ import path from "path";
 import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
 import { loadAccounts, saveAccounts, getAccounts } from "../lib/accounts.js";
 import { configDefaults } from "../lib/configDefaults.js";
+import { parseStreamedResponse } from "../lib/parseSSE.js";
 
 /**
  * Создаёт Express Router с API маршрутами.
@@ -152,6 +153,7 @@ export function createApiRouter(deps) {
     if (body.maxHistoryPairs) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
     if (body.maxSearchResults) config.maxSearchResults = parseInt(body.maxSearchResults);
     if (body.maxFilesInPrompt) config.maxFilesInPrompt = parseInt(body.maxFilesInPrompt);
+    if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
       process.env.TELEGRAM_BOT_TOKEN = body.token;
       tokenChanged = true;
@@ -299,13 +301,14 @@ export function createApiRouter(deps) {
    */
   router.post("/chat", async (req, res) => {
     try {
-      const { message, modelName, serverUrl, projectPath, systemPrompt } = req.body;
+      const { message, modelName, serverUrl, projectPath, systemPrompt, stream: useStream } = req.body;
       if (!message) return res.status(400).json({ error: "Message required" });
 
       const actualServerUrl = serverUrl || config.serverUrl;
       const model = modelName || config.modelName;
       const workPath = projectPath || config.projectPath;
       const sysPrompt = systemPrompt !== undefined ? systemPrompt : config.systemPrompt;
+      const isStream = useStream ?? config.stream ?? false;
 
       stats.requests++;
 
@@ -331,6 +334,7 @@ export function createApiRouter(deps) {
             ],
             max_tokens: config.maxTokens ?? configDefaults.maxTokens,
             temperature: config.temperature ?? configDefaults.temperature,
+            stream: isStream,
           }),
           signal: controller.signal,
         });
@@ -343,24 +347,133 @@ export function createApiRouter(deps) {
         throw new Error(`AI API error: ${response.status}`);
       }
 
-      const data = await response.json();
-      const reply = data.choices?.[0]?.message?.content || "Пустой ответ от модели";
-      const usage = data.usage || null;
-      if (usage) {
-        deps.tokenUsage.prompt += usage.prompt_tokens || 0;
-        deps.tokenUsage.completion += usage.completion_tokens || 0;
-        deps.tokenUsage.total += usage.total_tokens || 0;
-        if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-          deps.tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+      // SSE режим
+      if (isStream) {
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+
+        const { usage: sseUsage, timings: sseTimings, tokensCached } = await parseStreamedResponse(response, {
+          onContent: (chunk, accumulated) => {
+            res.write(`data: ${JSON.stringify({ reply: chunk, accumulated })}\n\n`);
+          },
+          onFinish: (reason) => {
+            res.write(`data: ${JSON.stringify({ finishReason: reason })}\n\n`);
+          },
+          onUsage: (u) => {
+            if (u) {
+              deps.tokenUsage.prompt += u.prompt_tokens || 0;
+              deps.tokenUsage.completion += u.completion_tokens || 0;
+              deps.tokenUsage.total += u.total_tokens || 0;
+              if (u.prompt_tokens_details?.cached_tokens !== undefined) {
+                deps.tokenUsage.cached += u.prompt_tokens_details.cached_tokens;
+              }
+              wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+            }
+          },
+          onTimings: (t) => {
+            if (t) {
+              deps.tokenUsage.prompt += t.prompt_n || 0;
+              deps.tokenUsage.completion += t.predicted_n || 0;
+              deps.tokenUsage.total += (t.prompt_n || 0) + (t.predicted_n || 0);
+              if (t.cache_n) deps.tokenUsage.cached += t.cache_n;
+              if (t.tokens_cached) deps.tokenUsage.tokensCached = t.tokens_cached;
+              wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+              wsBroadcast("perfStats", {
+                prompt_n: t.prompt_n || 0,
+                predicted_n: t.predicted_n || 0,
+                prompt_ms: Math.round(t.prompt_ms || 0),
+                predicted_ms: Math.round(t.predicted_ms || 0),
+                prompt_per_second: t.prompt_per_second || 0,
+                predicted_per_second: t.predicted_per_second || 0,
+                cache_n: t.cache_n ?? 0,
+                tokens_cached: t.tokens_cached ?? 0,
+                draft_n: t.draft_n || 0,
+                draft_n_accepted: t.draft_n_accepted || 0,
+                draft_acceptance_rate: t.draft_n > 0 ? t.draft_n_accepted / t.draft_n : 0,
+                total_ms: Math.round((t.prompt_ms || 0) + (t.predicted_ms || 0)),
+              });
+            }
+          },
+        });
+
+        // Строим synthetic usage из timings, если модель не прислала usage
+        const finalTimings = sseTimings;
+        let finalUsage = sseUsage;
+        if (!finalUsage && finalTimings?.prompt_n) {
+          finalUsage = {
+            prompt_tokens: finalTimings.prompt_n || 0,
+            completion_tokens: finalTimings.predicted_n || 0,
+            total_tokens: (finalTimings.prompt_n || 0) + (finalTimings.predicted_n || 0),
+            prompt_tokens_details: {
+              cached_tokens: finalTimings.tokens_cached ?? tokensCached ?? 0,
+            },
+          };
         }
-        wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+
+        res.write(`data: ${JSON.stringify({ reply: "", usage: finalUsage, done: true })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      } else {
+        // JSON режим (обратная совместимость)
+        const data = await response.json();
+        const msg = data.choices?.[0]?.message || {};
+        const reply = msg.content || msg.reasoning_content || "Пустой ответ от модели";
+        const usage = data.usage || null;
+
+        // Извлекаем tokens_cached (общий размер KV-кэша) и встраиваем в timings
+        const dataTokensCached = data.tokens_cached ?? data.__verbose?.tokens_cached ?? 0;
+        const timings = data.timings ? { ...data.timings, tokens_cached: dataTokensCached } : null;
+
+          if (usage || timings) {
+            if (usage) {
+              deps.tokenUsage.prompt += usage.prompt_tokens || 0;
+              deps.tokenUsage.completion += usage.completion_tokens || 0;
+              deps.tokenUsage.total += usage.total_tokens || 0;
+              if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
+                deps.tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+              } else if (timings?.cache_n) {
+                deps.tokenUsage.cached += timings.cache_n;
+              }
+            } else if (timings) {
+              deps.tokenUsage.prompt += timings.prompt_n || 0;
+              deps.tokenUsage.completion += timings.predicted_n || 0;
+              deps.tokenUsage.total += (timings.prompt_n || 0) + (timings.predicted_n || 0);
+              if (timings.cache_n) deps.tokenUsage.cached += timings.cache_n;
+            }
+            if (timings?.tokens_cached) deps.tokenUsage.tokensCached = timings.tokens_cached;
+          wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+        }
+        if (timings) {
+          wsBroadcast("perfStats", {
+            prompt_n: timings.prompt_n || 0,
+            predicted_n: timings.predicted_n || 0,
+            prompt_ms: Math.round(timings.prompt_ms || 0),
+            predicted_ms: Math.round(timings.predicted_ms || 0),
+            prompt_per_second: timings.prompt_per_second || 0,
+            predicted_per_second: timings.predicted_per_second || 0,
+            cache_n: timings.cache_n ?? 0,
+            tokens_cached: timings.tokens_cached ?? 0,
+            draft_n: timings.draft_n || 0,
+            draft_n_accepted: timings.draft_n_accepted || 0,
+            draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
+            total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
+          });
+        }
+        wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
+        res.json({ success: true, reply, usage, timings });
       }
-      wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
-      res.json({ success: true, reply, usage });
     } catch (error) {
       stats.errors++;
       addLog(`Chat error: ${error.message}`, "error");
-      res.status(500).json({ error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      }
     }
   });
 

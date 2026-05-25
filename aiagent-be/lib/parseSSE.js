@@ -7,9 +7,15 @@
  * Разбирает SSE-поток из fetch Response.
  *
  * @param {Response} response - fetch Response с stream: true
- * @returns {Promise<{content: string, toolCalls: Array|null, finishReason: string|null, usage: Object|null}>}
+ * @param {Object} [callbacks] - Опциональные колбэки для real-time уведомлений
+ * @param {Function} [callbacks.onContent] - Вызывается при каждом новом content чанке (chunk, accumulated)
+ * @param {Function} [callbacks.onToolCall] - Вызывается при tool_call (toolCallIndex, toolCallDelta)
+ * @param {Function} [callbacks.onFinish] - Вызывается при получении finish_reason (finishReason)
+ * @param {Function} [callbacks.onUsage] - Вызывается при получении usage (usage)
+ * @param {Function} [callbacks.onTimings] - Вызывается при получении timings от llama.cpp (timings c injected tokens_cached)
+ * @returns {Promise<{content: string, toolCalls: Array|null, finishReason: string|null, usage: Object|null, timings: Object|null, tokensCached: number}>}
  */
-export async function parseStreamedResponse(response) {
+export async function parseStreamedResponse(response, callbacks = {}) {
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(`AI API error: ${response.status} ${text}`);
@@ -27,6 +33,8 @@ export async function parseStreamedResponse(response) {
   const toolCallAccum = {};
   let finishReason = null;
   let usage = null;
+  let timings = null;
+  let tokensCached = 0;
 
   try {
     while (true) {
@@ -53,12 +61,36 @@ export async function parseStreamedResponse(response) {
         }
 
         const choices = parsed.choices;
+
+        // Usage может приходить отдельным SSE-ивентом без choices (llama.cpp)
+        if (parsed.usage) {
+          usage = parsed.usage;
+          callbacks.onUsage?.(parsed.usage);
+        }
+
+        // tokens_cached — общий размер KV-кэша (top-level или __verbose)
+        if (parsed.tokens_cached !== undefined) {
+          tokensCached = parsed.tokens_cached;
+        } else if (parsed.__verbose?.tokens_cached !== undefined) {
+          tokensCached = parsed.__verbose.tokens_cached;
+        }
+
+        // llama.cpp иногда отправляет timings в том же чанке или в последнем чанке
+        if (parsed.timings) {
+          timings = { ...parsed.timings, tokens_cached: tokensCached };
+          callbacks.onTimings?.(timings);
+        }
+
         if (!choices || !choices[0]) continue;
         const delta = choices[0].delta || {};
         const finish = choices[0].finish_reason;
 
         if (delta.content) {
           content += delta.content;
+          callbacks.onContent?.(delta.content, content);
+        } else if (delta.reasoning_content) {
+          content += delta.reasoning_content;
+          callbacks.onContent?.(delta.reasoning_content, content);
         }
 
         if (delta.tool_calls) {
@@ -77,15 +109,13 @@ export async function parseStreamedResponse(response) {
                   (toolCallAccum[idx].function.arguments || "") + tc.function.arguments;
               }
             }
+            callbacks.onToolCall?.(idx, tc);
           }
         }
 
         if (finish) {
           finishReason = finish;
-        }
-
-        if (parsed.usage) {
-          usage = parsed.usage;
+          callbacks.onFinish?.(finish);
         }
       }
     }
@@ -103,6 +133,14 @@ export async function parseStreamedResponse(response) {
         try {
           const parsed = JSON.parse(raw);
           if (parsed.usage) usage = parsed.usage;
+          if (parsed.tokens_cached !== undefined) {
+            tokensCached = parsed.tokens_cached;
+          } else if (parsed.__verbose?.tokens_cached !== undefined) {
+            tokensCached = parsed.__verbose.tokens_cached;
+          }
+          if (parsed.timings) {
+            timings = { ...parsed.timings, tokens_cached: tokensCached };
+          }
         } catch {
           // ignore
         }
@@ -129,5 +167,5 @@ export async function parseStreamedResponse(response) {
         })
       : null;
 
-  return { content, toolCalls, finishReason, usage };
+  return { content, toolCalls, finishReason, usage, timings, tokensCached };
 }

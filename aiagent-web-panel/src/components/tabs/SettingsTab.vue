@@ -173,6 +173,26 @@
     </div>
   </Card>
 
+  <Card>
+    <template #header>
+      <div class="header-row">
+        <h2>Потоковый вывод</h2>
+      </div>
+    </template>
+    <div class="form-group">
+      <label class="toggle-row">
+        <div class="toggle-row-info">
+          <span class="toggle-label-text">Потоковый вывод (SSE)</span>
+          <span class="hint">Реального времени ответ модели</span>
+        </div>
+        <label class="toggle-switch">
+          <input v-model="configCopy.stream" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </label>
+    </div>
+  </Card>
+
   <div class="settings-actions">
     <Button variant="primary" :disabled="loadingStates.save" style="flex: 1" @click="handleSave">
       <span v-if="loadingStates.save" class="btn-loading" />
@@ -213,6 +233,7 @@ const configCopy = reactive({
   maxTokens: props.config.maxTokens ?? configDefaults.maxTokens,
   timeout: props.config.timeout ?? configDefaults.timeout,
   temperature: props.config.temperature ?? configDefaults.temperature,
+  stream: props.config.stream ?? configDefaults.stream,
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
@@ -280,6 +301,7 @@ watch(
     configCopy.maxTokens = val.maxTokens ?? configDefaults.maxTokens;
     configCopy.timeout = val.timeout ?? configDefaults.timeout;
     configCopy.temperature = val.temperature ?? configDefaults.temperature;
+    configCopy.stream = val.stream ?? configDefaults.stream;
     
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
@@ -542,6 +564,73 @@ select.form-input {
 .range-value {
   color: var(--accent-primary);
   font-weight: 600;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.toggle-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-label-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  transition: var(--transition);
+}
+
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 14px;
+  height: 14px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: var(--transition);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(18px);
+  background: white;
 }
 
 .settings-actions {

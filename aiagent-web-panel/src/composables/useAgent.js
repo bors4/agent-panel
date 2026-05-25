@@ -20,7 +20,7 @@ export function useAgent() {
 
   const isProcessing = ref(false);
   const currentChatId = ref(null);
-  const { status, isRunning, stats, logs, tokenUsage } = ws;
+  const { status, isRunning, stats, logs, tokenUsage, perfStats } = ws;
 
   async function clearLogsAction() {
     try {
@@ -91,6 +91,7 @@ export function useAgent() {
     stats,
     logs,
     tokenUsage,
+    perfStats,
     isProcessing,
     currentChatId,
     refreshStatus,

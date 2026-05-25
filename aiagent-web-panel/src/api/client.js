@@ -175,6 +175,87 @@ export async function directChat(options) {
   return response.json();
 }
 
+/**
+ * Потоковый чат с AI (SSE). Принимает колбэки для real-time обновлений.
+ * @param {Object|string} options - Опции запроса или строка сообщения
+ * @param {Object} callbacks - Колбэки
+ * @param {Function} [callbacks.onContent] - Вызывается при каждом чанке (chunk, accumulated)
+ * @param {Function} [callbacks.onDone] - Вызывается при завершении (usage)
+ * @param {Function} [callbacks.onError] - Вызывается при ошибке (error)
+ * @returns {Promise<string>} Полный накопленный текст
+ */
+export async function directChatStream(options, callbacks = {}) {
+  const body = { ...(typeof options === "string" ? { message: options } : options), stream: true };
+  const response = await apiFetch("/chat", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`API error ${response.status}: ${errText}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullContent = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+
+      const raw = trimmed.slice(6);
+      if (raw === "[DONE]") continue;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        console.warn("[directChatStream] Parse error, raw:", raw);
+        continue;
+      }
+
+      if (parsed.error) {
+        callbacks.onError?.(parsed.error);
+        throw new Error(parsed.error);
+      }
+      if (parsed.reply) {
+        fullContent += parsed.reply;
+        callbacks.onContent?.(parsed.reply, fullContent);
+      }
+      if (parsed.done) {
+        callbacks.onDone?.(parsed.usage || null, fullContent);
+      }
+    }
+  }
+
+  // Process remaining buffer
+  if (buffer.trim()) {
+    const trimmed = buffer.trim();
+    if (trimmed.startsWith("data: ")) {
+      const raw = trimmed.slice(6);
+      if (raw !== "[DONE]") {
+        try {
+          const data = JSON.parse(raw);
+          if (data.reply) fullContent += data.reply;
+          if (data.done) callbacks.onDone?.(data.usage || null, fullContent);
+        } catch {}
+      }
+    }
+  }
+
+  return fullContent;
+}
+
 export async function updateTools(config) {
   const response = await apiFetch("/tools", {
     method: "POST",

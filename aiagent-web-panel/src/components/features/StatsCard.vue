@@ -113,15 +113,13 @@
               <span class="bar-label">Cached</span>
               <div class="bar-track">
                 <div
-                  v-if="tokenUsage.cached !== undefined && tokenUsage.cached > 0"
+                  v-if="cachedDisplay > 0"
                   class="bar-fill bar-cached"
-                  :style="{ width: barPercent(tokenUsage.cached) + '%' }"
+                  :style="{ width: barPercent(cachedDisplay) + '%' }"
                 />
                 <span v-else class="bar-na">—</span>
               </div>
-              <span class="bar-value">{{
-                tokenUsage.cached !== undefined ? formatNumber(tokenUsage.cached) : "N/A"
-              }}</span>
+              <span class="bar-value">{{ cachedText }}</span>
             </div>
           </div>
         </div>
@@ -129,6 +127,36 @@
           <span>Занято: {{ contextPercent.toFixed(1) }}%</span>
           <span>Доступно: {{ formatNumber(Math.max(0, maxTokens - tokenUsage.total)) }}</span>
         </div>
+      </div>
+
+      <div v-if="true" class="perf-section">
+        <div class="perf-header">
+          <span class="perf-icon">⚡</span>
+          <span class="perf-title">Производительность</span>
+        </div>
+        <template v-if="perfStats && perfStats.prompt_n">
+          <div class="perf-grid">
+            <div class="perf-item">
+              <span class="perf-metric">Prompt</span>
+              <span class="perf-value">{{ perfStats.prompt_n }} токенов</span>
+              <span class="perf-sub">{{ perfStats.prompt_per_second.toFixed(2) }} т/с</span>
+            </div>
+            <div class="perf-item">
+              <span class="perf-metric">Generation</span>
+              <span class="perf-value">{{ perfStats.predicted_n }} токенов</span>
+              <span class="perf-sub">{{ perfStats.predicted_per_second.toFixed(2) }} т/с</span>
+            </div>
+          </div>
+          <ul class="perf-list">
+            <li>Время: {{ formatMs(perfStats.prompt_ms) }} + {{ formatMs(perfStats.predicted_ms) }}</li>
+            <li>Всего: {{ perfStats.prompt_n + perfStats.predicted_n }} токенов</li>
+            <li>Кэш: {{ perfStats.tokens_cached }} токенов</li>
+            <li v-if="perfStats.draft_n > 0">
+              Speculative: {{ perfStats.draft_n_accepted }}/{{ perfStats.draft_n }} ({{ (perfStats.draft_acceptance_rate * 100).toFixed(1) }}%)
+            </li>
+          </ul>
+        </template>
+        <div v-else class="perf-empty">Ожидание данных...</div>
       </div>
     </div>
   </Card>
@@ -143,6 +171,7 @@ const props = defineProps({
   stats: { type: Object, default: () => ({}) },
   loading: { type: Boolean, default: false },
   tokenUsage: { type: Object, default: null },
+  perfStats: { type: Object, default: null },
   maxTokens: { type: Number, default: 8192 },
   showTokens: { type: Boolean, default: true },
 });
@@ -178,6 +207,20 @@ const contextPercent = computed(() => {
   return Math.min(100, (props.tokenUsage.total / props.maxTokens) * 100);
 });
 
+const hasAnyCache = computed(() => {
+  return props.tokenUsage?.tokensCached !== undefined || props.tokenUsage?.cached !== undefined;
+});
+
+const cachedDisplay = computed(() => {
+  if (!props.tokenUsage) return 0;
+  return props.tokenUsage.tokensCached ?? props.tokenUsage.cached ?? 0;
+});
+
+const cachedText = computed(() => {
+  if (!hasAnyCache.value) return "N/A";
+  return formatNumber(cachedDisplay.value);
+});
+
 function barPercent(value) {
   if (!value || props.maxTokens <= 0) return 0;
   return Math.min(100, (value / props.maxTokens) * 100);
@@ -187,6 +230,12 @@ function formatNumber(n) {
   if (n === undefined || n === null) return "0";
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
+}
+
+function formatMs(ms) {
+  if (!ms) return "0ms";
+  if (ms < 1000) return ms + "ms";
+  return (ms / 1000).toFixed(1) + "с";
 }
 </script>
 
@@ -525,6 +574,84 @@ h2 {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.perf-section {
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.perf-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.perf-icon {
+  font-size: 14px;
+}
+
+.perf-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.perf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.perf-item {
+  padding: 10px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.perf-metric {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.perf-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-primary);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.perf-sub {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.perf-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.perf-list li {
   font-size: 10px;
   color: var(--text-muted);
   font-family: "JetBrains Mono", monospace;

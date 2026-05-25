@@ -6,9 +6,10 @@ export const configDefaults = {
   modelName: "qwen3.5-2b",
   maxTokens: 1024,
   temperature: 0.1,
-  timeout: 120000,
+  timeout: 300000, // 5 минут (для code generation)
   maxFileChars: 2000,
   maxHistoryPairs: 5,
   maxSearchResults: 15,
   maxFilesInPrompt: 2,
+  stream: true,
 };

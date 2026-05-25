@@ -53,6 +53,7 @@ const config = {
   maxTokens: configDefaults.maxTokens,
   temperature: configDefaults.temperature,
   timeout: configDefaults.timeout,
+  stream: configDefaults.stream,
 };
 
 /**
@@ -69,7 +70,7 @@ const state = {
 let stats = { requests: 0, tools: 0, errors: 0 };
 
 /** @type {{prompt: number, completion: number, total: number, cached: number}} */
-const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0 };
+const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0, tokensCached: 0 };
 
 /** Сбросить статистику запросов, инструментов и ошибок. */
 function resetStats() {
@@ -84,6 +85,29 @@ function resetTokenUsage() {
   tokenUsage.completion = 0;
   tokenUsage.total = 0;
   tokenUsage.cached = 0;
+  tokenUsage.tokensCached = 0;
+}
+
+/**
+ * Преобразует сырые timings от llama.cpp в объект perfStats для WebSocket.
+ * @param {Object} timings - Сырые timings из ответа llama.cpp
+ * @returns {Object} Нормализованный объект статистики
+ */
+function buildPerfStats(timings) {
+  return {
+    prompt_n: timings.prompt_n || 0,
+    predicted_n: timings.predicted_n || 0,
+    prompt_ms: Math.round(timings.prompt_ms || 0),
+    predicted_ms: Math.round(timings.predicted_ms || 0),
+    prompt_per_second: timings.prompt_per_second || 0,
+    predicted_per_second: timings.predicted_per_second || 0,
+    cache_n: timings.cache_n ?? 0,
+    tokens_cached: timings.tokens_cached ?? 0,
+    draft_n: timings.draft_n || 0,
+    draft_n_accepted: timings.draft_n_accepted || 0,
+    draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
+    total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
+  };
 }
 
 /** @type {Array.<{time: string, message: string, type: string}>} */
@@ -368,23 +392,47 @@ bot.on("message", async (ctx) => {
 
   try {
     await sendTyping(ctx);
-    await sendDraft(ctx, "⏳ Analyzing request...");
+    const draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
 
     const history = chatHistories.get(chatId) || [];
-    const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account);
+    let accumulatedContent = "";
+    let lastEditTime = 0;
+    const MIN_EDIT_INTERVAL = 1000; // Не чаще раза в секунду
+
+    const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
+      if (progress.type === "content") {
+        accumulatedContent = progress.accumulated;
+        const now = Date.now();
+        if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
+          lastEditTime = now;
+          const display = accumulatedContent.length > 300
+            ? accumulatedContent.substring(0, 300) + "..."
+            : accumulatedContent;
+          await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
+        }
+      } else if (progress.type === "tool") {
+        await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
+      } else if (progress.type === "response") {
+        await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
+      }
+    });
     if (result.tokenUsage) {
       tokenUsage.prompt += result.tokenUsage.prompt;
       tokenUsage.completion += result.tokenUsage.completion;
       tokenUsage.total += result.tokenUsage.total;
       tokenUsage.cached += result.tokenUsage.cached;
+      if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
       wsBroadcast("tokenUsage", { ...tokenUsage });
+    }
+    if (result.timings) {
+      wsBroadcast("perfStats", buildPerfStats(result.timings));
     }
     addLog(
       `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
       "info"
     );
 
-    await handleAgentResult(ctx, chatId, result, account);
+    await handleAgentResult(ctx, chatId, result, account, draftMsgId);
   } catch (error) {
     await replyMsg(ctx, `❌ Error: ${error.message}`);
     addLog(`Bot error: ${error.message}`, "error");
@@ -407,15 +455,37 @@ async function sendDraft(ctx, text, extra = {}) {
 }
 
 /**
+ * Обновить существующее сообщение (для потокового вывода).
+ * @param {Object} ctx - GrammY контекст
+ * @param {number} messageId - ID сообщения для обновления
+ * @param {string} text - Новый текст
+ * @returns {Promise<void>}
+ */
+async function editDraftMessage(ctx, messageId, text) {
+  if (!messageId) return;
+  try {
+    await ctx.api.editMessageText(ctx.chat.id, messageId, sanitizeTelegramHtml(text), {
+      ...REPLY_OPTS,
+    });
+  } catch (e) {
+    const ignore = ["message is not modified", "message to edit not found", "MESSAGE_ID_INVALID"];
+    if (!ignore.some((i) => e.message?.includes(i))) {
+      console.error("[editDraftMessage] Error:", e.message);
+    }
+  }
+}
+
+/**
  * Унифицированная обработка результата agent loop.
  * Избегает дублирования кода для первичного и повторного вызовов.
  * @param {Object} ctx - GrammY контекст
  * @param {string} chatId - ID чата
  * @param {Object} result - Результат agentLoopStep
  * @param {Object} account - Аккаунт пользователя
+ * @param {number} [draftMsgId] - ID черновика для обновления (streaming mode)
  * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен)
  */
-async function handleAgentResult(ctx, chatId, result, account) {
+async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   // Требуется подтверждение
   if (result.requiresApproval) {
     pendingApprovals.set(chatId, {
@@ -450,8 +520,12 @@ async function handleAgentResult(ctx, chatId, result, account) {
   // Финальный ответ
   if (result.response !== undefined && result.response !== "continue") {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
-    const cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim() || result.response;
-    if (ctx.chat?.type === "private") {
+    let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
+    if (!cleanResponse) cleanResponse = "✅ Done.";
+    if (draftMsgId) {
+      // Если есть черновик — обновляем его (streaming mode)
+      await editDraftMessage(ctx, draftMsgId, "✅ " + cleanResponse);
+    } else if (ctx.chat?.type === "private") {
       await ctx.replyWithStream(chunkText(cleanResponse));
     } else {
       await replyMsg(ctx, cleanResponse);
@@ -547,7 +621,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
     const controller = new AbortController();
     const timeout = config.timeout ?? configDefaults.timeout;
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let timeoutId = setTimeout(() => controller.abort(), timeout);
     let response;
     try {
       response = await fetch(config.serverUrl + "/chat/completions", {
@@ -563,38 +637,107 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
           temperature: config.temperature ?? configDefaults.temperature,
           tools: toolsDef,
           tool_choice: "auto",
-          stream: true,
+          stream: config.stream ?? false,
         }),
         signal: controller.signal,
       });
-    } finally {
+    } catch (e) {
       clearTimeout(timeoutId);
+      if (e.name === "AbortError") {
+        throw new Error("Request timed out. Try again or increase the timeout setting.", { cause: e });
+      }
+      throw e;
     }
 
     if (!response.ok) {
+      clearTimeout(timeoutId);
       throw new Error(`AI API error: ${response.status}`);
     }
 
-    const { content: streamedContent, toolCalls: streamedToolCalls, finishReason, usage } =
-      await parseStreamedResponse(response);
-    const nextMessage = {
-      content: streamedContent || null,
-      tool_calls: streamedToolCalls
-        ? streamedToolCalls.map((tc) => ({
-            id: tc.id,
-            type: tc.type,
-            function: { name: tc.function.name, arguments: tc.function.arguments },
-          }))
-        : undefined,
-    };
-    if (usage) {
-      tokenUsage.prompt += usage.prompt_tokens || 0;
-      tokenUsage.completion += usage.completion_tokens || 0;
-      tokenUsage.total += usage.total_tokens || 0;
-      if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-        tokenUsage.cached += usage.prompt_tokens_details.cached_tokens;
+    let nextMessage, finishReason;
+    if (config.stream) {
+      try {
+        const { content, toolCalls, finishReason: fr, usage, timings } = await parseStreamedResponse(response, {
+          onContent: () => {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => controller.abort(), timeout);
+          },
+        });
+        finishReason = fr;
+        nextMessage = {
+          role: "assistant",
+          content: content || null,
+          tool_calls: toolCalls
+            ? toolCalls.map((tc) => ({
+                id: tc.id,
+                type: tc.type,
+                function: { name: tc.function.name, arguments: tc.function.arguments },
+              }))
+            : undefined,
+        };
+        let effectiveUsage = usage;
+        if (!effectiveUsage && timings) {
+          effectiveUsage = {
+            prompt_tokens: timings.prompt_n || 0,
+            completion_tokens: timings.predicted_n || 0,
+            total_tokens: (timings.prompt_n || 0) + (timings.predicted_n || 0),
+            prompt_tokens_details: {
+              cached_tokens: timings.cache_n || 0,
+            },
+          };
+        }
+          if (effectiveUsage) {
+            tokenUsage.prompt += effectiveUsage.prompt_tokens || 0;
+            tokenUsage.completion += effectiveUsage.completion_tokens || 0;
+            tokenUsage.total += effectiveUsage.total_tokens || 0;
+            if (effectiveUsage.prompt_tokens_details?.cached_tokens !== undefined) {
+              tokenUsage.cached += effectiveUsage.prompt_tokens_details.cached_tokens;
+            }
+            if (timings?.tokens_cached) tokenUsage.tokensCached = timings.tokens_cached;
+            wsBroadcast("tokenUsage", { ...tokenUsage });
+          }
+          if (timings) {
+            wsBroadcast("perfStats", buildPerfStats(timings));
+          }
+        } catch (e) {
+          if (e.name === "AbortError") {
+          throw new Error("Generation timed out. Try again or increase the timeout setting.", { cause: e });
+        }
+        throw e;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      wsBroadcast("tokenUsage", { ...tokenUsage });
+    } else {
+      clearTimeout(timeoutId);
+      const data = await response.json();
+      finishReason = data.choices?.[0]?.finish_reason;
+      nextMessage = data.choices?.[0]?.message || {};
+      const usage = data.usage;
+      const timings = data.timings;
+      let effectiveUsage = usage;
+      if (!effectiveUsage && timings) {
+        effectiveUsage = {
+          prompt_tokens: timings.prompt_n || 0,
+          completion_tokens: timings.predicted_n || 0,
+          total_tokens: (timings.prompt_n || 0) + (timings.predicted_n || 0),
+          prompt_tokens_details: {
+            cached_tokens: timings.cache_n || 0,
+          },
+        };
+      }
+      if (effectiveUsage) {
+        tokenUsage.prompt += effectiveUsage.prompt_tokens || 0;
+        tokenUsage.completion += effectiveUsage.completion_tokens || 0;
+        tokenUsage.total += effectiveUsage.total_tokens || 0;
+        if (effectiveUsage.prompt_tokens_details?.cached_tokens !== undefined) {
+          tokenUsage.cached += effectiveUsage.prompt_tokens_details.cached_tokens;
+        }
+        if (timings?.tokens_cached) tokenUsage.tokensCached = timings.tokens_cached;
+        wsBroadcast("tokenUsage", { ...tokenUsage });
+      }
+      if (timings) {
+        wsBroadcast("perfStats", buildPerfStats(timings));
+      }
     }
 
     console.log("[agent] Model response:", {
