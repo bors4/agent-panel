@@ -21,9 +21,9 @@
         <button class="token-toggle" @click="tokenVisible = !tokenVisible">
           {{ tokenVisible ? "🔒" : "👁️" }}
         </button>
-        <span v-if="hasToken" class="token-status token-ok">✅ Токен задан</span>
-        <span v-else class="token-status token-missing">❌ Токен не задан</span>
       </div>
+      <span v-if="hasToken" class="token-ok">✅ Токен задан</span>
+      <span v-else class="token-missing">❌ Токен не задан</span>
     </div>
     <div class="form-group">
       <div class="form-label">
@@ -213,7 +213,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch } from "vue";
+import { ref, reactive, watch, computed } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
@@ -247,7 +247,8 @@ const modelNameCopy = ref(props.modelName);
 // Состояния
 const tokenVisible = ref(false);
 const pathError = ref("");
-const hasToken = ref(false);
+const hasToken = computed(() => !!(configCopy.token || configBackendHasToken.value));
+const configBackendHasToken = ref(false);
 const projectPathDraft = ref(props.config.projectPath || "");
 const loadingStates = ref({
   save: false,
@@ -304,7 +305,7 @@ watch(
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
     projectPathDraft.value = val.projectPath || "";
-    hasToken.value = !!val.hasToken;
+    configBackendHasToken.value = !!val.hasToken;
     configCopy.maxFileChars = val.maxFileChars ?? configDefaults.maxFileChars;
     configCopy.maxHistoryPairs = val.maxHistoryPairs ?? configDefaults.maxHistoryPairs;
     configCopy.maxSearchResults = val.maxSearchResults ?? configDefaults.maxSearchResults;
@@ -711,6 +712,19 @@ select.form-input {
   color: #e74c3c;
   font-size: 12px;
   margin-top: 4px;
+}
+
+.token-ok {
+  color: var(--success);
+  font-size: 11px;
+  margin-top: 4px;
+  display: block;
+}
+.token-missing {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 4px;
+  display: block;
 }
 
 @keyframes spin {
