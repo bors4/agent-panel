@@ -108,6 +108,7 @@ export function parseToolCall(text) {
           return {
             name: obj.name,
             args: obj.arguments || obj.args || {},
+            id: `parsed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           };
         }
       } catch (e) {
@@ -124,6 +125,7 @@ export function parseToolCall(text) {
       return {
         name: obj.name,
         args: obj.args || obj.arguments || {},
+        id: `parsed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       };
     } catch (e) {
       console.warn(`[parseToolCall] <tool> JSON error: ${e.message}`);

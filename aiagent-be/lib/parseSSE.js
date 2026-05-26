@@ -81,6 +81,14 @@ export async function parseStreamedResponse(response, callbacks = {}) {
           callbacks.onTimings?.(timings);
         }
 
+        // LM Studio: stats в финальном чанке (draft info)
+        if (parsed.stats) {
+          if (!timings) timings = {};
+          timings.draft_n = (timings.draft_n || 0) + (parsed.stats.total_draft_tokens_count || 0);
+          timings.draft_n_accepted = (timings.draft_n_accepted || 0) + (parsed.stats.accepted_draft_tokens_count || 0);
+          callbacks.onTimings?.(timings);
+        }
+
         if (!choices || !choices[0]) continue;
         const delta = choices[0].delta || {};
         const finish = choices[0].finish_reason;
@@ -140,6 +148,11 @@ export async function parseStreamedResponse(response, callbacks = {}) {
           }
           if (parsed.timings) {
             timings = { ...parsed.timings, tokens_cached: tokensCached };
+          }
+          if (parsed.stats) {
+            if (!timings) timings = {};
+            timings.draft_n = (timings.draft_n || 0) + (parsed.stats.total_draft_tokens_count || 0);
+            timings.draft_n_accepted = (timings.draft_n_accepted || 0) + (parsed.stats.accepted_draft_tokens_count || 0);
           }
         } catch {
           // ignore

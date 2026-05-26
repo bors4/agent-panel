@@ -77,7 +77,7 @@ const rateLimitMap = new Map();
 const RATE_LIMIT = 10;
 const RATE_WINDOW = 60_000;
 
-function checkRateLimit(chatId) {
+function recordAndCheckRateLimit(chatId) {
   const now = Date.now();
   const entry = rateLimitMap.get(chatId) || { count: 0, windowStart: now };
   if (now - entry.windowStart > RATE_WINDOW) {
@@ -88,6 +88,16 @@ function checkRateLimit(chatId) {
   rateLimitMap.set(chatId, entry);
   return entry.count <= RATE_LIMIT;
 }
+
+// Periodic cleanup: remove stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [chatId, entry] of rateLimitMap) {
+    if (now - entry.windowStart > RATE_WINDOW * 2) {
+      rateLimitMap.delete(chatId);
+    }
+  }
+}, 5 * 60_000).unref();
 
 /** Сбросить статистику запросов, инструментов и ошибок. */
 function resetStats() {
@@ -404,7 +414,7 @@ bot.on("message", async (ctx) => {
   }
 
   const chatId = ctx.chat.id.toString();
-  if (!checkRateLimit(chatId)) {
+  if (!recordAndCheckRateLimit(chatId)) {
     await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
     return;
   }

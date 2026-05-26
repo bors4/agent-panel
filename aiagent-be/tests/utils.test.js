@@ -39,6 +39,7 @@ describe("parseToolCall", () => {
     expect(result).toEqual({
       name: "write",
       args: { filePath: "a.txt", content: "hi" },
+      id: expect.any(String),
     });
   });
 
@@ -47,6 +48,7 @@ describe("parseToolCall", () => {
     expect(result).toEqual({
       name: "delete",
       args: { path: "old.js" },
+      id: expect.any(String),
     });
   });
 
@@ -55,6 +57,7 @@ describe("parseToolCall", () => {
     expect(result).toEqual({
       name: "search",
       args: { pattern: "TODO" },
+      id: expect.any(String),
     });
   });
 

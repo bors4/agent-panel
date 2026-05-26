@@ -151,12 +151,17 @@ export function createApiRouter(deps) {
     if (body.serverUrl) config.serverUrl = body.serverUrl;
     if (body.modelName) config.modelName = body.modelName;
     if (body.projectPath !== undefined && body.projectPath !== null && body.projectPath !== "") {
-      const resolved = path.resolve(body.projectPath);
-      if (!fs.existsSync(resolved)) {
-        return res.status(400).json({ error: `Directory does not exist: ${resolved}` });
-      }
-      if (!fs.statSync(resolved).isDirectory()) {
-        return res.status(400).json({ error: `Path is not a directory: ${resolved}` });
+      let resolved;
+      try {
+        resolved = path.resolve(body.projectPath);
+        if (!fs.existsSync(resolved)) {
+          return res.status(400).json({ error: `Directory does not exist: ${resolved}` });
+        }
+        if (!fs.statSync(resolved).isDirectory()) {
+          return res.status(400).json({ error: `Path is not a directory: ${resolved}` });
+        }
+      } catch (e) {
+        return res.status(400).json({ error: `Cannot access path: ${e.message}` });
       }
       config.projectPath = resolved;
       loadAccounts(config.projectPath);
@@ -191,9 +196,13 @@ export function createApiRouter(deps) {
   router.get("/models", async (req, res) => {
     try {
       const serverUrl = req.query.serverUrl || config.serverUrl;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(`${serverUrl}/models`, {
         headers: { Authorization: `Bearer ${config.apiKey}` },
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       if (!response.ok) throw new Error(`Server ${response.status}`);
       const data = await response.json();
       const models = (data.data || []).map((m) => ({
@@ -381,8 +390,14 @@ export function createApiRouter(deps) {
         res.setHeader("Connection", "keep-alive");
         res.setHeader("X-Accel-Buffering", "no");
 
+        const t0 = performance.now();
+        let firstTokenMs = 0;
+        let fullContent = "";
+        let perfStatsSent = false;
         const { usage: sseUsage, timings: sseTimings, tokensCached } = await parseStreamedResponse(response, {
           onContent: (chunk, accumulated) => {
+            if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+            fullContent = accumulated;
             res.write(`data: ${JSON.stringify({ reply: chunk, accumulated })}\n\n`);
           },
           onFinish: (reason) => {
@@ -407,6 +422,8 @@ export function createApiRouter(deps) {
               if (t.cache_n) deps.tokenUsage.cached += t.cache_n;
               if (t.tokens_cached) deps.tokenUsage.tokensCached = t.tokens_cached;
               wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+              if (!t.prompt_n && !t.predicted_n) return;
+              perfStatsSent = true;
               wsBroadcast("perfStats", {
                 prompt_n: t.prompt_n || 0,
                 predicted_n: t.predicted_n || 0,
@@ -424,19 +441,58 @@ export function createApiRouter(deps) {
             }
           },
         });
+        const totalMs = performance.now() - t0;
 
-        // Строим synthetic usage из timings, если модель не прислала usage
+        // Synthetic perfStats for servers without real timing data (e.g. LM Studio)
+        if (!perfStatsSent && fullContent) {
+          const promptText = systemContext + (message || "");
+          const promptN = Math.ceil(promptText.length / 4);
+          const predictedN = Math.ceil(fullContent.length / 4);
+          if (predictedN > 0) {
+            wsBroadcast("perfStats", {
+              prompt_n: promptN,
+              predicted_n: predictedN,
+              prompt_ms: Math.round(firstTokenMs || totalMs),
+              predicted_ms: firstTokenMs ? Math.round(totalMs - firstTokenMs) : 0,
+              prompt_per_second: firstTokenMs && promptN ? promptN / (firstTokenMs / 1000) : 0,
+              predicted_per_second: firstTokenMs ? predictedN / ((totalMs - firstTokenMs) / 1000) : 0,
+              cache_n: 0,
+              tokens_cached: 0,
+              draft_n: sseTimings?.draft_n || 0,
+              draft_n_accepted: sseTimings?.draft_n_accepted || 0,
+              draft_acceptance_rate: sseTimings?.draft_n > 0 ? (sseTimings.draft_n_accepted || 0) / sseTimings.draft_n : 0,
+              total_ms: Math.round(totalMs),
+            });
+          }
+        }
+
+        // Строим synthetic usage из timings или контента, если модель не прислала usage
         const finalTimings = sseTimings;
         let finalUsage = sseUsage;
-        if (!finalUsage && finalTimings?.prompt_n) {
-          finalUsage = {
-            prompt_tokens: finalTimings.prompt_n || 0,
-            completion_tokens: finalTimings.predicted_n || 0,
-            total_tokens: (finalTimings.prompt_n || 0) + (finalTimings.predicted_n || 0),
-            prompt_tokens_details: {
-              cached_tokens: finalTimings.tokens_cached ?? tokensCached ?? 0,
-            },
-          };
+        if (!finalUsage) {
+          if (finalTimings?.prompt_n) {
+            finalUsage = {
+              prompt_tokens: finalTimings.prompt_n || 0,
+              completion_tokens: finalTimings.predicted_n || 0,
+              total_tokens: (finalTimings.prompt_n || 0) + (finalTimings.predicted_n || 0),
+              prompt_tokens_details: {
+                cached_tokens: finalTimings.tokens_cached ?? tokensCached ?? 0,
+              },
+            };
+          } else if (fullContent) {
+            const promptText = systemContext + (message || "");
+            const promptN = Math.ceil(promptText.length / 4);
+            const predictedN = Math.ceil(fullContent.length / 4);
+            finalUsage = {
+              prompt_tokens: promptN,
+              completion_tokens: predictedN,
+              total_tokens: promptN + predictedN,
+            };
+            deps.tokenUsage.prompt += promptN;
+            deps.tokenUsage.completion += predictedN;
+            deps.tokenUsage.total += promptN + predictedN;
+            wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+          }
         }
 
         res.write(`data: ${JSON.stringify({ reply: "", usage: finalUsage, done: true })}\n\n`);
@@ -472,7 +528,7 @@ export function createApiRouter(deps) {
             if (timings?.tokens_cached) deps.tokenUsage.tokensCached = timings.tokens_cached;
           wsBroadcast("tokenUsage", { ...deps.tokenUsage });
         }
-        if (timings) {
+        if (timings && (timings.prompt_n || timings.predicted_n)) {
           wsBroadcast("perfStats", {
             prompt_n: timings.prompt_n || 0,
             predicted_n: timings.predicted_n || 0,

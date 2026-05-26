@@ -165,7 +165,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     finalResponse = "",
     useFunctionCalling = true,
     accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 },
-    latestTimings = null;
+    latestTimings = null,
+    firstTokenMs,
+    totalMs;
   const toolExecConfig = buildToolExecConfig(account, cfg);
   let currentTemperature = cfg.temperature ?? configDefaults.temperature;
   let emptyRetries = 0;
@@ -227,8 +229,11 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       let msg, usage;
       if (body.stream) {
         try {
+          const t0 = performance.now();
+          firstTokenMs = 0;
           const { content, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
             onContent: (chunk, accumulated) => {
+              if (!firstTokenMs) firstTokenMs = performance.now() - t0;
               // Per-chunk timeout reset — длинные генерации не обрываются
               clearTimeout(timeoutId);
               timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -241,6 +246,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
               onProgress?.({ type: "finish", reason });
             },
           });
+          totalMs = performance.now() - t0;
           usage = u;
           if (t) latestTimings = t;
           msg = {
@@ -282,12 +288,12 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         if (emptyRetries > 2) {
           return { error: "Model returned empty responses repeatedly. Check model configuration or increase max tokens." };
         }
-        currentTemperature = Math.min(currentTemperature + 0.3, 1.0);
+        currentTemperature = Math.min(currentTemperature + 0.3, 0.99);
         continue;
       }
       emptyRetries = 0;
       if (!usage && (msg.content || msg.tool_calls?.length)) {
-        if (latestTimings) {
+        if (latestTimings?.prompt_n) {
           usage = {
             prompt_tokens: latestTimings.prompt_n || 0,
             completion_tokens: latestTimings.predicted_n || 0,
@@ -297,6 +303,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             },
           };
         } else {
+          console.warn("[agentLoop] No usage or timings from model; estimating via char count");
           const completionText = msg.content || "";
           const completionTokens = Math.ceil(completionText.length / 4);
           const promptText = messages.map((m) => {
@@ -400,5 +407,28 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   }
   if (!finalResponse) finalResponse = "Empty response";
   const finalMessages = messages.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
+
+  // Fallback: estimate timings from char count when server doesn't provide them
+  if (!latestTimings?.prompt_n && finalResponse && finalResponse !== "Empty response") {
+    const promptText = messages
+      .map((m) => (m.content || "") + (m.tool_calls ? JSON.stringify(m.tool_calls) : ""))
+      .join(" ");
+    const promptTokens = Math.ceil(promptText.length / 4);
+    const predictedTokens = Math.ceil(finalResponse.length / 4);
+    latestTimings = {
+      prompt_n: promptTokens,
+      predicted_n: predictedTokens,
+      prompt_ms: Math.round(firstTokenMs || totalMs || 0),
+      predicted_ms: firstTokenMs ? Math.round((totalMs || 0) - firstTokenMs) : 0,
+      prompt_per_second: firstTokenMs ? promptTokens / (firstTokenMs / 1000) : 0,
+      predicted_per_second: firstTokenMs ? predictedTokens / (((totalMs || 0) - firstTokenMs) / 1000) : 0,
+      tokens_cached: 0,
+      draft_n: latestTimings?.draft_n || 0,
+      draft_n_accepted: latestTimings?.draft_n_accepted || 0,
+      draft_acceptance_rate: 0,
+      ...(latestTimings || {}),
+    };
+  }
+
   return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
 }

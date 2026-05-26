@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import supertest from "supertest";
 import express from "express";
@@ -79,7 +80,7 @@ describe("API Routes", () => {
         .post("/api/config")
         .send({ projectPath: process.cwd() });
       expect(res.status).toBe(200);
-      expect(deps.config.projectPath).toBeDefined();
+      expect(deps.config.projectPath).toBe(path.resolve(process.cwd()));
     });
 
     it("directly mutates config object", async () => {

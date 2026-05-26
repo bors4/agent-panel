@@ -344,7 +344,10 @@ watch(() => configCopy.projectPath, () => {
 // Обработчики с loading states
 async function checkProjectPath() {
   const p = projectPathDraft.value;
-  if (!p || p === "C:\\") { pathError.value = ""; return; }
+  if (!p) { pathError.value = ""; return; }
+  const isWin = navigator.platform?.includes("Win");
+  const rootDriveMatch = isWin && /^[a-zA-Z]:\\$/i.test(p);
+  if (rootDriveMatch) { pathError.value = ""; return; }
   try {
     const res = await fetch(`/api/validate-path?path=${encodeURIComponent(p)}`);
     const data = await res.json();
@@ -357,7 +360,8 @@ async function checkProjectPath() {
 const handleSave = async () => {
   if (isSaving) return;
   configCopy.projectPath = projectPathDraft.value;
-  pathError.value = "";
+  await checkProjectPath();
+  if (pathError.value) return;
   
   loadingStates.value.save = true;
   try {

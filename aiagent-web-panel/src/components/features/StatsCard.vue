@@ -134,7 +134,7 @@
           <span class="perf-icon">⚡</span>
           <span class="perf-title">Производительность</span>
         </div>
-        <template v-if="perfStats && perfStats.prompt_n">
+        <template v-if="perfStats && (perfStats.prompt_n > 0 || perfStats.predicted_n > 0)">
           <div class="perf-grid">
             <div class="perf-item">
               <span class="perf-metric">Prompt</span>
