@@ -4,7 +4,7 @@
  * @module api/client
  */
 
-const BASE_URL = "http://127.0.0.1:3000/api";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000/api";
 const API_KEY = import.meta.env.VITE_API_KEY || "agent-secret-key";
 
 // ─────────────────────────────────────────────────────
@@ -307,6 +307,37 @@ export async function executeTool(toolCall) {
 
 export async function getTools() {
   const response = await apiFetch("/tools");
+  return response.json();
+}
+
+export async function getAccounts() {
+  const response = await apiFetch("/accounts");
+  return response.json();
+}
+
+export async function postAccounts(payload) {
+  const response = await apiFetch("/accounts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
+export async function postImportAccounts(payload) {
+  const response = await apiFetch("/accounts/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
+export async function getModels(serverUrl) {
+  const response = await apiFetch(`/models?serverUrl=${encodeURIComponent(serverUrl)}`);
+  return response.json();
+}
+
+export async function checkPath(path) {
+  const response = await apiFetch(`/validate-path?path=${encodeURIComponent(path)}`);
   return response.json();
 }
 

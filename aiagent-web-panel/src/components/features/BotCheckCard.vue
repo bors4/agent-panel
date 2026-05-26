@@ -24,7 +24,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { useToast } from "@/composables/useToast";
@@ -38,20 +38,10 @@ const { success, error: showError } = useToast();
 const checking = ref(false);
 const checkState = ref("idle");
 const botInfo = ref(null);
-const effectiveToken = ref("");
+const effectiveToken = computed(() => {
+  return props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : "";
+});
 const envToken = ref("");
-
-watch(
-  () => props.token,
-  (val) => {
-    if (val) {
-      effectiveToken.value = val.trim().replace(/[^\x00-\x7F]/g, "");
-    } else {
-      effectiveToken.value = "";
-    }
-  },
-  { immediate: true }
-);
 
 const hasToken = computed(() => {
   return !!(effectiveToken.value || envToken.value);

@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 24 / 67** | `P0: 0/4` · `P1: 0/12` · `P2: 0/18` · `P3: 4/13` · `P4: 5/5`
+> **Прогресс: 42 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 9/13` · `P4: 5/5`
 
 ---
 
@@ -42,17 +42,15 @@
   - Добавить middleware в `routes/api.js`: проверять заголовок `x-api-key` против `config.apiKey` на всех маршрутах (кроме health)
   - Фронтенд уже отправляет заголовок — нужна только проверка на сервере
 
-- [ ] #2 `[security][backend]` **Telegram bot token в ответе API**
-  - `GET /api/config` возвращает `{ token: process.env.TELEGRAM_BOT_TOKEN }` — убрать из ответа
+- [x] #2 `[security][backend]` **Telegram bot token в ответе API**
+  - `GET /api/config` возвращал `{ token: process.env.TELEGRAM_BOT_TOKEN }` — убрано, возвращается `hasToken: boolean`
 
 - [ ] #3 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
   - На Linux файловая система чувствительна к регистру: `/home/User/file.txt` ≠ `/home/user/file.txt`
   - Использовать `.toLowerCase()` только на Windows (`process.platform === "win32"`)
 
-- [ ] #4 `[bug][backend]` **Fetch-запросы к AI API не имеют таймаута**
-  - `agentLoop.js`, `server.js`, `api.js` — нет `AbortSignal`/`AbortController`
-  - Если AI-сервер завис, запрос висит бесконечно, бот блокируется
-  - **Фикс:** вынести `fetchWithTimeout(url, options, timeoutMs)` с `AbortController`
+- [x] #4 `[bug][backend]` **Fetch-запросы к AI API не имеют таймаута**
+  - `agentLoop.js`, `server.js`, `api.js` — `AbortController` + таймаут добавлены во всех трёх файлах
 
 - [ ] #5 `[bug][frontend]` **Ответ модели теряется при смене вкладки или перезагрузке страницы в ChatTab**
   - **Корень:** `ChatTab.vue` рендерится через `v-if` — при смене вкладки компонент уничтожается
@@ -80,13 +78,10 @@
   - `agentLoop.js`: при `chatMode=true` — минимальный system prompt, `safePath` по `include_paths`
   - `executeTool.js`: cwd = корень диска или `include_paths[0]` вместо `projectPath`
 
-- [ ] #10 `[bug][backend]` **`temperature || 0.1` — невозможно установить temperature=0**
-  - `agentLoop.js:144`: `cfg.temperature || 0.1` — `0 || 0.1 = 0.1`
-  - `server.js:45`: `parseFloat(process.env.TEMPERATURE) || 0.1` — то же самое
-  - Пользователь может ввести 0 (детерминированный вывод), но сервер использует 0.1
-  - **Фикс:** заменить `||` на `??` (nullish coalescing) в обоих местах
+- [x] #10 `[bug][backend]` **`temperature || 0.1` — невозможно установить temperature=0**
+  - Заменён `||` на `??` в `agentLoop.js`, `!== undefined` в `api.js` — temperature=0 теперь работает
 
-- [ ] #11 `[cleanup][backend]` **`console.log` в production-коде**
+- [x] #11 `[cleanup][backend]` **`console.log` в production-коде**
   - `server.js:435,523,604`: заменить на `addLog()`/`logInfo()`
   - `executeTool.js:446`: `console.log(\`[executeTool] name=${name}, args=${JSON.stringify(args)}...\`)` — args могут содержать секреты
   - **Фикс:** заменить на `logInfo()`, маскировать `args`
@@ -102,15 +97,15 @@
 
 ## 🟢 Low Priority (P2)
 
-- [ ] #1 `[ui][frontend]` Добавить отдельную кнопку для сохранения `PROJECT_PATH`
+- [x] #1 `[ui][frontend]` Добавить отдельную кнопку для сохранения `PROJECT_PATH`
   - Убрать debounce (300ms auto-save), добавить явную кнопку "Сохранить путь" рядом с полем
 
-- [ ] #2 `[bug][backend]` Пересмотреть подсчёт размера контекста
+- [x] #2 `[bug][backend]` Пересмотреть подсчёт размера контекста
   - Брать данные из `usage` ответа сервера модели (`usage.prompt_tokens`, `usage.completion_tokens`)
   - Убедиться что `usage.prompt_tokens_details.cached_tokens` корректно обрабатывается
   - Добавить отображение контекстного окна модели (если доступно через `/v1/models`)
 
-- [ ] #3 `[perf][backend]` **Синхронный file I/O блокирует event loop**
+- [x] #3 `[perf][backend]` **Синхронный file I/O блокирует event loop**
   - Все `*Sync` операции в `executeTool.js` заменить на `fs.promises`
 
 - [ ] #4 `[bug][backend]` **Race condition в `loadAccounts()` между existsSync и readFileSync**
@@ -129,25 +124,24 @@
   - Интегрировать `agentLoopStep()` в `/api/chat`; добавить tool definitions; передавать account/permissions
   - Фронтенд: отображение tool calls (выполняется/одобрить/отклонить) и результатов в чате
 
-- [ ] #8 `[bug][backend]` **`args.timeout || 30` — некорректная обработка timeout=0 и NaN**
-  - Если модель передаст `timeout: 0` → станет 30 (должно означать "без лимита")
-  - **Фикс:** `Number.isFinite(args.timeout) && args.timeout > 0 ? args.timeout : 30`
+- [x] #8 `[bug][backend]` **`args.timeout || 30` — некорректная обработка timeout=0 и NaN**
+  - Исправлен: `args.timeout != null ? Math.min(Math.max(args.timeout, 1), 3600) : 30`
 
-- [ ] #9 `[bug][backend]` **Двойной вызов `getToolConfig()` в `continueAfterApproval`**
-  - `server.js:552-553`: дважды вызывается `getToolConfig()`, race condition при смене конфига
-  - **Фикс:** вызвать один раз, сохранить результат в переменную
+- [x] #9 `[bug][backend]` **Двойной вызов `getToolConfig()` в `continueAfterApproval`**
+  - Исправлен: `getToolConfig()` вызывается один раз, результат сохранён в `mergedToolConfig` (server.js:630)
+  - Задача закрыта в рамках P3-13 (рефакторинг TOOLS)
 
-- [ ] #10 `[bug][backend]` **Нет валидации `projectPath` на существование при обновлении через API**
+- [x] #10 `[bug][backend]` **Нет валидации `projectPath` на существование при обновлении через API**
   - `api.js:138-141`: любой путь принимается без проверки, что директория существует
   - **Фикс:** `fs.existsSync` + `fs.statSync.isDirectory()` с `400 Bad Request`
 
-- [ ] #11 `[bug][backend]` **`useFunctionCalling` fallback не отличает 400 от 500**
+- [x] #11 `[bug][backend]` **`useFunctionCalling` fallback не отличает 400 от 500**
   - `agentLoop.js:165-169`: при любой ошибке `!resp.ok` код считает, что model "не поддерживает FC"
   - **Фикс:** fallback только при `resp.status === 400`, иначе сразу `return`
 
-- [ ] #12 `[bug][frontend]` **Черновик "⏳ Analyzing request..." не удаляется после ответа**
-  - `server.js:320,350-356`: `sendDraft` отправляет черновик, но он никогда не редактируется/удаляется
-  - **Фикс:** сохранять msgId черновика и удалять перед ответом, либо убрать `sendDraft`
+- [x] #12 `[feature][frontend]` **Черновик "⏳ Analyzing request..." не удаляется после ответа**
+  - `server.js`: `deleteMessage()` добавлен в 3 места — ошибка, лимит итераций, внешний catch
+  - Финальный ответ обновляет черновик через `editDraftMessage`
 
 - [ ] #13 `[perf][backend]` **`formatValue()` рекурсия без защиты от циклических ссылок**
   - `executeTool.js:255-285`: рекурсивный обход без защиты от circular ref → `RangeError`
@@ -165,20 +159,37 @@
   - Вызывается до 5+ раз за цикл агента, каждый раз создаёт 9×N полей → GC pressure
   - **Фикс:** мемоизация с инвалидацией при `updateToolConfig`
 
-- [ ] #17 `[bug][frontend]` **`loadApiBases()` прямой fetch к AI-серверу — CORS-ошибка на другом origin**
-  - `App.vue:189`: `fetch(${api.url}/models)` напрямую из браузера
-  - **Фикс:** проксировать через `/api/models` на бэкенде
+- [x] #17 `[bug][frontend]` **`loadApiBases()` прямой fetch к AI-серверу — CORS-ошибка на другом origin**
+  - Исправлен: `loadApiBases()` проксирует через `/api/models?serverUrl=...` на бэкенде
+  - Фикс выполнен в рамках P2-2.3 (контекстное окно модели)
 
-- [ ] #18 `[security][backend]` **`checkAccountToolPermission` execute игнорирует `include_paths`**
-  - `accounts.js`: для `execute` всегда возвращается `{ allowed: true }` если есть право роли
-  - execute выполняется в `projectPath`, а `include_paths` не применяются
-  - **Фикс:** хотя бы добавить лог-предупреждение или документировать, что execute игнорирует include_paths для аккаунтов без роли system
+- [x] #18 `[security][backend]` **`checkAccountToolPermission` execute игнорирует `include_paths`**
+  - `accounts.js:99`: убрано исключение `toolName !== "execute"` — `include_paths` теперь применяется ко всем инструментам, включая execute
+
+- [ ] #19 `[bug][backend]` **parseToolCall не возвращает id для Format 2 (JSON) и Format 3 (<tool>)**
+  - `utils.js:108,124`: только Format 1 генерирует `id: "parsed_..."`. JSON и `<tool>` возвращают `{ name, args }` без id
+  - `server.js:793`, `agentLoop.js:376`: `xmlTc.id` / `tc.id` = `undefined` → модель может не сопоставить результат с вызовом
+  - **Фикс:** добавить генерацию `id` во все три формата
+
+- [ ] #20 `[feature][backend]` **Очистка просроченных pendingApprovals (TTL)**
+  - `server.js`: записи в `pendingApprovals` удаляются только при approve/deny/stop
+  - Если пользователь не ответил на подтверждение, запись висит вечно
+  - **Фикс:** добавить timestamp + периодическая очистка (10 мин TTL)
+
+- [ ] #21 `[bug][backend]` **Сетевая ошибка в `/api/chat` до `response.ok` маскируется TypeError**
+  - `api.js:323-347`: при сетевой ошибке `response = undefined`, строка 345 падает с `TypeError: Cannot read properties of undefined (reading 'ok')`
+  - AbortError (таймаут) тоже не отлавливается отдельно — идёт в общий catch
+  - **Фикс:** `response` guard + различать AbortError/TypeError/HTTP
+
+- [ ] #22 `[bug][backend]` **safePath ломается при projectRoot = корень диска (двойной слеш)**
+  - `utils.js:31,39`: `normalizedRoot = "e:/"`, проверка `startsWith(normalizedRoot + "/")` → `startsWith("e://")` никогда не совпадает
+  - **Фикс:** убрать `+ "/"` для drive-root путей, или использовать `path.relative()`
 
 ---
 
 ## 🔵 Low-UI / Perf / Style (P3)
 
-- [ ] #1 `[ui][frontend]` Добавить тултипы для параметров настроек
+- [x] #1 `[ui][frontend]` Отменено. Добавить тултипы для параметров настроек
   - PROJECT_PATH, TELEGRAM_TOKEN, API-BASE, Model_Name, MaxTokens, Temperature, Timeout, MaxFileChars, MaxHistoryPairs, MaxSearchResults, MaxFilesInPrompt
 
 - [x] #2 `[ui][frontend]` Исправить отображение текста тултипа для "Инструменты агента"
@@ -198,8 +209,8 @@
   - `server.js:728`: `setInterval` без переменной — невозможно очистить при shutdown
   - Добавить `process.on('SIGTERM')` и `process.on('SIGINT')`: сохранить `const heartbeatInterval = setInterval(...)`, `clearInterval(heartbeatInterval)`, остановка бота, закрытие Express
 
-- [ ] #6 `[feature][backend]` **Rate limiting**
-  - Добавить `express-rate-limit` на endpoints `/api/chat`, `/api/agent/tool`, `/api/config`
+- [x] #6 `[feature][backend]` **Rate limiting**
+  - In-memory rate limiter (10 запросов/мин на chatId) для Telegram-сообщений
 
 - [ ] #7 `[perf][backend]` **Ограничение размера файлов при поиске**
   - `searchDirectory()` читает каждый файл полностью в память — добавить `maxFileSize`, пропускать бинарные файлы
@@ -207,17 +218,22 @@
 - [ ] #8 `[feature][backend]` **Очистка старых сессий**
   - `chatHistories` никогда не очищается — добавить периодическую чистку (1 час без активности)
 
-- [ ] #9 `[perf][frontend]` **`BotCheckCard.vue` — watch с `{ immediate: true }` вызывает фильтрацию токена на каждый триггер**
-  - `token.replace(/[^\x00-\x7F]/g, "")` вызывается при быстром наборе 10+ раз/сек
-  - Добавить debounce (300ms)
+- [x] #9 `[perf][frontend]` **`BotCheckCard.vue` — watch с `{ immediate: true }` вызывает фильтрацию токена на каждый триггер**
+  - Заменён `watch` + `ref` на `computed` — мемоизация, пересчёт только при реальном изменении `props.token`
+  - `watch` убран из импорта
 
-- [ ] #10 `[perf][frontend]` **`BASE_URL` хардкод в `client.js`**
-  - Для production должно быть конфигурируемым через Vite env-переменную
+- [x] #10 `[perf][frontend]` **`BASE_URL` хардкод в `client.js`**
+  - `VITE_API_BASE_URL` env-переменная добавлена как fallback для `BASE_URL`
 
-- [ ] #11 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
-  - За прокси на production может сломаться; унифицировать через `BASE_URL`
+- [x] #11 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
+  - Все raw `fetch("/api/...")` вызовы вынесены в `client.js`:
+    - ToolsTab.vue: `/api/accounts`, `/api/accounts/import` → `getAccounts()`, `postAccounts()`, `postImportAccounts()`
+    - App.vue: `/api/models?serverUrl=` → `getModels(serverUrl)`
+    - SettingsTab.vue: `/api/validate-path?path=` → `checkPath(path)`
+  - Хардкод `"agent-secret-key"` убран из этих компонентов
+  - В `client.js` добавлен `VITE_API_BASE_URL` env fallback
 
-- [ ] #12 `[perf][backend]` **ReDoS-потенциал в `extractBash()`**
+- [x] #12 `[perf][backend]` **ReDoS-потенциал в `extractBash()`**
   - `agentLoop.js:70-73`: `content.match(/⁠\`(?:bash|sh)?[\s\S]*?\`⁠/)` — backtracking при большом content
   - **Фикс:** использовать `indexOf` вместо regex
 

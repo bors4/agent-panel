@@ -27,6 +27,7 @@ import { spawn } from "child_process";
 import { safePath } from "../utils.js";
 import { checkAccountToolPermission } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
+import { logInfo } from "../logger.js";
 
 // ============================================================================
 // DEFAULT CONFIGURATION
@@ -77,7 +78,7 @@ export const TOOLS = {
           type: "string",
           description: "Path to file relative to project",
         },
-        content: { type: "string", description: "Content to write" },
+        content: { type: "string", description: "Raw file content saved as-is. Match format to file extension (.json -> JSON, .html -> HTML, .js -> JS, etc.). Do NOT wrap in response objects like {success, data, content}." },
       },
       required: ["filePath", "content"],
     },
@@ -468,16 +469,18 @@ export async function executeTool(toolCall, config = {}) {
   const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
 
   // Validate project directory exists
-  if (!fs.existsSync(projectPath)) {
+  try {
+    const projectStat = await fs.promises.stat(projectPath);
+    if (!projectStat.isDirectory()) {
+      return {
+        success: false,
+        error: `Project path is not a directory: ${projectPath}`,
+      };
+    }
+  } catch {
     return {
       success: false,
       error: `Project directory does not exist: ${projectPath}`,
-    };
-  }
-  if (!fs.statSync(projectPath).isDirectory()) {
-    return {
-      success: false,
-      error: `Project path is not a directory: ${projectPath}`,
     };
   }
 
@@ -493,7 +496,7 @@ export async function executeTool(toolCall, config = {}) {
     return { success: false, error: permission.reason, requiresApproval: toolCfg.permission === "ask" };
   }
 
-  console.log(`[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`);
+  logInfo(`execute: ${name}`, { args: JSON.stringify(args).slice(0, 200), projectPath });
 
   try {
     switch (name) {
@@ -504,13 +507,15 @@ export async function executeTool(toolCall, config = {}) {
           return { success: true, data: { content: "[File omitted: max files in prompt reached]" } };
         }
         const filePath = safePath(args.filePath, projectPath);
-        if (!fs.existsSync(filePath)) {
+        try {
+          await fs.promises.access(filePath);
+        } catch {
           return {
             success: false,
             error: `File not found: ${path.relative(projectPath, filePath)}`,
           };
         }
-        const content = fs.readFileSync(filePath, "utf-8");
+        const content = await fs.promises.readFile(filePath, "utf-8");
         const maxChars = config.maxFileChars ?? configDefaults.maxFileChars;
         const truncated =
           content.length > maxChars
@@ -525,12 +530,8 @@ export async function executeTool(toolCall, config = {}) {
       // ────────────────────────────────────────────────────────────────────
       case "write": {
         const filePath = safePath(args.filePath, projectPath);
-        // Ensure directory exists
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-        fs.writeFileSync(filePath, args.content, "utf-8");
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.promises.writeFile(filePath, args.content, "utf-8");
         return {
           success: true,
           data: { path: filePath, size: args.content.length },
@@ -568,7 +569,9 @@ export async function executeTool(toolCall, config = {}) {
         const dirPath = args.path ? safePath(args.path, projectPath) : projectPath;
         const depth = Math.min(args.depth || 1, 3);
 
-        if (!fs.existsSync(dirPath)) {
+        try {
+          await fs.promises.access(dirPath);
+        } catch {
           return {
             success: false,
             error: `Directory not found: ${path.relative(projectPath, dirPath)}`,
@@ -589,7 +592,7 @@ export async function executeTool(toolCall, config = {}) {
 
       // ────────────────────────────────────────────────────────────────────
       case "execute": {
-        const timeoutSec = Math.min(Math.max(args.timeout || 30, 1), 3600);
+        const timeoutSec = args.timeout != null ? Math.min(Math.max(args.timeout, 1), 3600) : 30;
         const isWin = process.platform === "win32";
         const trimmedCmd = args.command.trimStart();
         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
@@ -669,36 +672,38 @@ export async function executeTool(toolCall, config = {}) {
       // ────────────────────────────────────────────────────────────────────
       case "create_dir": {
         const dirPath = safePath(args.path, projectPath);
-        fs.mkdirSync(dirPath, { recursive: true });
+        await fs.promises.mkdir(dirPath, { recursive: true });
         return { success: true, data: { path: dirPath } };
       }
 
       // ────────────────────────────────────────────────────────────────────
       case "delete": {
         const targetPath = safePath(args.path, projectPath);
-        if (!fs.existsSync(targetPath)) {
+        let stats;
+        try {
+          stats = await fs.promises.stat(targetPath);
+        } catch {
           return {
             success: false,
             error: `Path not found: ${path.relative(projectPath, targetPath)}`,
           };
         }
-        const stats = fs.statSync(targetPath);
 
         if (stats.isDirectory()) {
           if (args.recursive) {
-            fs.rmSync(targetPath, { recursive: true, force: true });
+            await fs.promises.rm(targetPath, { recursive: true, force: true });
           } else {
-            const entries = fs.readdirSync(targetPath);
+            const entries = await fs.promises.readdir(targetPath);
             if (entries.length > 0) {
               return {
                 success: false,
                 error: `Directory not empty: ${path.relative(projectPath, targetPath)}. Set recursive: true to delete.`,
               };
             }
-            fs.rmSync(targetPath, { recursive: false, force: false });
+            await fs.promises.rm(targetPath, { recursive: false, force: false });
           }
         } else {
-          fs.unlinkSync(targetPath);
+          await fs.promises.unlink(targetPath);
         }
         return { success: true, data: { path: targetPath } };
       }
@@ -706,37 +711,34 @@ export async function executeTool(toolCall, config = {}) {
       // ────────────────────────────────────────────────────────────────────
       case "move": {
         const source = safePath(args.source, projectPath);
-        if (!fs.existsSync(source)) {
+        try {
+          await fs.promises.access(source);
+        } catch {
           return {
             success: false,
             error: `Source not found: ${path.relative(projectPath, source)}`,
           };
         }
         const destination = safePath(args.destination, projectPath);
-        // Ensure destination directory exists
-        const destDir = path.dirname(destination);
-        if (!fs.existsSync(destDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-        }
-        fs.renameSync(source, destination);
+        await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+        await fs.promises.rename(source, destination);
         return { success: true, data: { source, destination } };
       }
 
       // ────────────────────────────────────────────────────────────────────
       case "copy": {
         const source = safePath(args.source, projectPath);
-        if (!fs.existsSync(source)) {
+        try {
+          await fs.promises.access(source);
+        } catch {
           return {
             success: false,
             error: `Source not found: ${path.relative(projectPath, source)}`,
           };
         }
         const destination = safePath(args.destination, projectPath);
-        const destDir = path.dirname(destination);
-        if (!fs.existsSync(destDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-        }
-        fs.copyFileSync(source, destination);
+        await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+        await fs.promises.copyFile(source, destination);
         return { success: true, data: { source, destination } };
       }
 

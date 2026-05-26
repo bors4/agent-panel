@@ -69,8 +69,35 @@ const state = {
 /** @type {{requests: number, tools: number, errors: number}} */
 let stats = { requests: 0, tools: 0, errors: 0 };
 
-/** @type {{prompt: number, completion: number, total: number, cached: number}} */
+/** @type {{prompt: number, completion: number, total: number, cached: number, tokensCached: number}} */
 const tokenUsage = { prompt: 0, completion: 0, total: 0, cached: 0, tokensCached: 0 };
+
+/** Rate limiter: map of chatId → { count, windowStart }. */
+const rateLimitMap = new Map();
+const RATE_LIMIT = 10;
+const RATE_WINDOW = 60_000;
+
+function recordAndCheckRateLimit(chatId) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(chatId) || { count: 0, windowStart: now };
+  if (now - entry.windowStart > RATE_WINDOW) {
+    entry.count = 0;
+    entry.windowStart = now;
+  }
+  entry.count++;
+  rateLimitMap.set(chatId, entry);
+  return entry.count <= RATE_LIMIT;
+}
+
+// Periodic cleanup: remove stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [chatId, entry] of rateLimitMap) {
+    if (now - entry.windowStart > RATE_WINDOW * 2) {
+      rateLimitMap.delete(chatId);
+    }
+  }
+}, 5 * 60_000).unref();
 
 /** Сбросить статистику запросов, инструментов и ошибок. */
 function resetStats() {
@@ -95,18 +122,18 @@ function resetTokenUsage() {
  */
 function buildPerfStats(timings) {
   return {
-    prompt_n: timings.prompt_n || 0,
-    predicted_n: timings.predicted_n || 0,
-    prompt_ms: Math.round(timings.prompt_ms || 0),
-    predicted_ms: Math.round(timings.predicted_ms || 0),
-    prompt_per_second: timings.prompt_per_second || 0,
-    predicted_per_second: timings.predicted_per_second || 0,
+    prompt_n: timings.prompt_n ?? 0,
+    predicted_n: timings.predicted_n ?? 0,
+    prompt_ms: Math.round(timings.prompt_ms ?? 0),
+    predicted_ms: Math.round(timings.predicted_ms ?? 0),
+    prompt_per_second: timings.prompt_per_second ?? 0,
+    predicted_per_second: timings.predicted_per_second ?? 0,
     cache_n: timings.cache_n ?? 0,
     tokens_cached: timings.tokens_cached ?? 0,
-    draft_n: timings.draft_n || 0,
-    draft_n_accepted: timings.draft_n_accepted || 0,
+    draft_n: timings.draft_n ?? 0,
+    draft_n_accepted: timings.draft_n_accepted ?? 0,
     draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
-    total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
+    total_ms: Math.round((timings.prompt_ms ?? 0) + (timings.predicted_ms ?? 0)),
   };
 }
 
@@ -143,6 +170,7 @@ import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 import { createApiRouter } from "./routes/api.js";
+import { parseToolCall } from "./lib/utils.js";
 
 // ─── Утилиты логирования ───────────────────────────────────────────────────
 
@@ -386,13 +414,18 @@ bot.on("message", async (ctx) => {
   }
 
   const chatId = ctx.chat.id.toString();
+  if (!recordAndCheckRateLimit(chatId)) {
+    await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
+    return;
+  }
   addLog(`Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`, "info");
   stats.requests++;
   wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
 
+  let draftMsgId;
   try {
     await sendTyping(ctx);
-    const draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
+    draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
 
     const history = chatHistories.get(chatId) || [];
     let accumulatedContent = "";
@@ -434,6 +467,7 @@ bot.on("message", async (ctx) => {
 
     await handleAgentResult(ctx, chatId, result, account, draftMsgId);
   } catch (error) {
+    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
     await replyMsg(ctx, `❌ Error: ${error.message}`);
     addLog(`Bot error: ${error.message}`, "error");
   }
@@ -513,6 +547,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system"
     );
     chatHistories.set(chatId, cleanHistory.slice(-10));
+    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
     await replyMsg(ctx, `❌ Error: ${result.error}`);
     return true;
   }
@@ -522,7 +557,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
     let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
     if (!cleanResponse) cleanResponse = "✅ Done.";
-    if (draftMsgId) {
+    if (typeof draftMsgId === "number") {
       // Если есть черновик — обновляем его (streaming mode)
       await editDraftMessage(ctx, draftMsgId, "✅ " + cleanResponse);
     } else if (ctx.chat?.type === "private") {
@@ -542,6 +577,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   }
 
   // Лимит итераций
+  if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
   await replyMsg(ctx, "Iteration limit reached");
   return true;
 }
@@ -565,12 +601,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     return;
   }
 
-  console.log("[continueAfterApproval] Called:", {
-    toolName: pending.toolName,
-    toolCallId: pending.toolCallId,
-    args: pending.args,
-    depth,
-  });
+  addLog(`continueAfterApproval: ${pending.toolName} (depth ${depth})`, "info");
 
   stats.tools++;
   wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
@@ -740,11 +771,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       }
     }
 
-    console.log("[agent] Model response:", {
-      finishReason,
-      hasToolCalls: !!nextMessage?.tool_calls?.length,
-      contentLen: nextMessage?.content?.length,
-    });
+    addLog(`Model response: finish=${finishReason}, toolCalls=${!!nextMessage?.tool_calls?.length}, content=${nextMessage?.content?.length}`, "info");
 
     if (!nextMessage || (!nextMessage.content?.trim() && !nextMessage.tool_calls?.length)) {
       const reason = finishReason === "length" ? "Лимит токенов (max_tokens)" : "Ответ модели обрезан или невалиден";
@@ -758,6 +785,18 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
     const newHistory = [...history, toolMessage, nextMessage].filter((m) => m.role !== "system").slice(-20);
     chatHistories.set(chatId, newHistory);
+
+    // XML fallback: parse XML tool call if native function calling absent
+    if (!nextMessage.tool_calls?.length) {
+      const xmlTc = parseToolCall(nextMessage.content || "");
+      if (xmlTc) {
+        nextMessage.tool_calls = [{
+          id: xmlTc.id,
+          type: "function",
+          function: { name: xmlTc.name, arguments: JSON.stringify(xmlTc.args) },
+        }];
+      }
+    }
 
     // Модель вернула новый tool_call
     if (nextMessage.tool_calls?.length > 0) {
@@ -829,7 +868,6 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
  * @returns {Promise<void>}
  */
 bot.on("callback_query", async (ctx) => {
-  console.log(`[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`);
   const callbackData = ctx.callbackQuery.data;
   const chatId = ctx.chat.id.toString();
   addLog(`Callback: ${callbackData} from ${chatId}`, "info");
