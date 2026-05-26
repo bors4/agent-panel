@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 39 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 6/13` · `P4: 5/5`
+> **Прогресс: 41 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 8/13` · `P4: 5/5`
 
 ---
 
@@ -222,11 +222,16 @@
   - `token.replace(/[^\x00-\x7F]/g, "")` вызывается при быстром наборе 10+ раз/сек
   - Добавить debounce (300ms)
 
-- [ ] #10 `[perf][frontend]` **`BASE_URL` хардкод в `client.js`**
-  - Для production должно быть конфигурируемым через Vite env-переменную
+- [x] #10 `[perf][frontend]` **`BASE_URL` хардкод в `client.js`**
+  - `VITE_API_BASE_URL` env-переменная добавлена как fallback для `BASE_URL`
 
-- [ ] #11 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
-  - За прокси на production может сломаться; унифицировать через `BASE_URL`
+- [x] #11 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
+  - Все raw `fetch("/api/...")` вызовы вынесены в `client.js`:
+    - ToolsTab.vue: `/api/accounts`, `/api/accounts/import` → `getAccounts()`, `postAccounts()`, `postImportAccounts()`
+    - App.vue: `/api/models?serverUrl=` → `getModels(serverUrl)`
+    - SettingsTab.vue: `/api/validate-path?path=` → `checkPath(path)`
+  - Хардкод `"agent-secret-key"` убран из этих компонентов
+  - В `client.js` добавлен `VITE_API_BASE_URL` env fallback
 
 - [x] #12 `[perf][backend]` **ReDoS-потенциал в `extractBash()`**
   - `agentLoop.js:70-73`: `content.match(/⁠\`(?:bash|sh)?[\s\S]*?\`⁠/)` — backtracking при большом content

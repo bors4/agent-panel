@@ -215,6 +215,7 @@ import { ref, reactive, watch } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
+import { checkPath } from "@/api/client";
 
 const props = defineProps({
   config: { type: Object, default: () => ({}) },
@@ -349,8 +350,7 @@ async function checkProjectPath() {
   const rootDriveMatch = isWin && /^[a-zA-Z]:\\$/i.test(p);
   if (rootDriveMatch) { pathError.value = ""; return; }
   try {
-    const res = await fetch(`/api/validate-path?path=${encodeURIComponent(p)}`);
-    const data = await res.json();
+    const data = await checkPath(p);
     pathError.value = data.valid ? "" : "⚠️ Directory does not exist";
   } catch {
     pathError.value = "⚠️ Cannot validate path";

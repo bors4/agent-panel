@@ -94,7 +94,7 @@
 import { ref, computed, onMounted } from "vue";
 import { useAgent } from "@/composables/useAgent";
 import { useToast } from "@/composables/useToast";
-import { updateConfig, getConfig } from "@/api/client";
+import { updateConfig, getConfig, getModels } from "@/api/client";
 
 // Components
 import Header from "@/components/layout/Header.vue";
@@ -202,11 +202,8 @@ const loadApiBases = async () => {
   for (const api of apiBases.value) {
     if (api.connected) {
       try {
-        const response = await fetch(`/api/models?serverUrl=${encodeURIComponent(api.url)}`, {
-          headers: { "x-api-key": "agent-secret-key" },
-        });
-        if (response.ok) {
-          const data = await response.json();
+        const data = await getModels(api.url);
+        if (data.models) {
           const models = data.models || [];
           models.forEach((m) => {
             if (!availableModels.value.find((x) => x.id === m.id)) {

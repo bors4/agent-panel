@@ -189,7 +189,7 @@
 import { ref, computed, onMounted } from "vue";
 import Card from "../ui/Card.vue";
 import AppTooltip from "../ui/AppTooltip.vue";
-import { getTools, updateTools } from "@/api/client";
+import { getTools, updateTools, getAccounts, postAccounts, postImportAccounts } from "@/api/client";
 import { useToast } from "@/composables/useToast";
 
 const { success: toastSuccess, error: toastError } = useToast();
@@ -290,10 +290,7 @@ const toggleAccountSettings = (idx) => {
 
 const fetchAccounts = async () => {
   try {
-    const res = await fetch("/api/accounts", {
-      headers: { "x-api-key": "agent-secret-key" },
-    });
-    const data = await res.json();
+    const data = await getAccounts();
     if (data.success) {
       accounts.value = data.accounts;
     }
@@ -339,15 +336,7 @@ const removePath = (idx, pi) => {
 
 const saveAccounts = async () => {
   try {
-    const res = await fetch("/api/accounts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "agent-secret-key",
-      },
-      body: JSON.stringify({ accounts: accounts.value }),
-    });
-    const data = await res.json();
+    const data = await postAccounts({ accounts: accounts.value });
     if (data.success) {
       accounts.value = data.accounts;
       toastSuccess("Аккаунты сохранены");
@@ -375,15 +364,7 @@ const handleImportFile = async (event) => {
       toastError("Неверный формат: ожидается массив accounts");
       return;
     }
-    const res = await fetch("/api/accounts/import", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "agent-secret-key",
-      },
-      body: JSON.stringify({ accounts: imported }),
-    });
-    const data = await res.json();
+    const data = await postImportAccounts({ accounts: imported });
     if (data.success) {
       accounts.value = data.accounts;
       toastSuccess(`Импортировано ${accounts.value.length} аккаунтов`);
