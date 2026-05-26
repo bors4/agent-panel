@@ -163,6 +163,11 @@ export function createApiRouter(deps) {
         if (!fs.statSync(resolved).isDirectory()) {
           return res.status(400).json({ error: `Path is not a directory: ${resolved}` });
         }
+        try {
+          fs.accessSync(resolved, fs.constants.R_OK | fs.constants.W_OK);
+        } catch {
+          return res.status(400).json({ error: `No read/write access: ${resolved}` });
+        }
       } catch (e) {
         return res.status(400).json({ error: `Cannot access path: ${e.message}` });
       }
@@ -400,7 +405,7 @@ export function createApiRouter(deps) {
         const { usage: sseUsage, timings: sseTimings, tokensCached } = await parseStreamedResponse(response, {
           onContent: (chunk, accumulated) => {
             if (!firstTokenMs) firstTokenMs = performance.now() - t0;
-            fullContent = accumulated;
+            fullContent += chunk;
             res.write(`data: ${JSON.stringify({ reply: chunk, accumulated })}\n\n`);
           },
           onFinish: (reason) => {

@@ -21,6 +21,8 @@
         <button class="token-toggle" @click="tokenVisible = !tokenVisible">
           {{ tokenVisible ? "🔒" : "👁️" }}
         </button>
+        <span v-if="hasToken" class="token-status token-ok">✅ Токен задан</span>
+        <span v-else class="token-status token-missing">❌ Токен не задан</span>
       </div>
     </div>
     <div class="form-group">
@@ -245,6 +247,7 @@ const modelNameCopy = ref(props.modelName);
 // Состояния
 const tokenVisible = ref(false);
 const pathError = ref("");
+const hasToken = ref(false);
 const projectPathDraft = ref(props.config.projectPath || "");
 const loadingStates = ref({
   save: false,
@@ -300,8 +303,8 @@ watch(
     
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
-    projectPathDraft.value = val.projectPath || "C:\\";
-    configCopy.projectPath = val.projectPath || "C:\\";
+    projectPathDraft.value = val.projectPath || "";
+    hasToken.value = !!val.hasToken;
     configCopy.maxFileChars = val.maxFileChars ?? configDefaults.maxFileChars;
     configCopy.maxHistoryPairs = val.maxHistoryPairs ?? configDefaults.maxHistoryPairs;
     configCopy.maxSearchResults = val.maxSearchResults ?? configDefaults.maxSearchResults;

@@ -9,6 +9,7 @@ import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
 import { parseStreamedResponse } from "../parseSSE.js";
+import { logWarn } from "../logger.js";
 
 /** Максимальное количество итераций (вызовов инструментов) за один запрос. */
 export const MAX_AGENT_ITERATIONS = 5;
@@ -317,7 +318,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             },
           };
         } else {
-          console.warn("[agentLoop] No usage or timings from model; estimating via char count");
+          logWarn("[agentLoop] No usage or timings from model; estimating via char count");
           const completionText = msg.content || "";
           const completionTokens = Math.ceil(completionText.length / 4);
           const promptText = messages.map((m) => {

@@ -33,7 +33,9 @@ export function loadAccounts(projectPath) {
       const parsed = JSON.parse(raw);
       accounts = parsed.accounts || [];
     } catch (e) {
-      console.error(`[accounts] Failed to parse ${filePath}:`, e.message);
+      const backupPath = filePath + `.bak.${Date.now()}`;
+      try { fs.renameSync(filePath, backupPath); } catch {}
+      console.error(`[accounts] Corrupted ${filePath}, backed up to ${backupPath}:`, e.message);
       accounts = [];
     }
   }
