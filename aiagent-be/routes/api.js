@@ -186,15 +186,23 @@ export function createApiRouter(deps) {
 
   /**
    * GET /api/models — Получить доступные модели с AI сервера.
+   * Query: ?serverUrl=... (опционально, для прокси с фронтенда)
    */
   router.get("/models", async (req, res) => {
     try {
-      const response = await fetch(`${config.serverUrl}/models`, {
+      const serverUrl = req.query.serverUrl || config.serverUrl;
+      const response = await fetch(`${serverUrl}/models`, {
         headers: { Authorization: `Bearer ${config.apiKey}` },
       });
       if (!response.ok) throw new Error(`Server ${response.status}`);
       const data = await response.json();
-      res.json({ success: true, models: data.data || [] });
+      const models = (data.data || []).map((m) => ({
+        id: m.id,
+        object: m.object,
+        owned_by: m.owned_by,
+        max_context_length: m.max_context_length || null,
+      }));
+      res.json({ success: true, models });
     } catch (error) {
       addLog(`Failed to fetch models: ${error.message}`, "error");
       res.status(500).json({ error: "Failed to fetch models" });

@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 31 / 71** | `P0: 0/4` · `P1: 3/12` · `P2: 3/22` · `P3: 5/13` · `P4: 5/5`
+> **Прогресс: 37 / 71** | `P0: 0/4` · `P1: 3/12` · `P2: 9/22` · `P3: 5/13` · `P4: 5/5`
 
 ---
 
@@ -97,15 +97,15 @@
 
 ## 🟢 Low Priority (P2)
 
-- [ ] #1 `[ui][frontend]` Добавить отдельную кнопку для сохранения `PROJECT_PATH`
+- [x] #1 `[ui][frontend]` Добавить отдельную кнопку для сохранения `PROJECT_PATH`
   - Убрать debounce (300ms auto-save), добавить явную кнопку "Сохранить путь" рядом с полем
 
-- [ ] #2 `[bug][backend]` Пересмотреть подсчёт размера контекста
+- [x] #2 `[bug][backend]` Пересмотреть подсчёт размера контекста
   - Брать данные из `usage` ответа сервера модели (`usage.prompt_tokens`, `usage.completion_tokens`)
   - Убедиться что `usage.prompt_tokens_details.cached_tokens` корректно обрабатывается
   - Добавить отображение контекстного окна модели (если доступно через `/v1/models`)
 
-- [ ] #3 `[perf][backend]` **Синхронный file I/O блокирует event loop**
+- [x] #3 `[perf][backend]` **Синхронный file I/O блокирует event loop**
   - Все `*Sync` операции в `executeTool.js` заменить на `fs.promises`
 
 - [ ] #4 `[bug][backend]` **Race condition в `loadAccounts()` между existsSync и readFileSync**
@@ -127,11 +127,11 @@
 - [x] #8 `[bug][backend]` **`args.timeout || 30` — некорректная обработка timeout=0 и NaN**
   - Исправлен: `args.timeout != null ? Math.min(Math.max(args.timeout, 1), 3600) : 30`
 
-- [ ] #9 `[bug][backend]` **Двойной вызов `getToolConfig()` в `continueAfterApproval`**
-  - `server.js:552-553`: дважды вызывается `getToolConfig()`, race condition при смене конфига
-  - **Фикс:** вызвать один раз, сохранить результат в переменную
+- [x] #9 `[bug][backend]` **Двойной вызов `getToolConfig()` в `continueAfterApproval`**
+  - Исправлен: `getToolConfig()` вызывается один раз, результат сохранён в `mergedToolConfig` (server.js:630)
+  - Задача закрыта в рамках P3-13 (рефакторинг TOOLS)
 
-- [ ] #10 `[bug][backend]` **Нет валидации `projectPath` на существование при обновлении через API**
+- [x] #10 `[bug][backend]` **Нет валидации `projectPath` на существование при обновлении через API**
   - `api.js:138-141`: любой путь принимается без проверки, что директория существует
   - **Фикс:** `fs.existsSync` + `fs.statSync.isDirectory()` с `400 Bad Request`
 
@@ -159,9 +159,9 @@
   - Вызывается до 5+ раз за цикл агента, каждый раз создаёт 9×N полей → GC pressure
   - **Фикс:** мемоизация с инвалидацией при `updateToolConfig`
 
-- [ ] #17 `[bug][frontend]` **`loadApiBases()` прямой fetch к AI-серверу — CORS-ошибка на другом origin**
-  - `App.vue:189`: `fetch(${api.url}/models)` напрямую из браузера
-  - **Фикс:** проксировать через `/api/models` на бэкенде
+- [x] #17 `[bug][frontend]` **`loadApiBases()` прямой fetch к AI-серверу — CORS-ошибка на другом origin**
+  - Исправлен: `loadApiBases()` проксирует через `/api/models?serverUrl=...` на бэкенде
+  - Фикс выполнен в рамках P2-2.3 (контекстное окно модели)
 
 - [x] #18 `[security][backend]` **`checkAccountToolPermission` execute игнорирует `include_paths`**
   - `accounts.js:99`: убрано исключение `toolName !== "execute"` — `include_paths` теперь применяется ко всем инструментам, включая execute

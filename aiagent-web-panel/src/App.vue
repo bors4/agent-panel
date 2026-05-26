@@ -15,7 +15,7 @@
         :stats="stats"
         :token-usage="tokenUsage"
         :perf-stats="perfStats"
-        :max-tokens="localConfig.maxTokens"
+        :max-tokens="modelContextLength"
         :show-tokens="quickSettings.showTokens"
         @refresh="refreshStatus"
       />
@@ -61,6 +61,7 @@
         @save="handleSettingsSave"
         @reset="resetSettings"
         @models-updated="updateModels"
+        @save-path="handleSaveProjectPath"
       />
 
       <QuickSettingsTab v-if="activeTab === 'quick'" :settings="quickSettings" @save="handleQuickSettingsSave" />
@@ -90,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useAgent } from "@/composables/useAgent";
 import { useToast } from "@/composables/useToast";
 import { updateConfig, getConfig } from "@/api/client";
@@ -162,6 +163,13 @@ const modelName = ref("gemma-4-E4B-it-Q4_K_M.gguf");
 const serverUrl = ref("http://192.168.1.101:8080/v1");
 const availableModels = ref([]);
 
+const selectedModel = computed(() =>
+  availableModels.value.find((m) => m.id === modelName.value) || null
+);
+const modelContextLength = computed(() =>
+  selectedModel.value?.maxContextLength || localConfig.value.maxTokens || configDefaults.maxTokens
+);
+
 const addLog = (message, type = "info") => {
   logs.value.push({
     time: new Date().toLocaleTimeString(),
@@ -194,17 +202,18 @@ const loadApiBases = async () => {
   for (const api of apiBases.value) {
     if (api.connected) {
       try {
-        const response = await fetch(`${api.url}/models`, {
+        const response = await fetch(`/api/models?serverUrl=${encodeURIComponent(api.url)}`, {
           headers: { "x-api-key": "agent-secret-key" },
         });
         if (response.ok) {
           const data = await response.json();
-          const models = data.data || [];
+          const models = data.models || [];
           models.forEach((m) => {
             if (!availableModels.value.find((x) => x.id === m.id)) {
               availableModels.value.push({
                 id: m.id,
                 source: api.url,
+                maxContextLength: m.max_context_length || null,
               });
             }
           });
@@ -461,6 +470,13 @@ const handleSettingsSave = (data) => {
   }
   if (data.serverUrl) {
     serverUrl.value = data.serverUrl;
+  }
+  saveSettings();
+};
+
+const handleSaveProjectPath = (data) => {
+  if (data.projectPath) {
+    localConfig.value.projectPath = data.projectPath;
   }
   saveSettings();
 };

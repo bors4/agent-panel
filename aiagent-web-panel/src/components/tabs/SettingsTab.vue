@@ -28,7 +28,10 @@
         <label>PROJECT_PATH</label>
         <span class="hint">Путь к проекту</span>
       </div>
-      <input v-model="configCopy.projectPath" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
+      <div class="project-path-row">
+        <input v-model="projectPathDraft" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
+        <Button @click="handleSaveProjectPath">💾 Сохранить путь</Button>
+      </div>
       <p v-if="pathError" class="path-error">{{ pathError }}</p>
     </div>
     <div class="form-group">
@@ -221,7 +224,7 @@ const props = defineProps({
   serverUrl: { type: String, default: "" },
 });
 
-const emit = defineEmits(["save", "reset", "models-updated"]);
+const emit = defineEmits(["save", "reset", "models-updated", "save-path"]);
 
 // Копии для редактирования
 const configCopy = reactive({
@@ -241,6 +244,7 @@ const modelNameCopy = ref(props.modelName);
 // Состояния
 const tokenVisible = ref(false);
 const pathError = ref("");
+const projectPathDraft = ref(props.config.projectPath || "C:\\");
 const loadingStates = ref({
   save: false,
   reset: false,
@@ -295,6 +299,7 @@ watch(
     
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
+    projectPathDraft.value = val.projectPath || "C:\\";
     configCopy.projectPath = val.projectPath || "C:\\";
     configCopy.maxFileChars = val.maxFileChars ?? configDefaults.maxFileChars;
     configCopy.maxHistoryPairs = val.maxHistoryPairs ?? configDefaults.maxHistoryPairs;
@@ -338,7 +343,7 @@ watch(() => configCopy.projectPath, () => {
 
 // Обработчики с loading states
 async function checkProjectPath() {
-  const p = configCopy.projectPath;
+  const p = projectPathDraft.value;
   if (!p || p === "C:\\") { pathError.value = ""; return; }
   try {
     const res = await fetch(`/api/validate-path?path=${encodeURIComponent(p)}`);
@@ -351,6 +356,7 @@ async function checkProjectPath() {
 
 const handleSave = async () => {
   if (isSaving) return;
+  configCopy.projectPath = projectPathDraft.value;
   pathError.value = "";
   
   loadingStates.value.save = true;
@@ -373,6 +379,13 @@ const handleSave = async () => {
     }, 500);
   }
 };
+
+async function handleSaveProjectPath() {
+  await checkProjectPath();
+  if (pathError.value) return;
+  configCopy.projectPath = projectPathDraft.value;
+  emit("save-path", { projectPath: projectPathDraft.value });
+}
 
 const handleReset = () => {
   loadingStates.value.reset = true;
@@ -676,6 +689,15 @@ select.form-input {
   color: #e74c3c;
   font-size: 11px;
   margin-top: 6px;
+}
+
+.project-path-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.project-path-row .form-input {
+  flex: 1;
 }
 
 .path-error {
