@@ -135,7 +135,7 @@
   - `api.js:138-141`: любой путь принимается без проверки, что директория существует
   - **Фикс:** `fs.existsSync` + `fs.statSync.isDirectory()` с `400 Bad Request`
 
-- [ ] #11 `[bug][backend]` **`useFunctionCalling` fallback не отличает 400 от 500**
+- [x] #11 `[bug][backend]` **`useFunctionCalling` fallback не отличает 400 от 500**
   - `agentLoop.js:165-169`: при любой ошибке `!resp.ok` код считает, что model "не поддерживает FC"
   - **Фикс:** fallback только при `resp.status === 400`, иначе сразу `return`
 

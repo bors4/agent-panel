@@ -216,7 +216,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         }
         throw e;
       }
-      if (!resp.ok && useFunctionCalling) {
+      if (!resp.ok && useFunctionCalling && resp.status === 400) {
         clearTimeout(timeoutId);
         useFunctionCalling = false;
         messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account);
