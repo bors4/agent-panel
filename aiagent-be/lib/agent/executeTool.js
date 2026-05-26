@@ -78,7 +78,7 @@ export const TOOLS = {
           type: "string",
           description: "Path to file relative to project",
         },
-        content: { type: "string", description: "Content to write" },
+        content: { type: "string", description: "Raw file content saved as-is. Match format to file extension (.json -> JSON, .html -> HTML, .js -> JS, etc.). Do NOT wrap in response objects like {success, data, content}." },
       },
       required: ["filePath", "content"],
     },

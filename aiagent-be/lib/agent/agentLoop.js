@@ -65,6 +65,10 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
     "  delete - delete (path RELATIVE)\n" +
     '  list_dir - list (path RELATIVE like ".")\n' +
     "  execute - run command\n" +
+    "File format rules:\n" +
+    "  - write tool content is saved as-is — no wrappers, no response objects\n" +
+    "  - Match content format to file extension (.json -> JSON, .html -> HTML, .py -> Python, etc.)\n" +
+    "  - For structured data files, provide the raw data structure (not a stringified version)\n" +
     "WINDOWS RULES:\n" +
     '- Wrap URLs with & in quotes: curl -s "https://...&key=..."\n' +
     "- Do NOT use jq. Use PowerShell: curl ... | ConvertFrom-Json\n" +
