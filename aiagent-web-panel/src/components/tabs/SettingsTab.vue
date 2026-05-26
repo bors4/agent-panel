@@ -245,7 +245,7 @@ const modelNameCopy = ref(props.modelName);
 // Состояния
 const tokenVisible = ref(false);
 const pathError = ref("");
-const projectPathDraft = ref(props.config.projectPath || "C:\\");
+const projectPathDraft = ref(props.config.projectPath || "");
 const loadingStates = ref({
   save: false,
   reset: false,
@@ -346,7 +346,7 @@ watch(() => configCopy.projectPath, () => {
 async function checkProjectPath() {
   const p = projectPathDraft.value;
   if (!p) { pathError.value = ""; return; }
-  const isWin = navigator.platform?.includes("Win");
+  const isWin = navigator.userAgent.includes("Win");
   const rootDriveMatch = isWin && /^[a-zA-Z]:\\$/i.test(p);
   if (rootDriveMatch) { pathError.value = ""; return; }
   try {

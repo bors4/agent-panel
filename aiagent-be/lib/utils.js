@@ -4,6 +4,7 @@
  */
 
 import path from "path";
+import crypto from "crypto";
 
 /**
  * Безопасно разрешить пользовательский путь относительно корня проекта.
@@ -92,7 +93,7 @@ export function parseToolCall(text) {
     return {
       name: funcName,
       args,
-      id: `parsed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `parsed_${crypto.randomUUID()}`,
     };
   }
 
@@ -108,7 +109,7 @@ export function parseToolCall(text) {
           return {
             name: obj.name,
             args: obj.arguments || obj.args || {},
-            id: `parsed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: `parsed_${crypto.randomUUID()}`,
           };
         }
       } catch (e) {
@@ -125,7 +126,7 @@ export function parseToolCall(text) {
       return {
         name: obj.name,
         args: obj.args || obj.arguments || {},
-        id: `parsed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: `parsed_${crypto.randomUUID()}`,
       };
     } catch (e) {
       console.warn(`[parseToolCall] <tool> JSON error: ${e.message}`);

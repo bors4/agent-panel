@@ -547,7 +547,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system"
     );
     chatHistories.set(chatId, cleanHistory.slice(-10));
-    if (draftMsgId) ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
     await replyMsg(ctx, `❌ Error: ${result.error}`);
     return true;
   }
@@ -557,7 +557,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
     let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
     if (!cleanResponse) cleanResponse = "✅ Done.";
-    if (draftMsgId) {
+    if (typeof draftMsgId === "number") {
       // Если есть черновик — обновляем его (streaming mode)
       await editDraftMessage(ctx, draftMsgId, "✅ " + cleanResponse);
     } else if (ctx.chat?.type === "private") {
@@ -577,7 +577,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   }
 
   // Лимит итераций
-  if (draftMsgId) ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+  if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
   await replyMsg(ctx, "Iteration limit reached");
   return true;
 }
@@ -602,7 +602,6 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   }
 
   addLog(`continueAfterApproval: ${pending.toolName} (depth ${depth})`, "info");
-  });
 
   stats.tools++;
   wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });

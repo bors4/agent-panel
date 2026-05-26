@@ -84,8 +84,8 @@ export async function parseStreamedResponse(response, callbacks = {}) {
         // LM Studio: stats в финальном чанке (draft info)
         if (parsed.stats) {
           if (!timings) timings = {};
-          timings.draft_n = (timings.draft_n || 0) + (parsed.stats.total_draft_tokens_count || 0);
-          timings.draft_n_accepted = (timings.draft_n_accepted || 0) + (parsed.stats.accepted_draft_tokens_count || 0);
+          timings.draft_n = Math.max(timings.draft_n || 0, parsed.stats.total_draft_tokens_count || 0);
+          timings.draft_n_accepted = Math.max(timings.draft_n_accepted || 0, parsed.stats.accepted_draft_tokens_count || 0);
           callbacks.onTimings?.(timings);
         }
 

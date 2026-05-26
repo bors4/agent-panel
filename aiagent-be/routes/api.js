@@ -132,12 +132,15 @@ export function createApiRouter(deps) {
    * GET /api/validate-path — Проверить существование директории.
    * Query: ?path=...
    */
-  router.get("/validate-path", (req, res) => {
+  router.get("/validate-path", async (req, res) => {
     const checkPath = req.query.path;
     if (!checkPath) return res.status(400).json({ valid: false, error: "Path parameter required" });
-    const resolved = path.resolve(checkPath);
-    const exists = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
-    res.json({ valid: exists, resolved });
+    try {
+      const stat = await fs.promises.stat(path.resolve(checkPath));
+      res.json({ valid: stat.isDirectory() });
+    } catch {
+      res.json({ valid: false });
+    }
   });
 
   /**
@@ -435,7 +438,7 @@ export function createApiRouter(deps) {
                 tokens_cached: t.tokens_cached ?? 0,
                 draft_n: t.draft_n || 0,
                 draft_n_accepted: t.draft_n_accepted || 0,
-                draft_acceptance_rate: t.draft_n > 0 ? t.draft_n_accepted / t.draft_n : 0,
+                draft_acceptance_rate: (t.draft_n ?? 0) > 0 ? (t.draft_n_accepted ?? 0) / (t.draft_n ?? 0) : 0,
                 total_ms: Math.round((t.prompt_ms || 0) + (t.predicted_ms || 0)),
               });
             }
@@ -460,7 +463,7 @@ export function createApiRouter(deps) {
               tokens_cached: 0,
               draft_n: sseTimings?.draft_n || 0,
               draft_n_accepted: sseTimings?.draft_n_accepted || 0,
-              draft_acceptance_rate: sseTimings?.draft_n > 0 ? (sseTimings.draft_n_accepted || 0) / sseTimings.draft_n : 0,
+              draft_acceptance_rate: (sseTimings?.draft_n ?? 0) > 0 ? (sseTimings?.draft_n_accepted ?? 0) / (sseTimings?.draft_n ?? 0) : 0,
               total_ms: Math.round(totalMs),
             });
           }
@@ -540,7 +543,7 @@ export function createApiRouter(deps) {
             tokens_cached: timings.tokens_cached ?? 0,
             draft_n: timings.draft_n || 0,
             draft_n_accepted: timings.draft_n_accepted || 0,
-            draft_acceptance_rate: timings.draft_n > 0 ? timings.draft_n_accepted / timings.draft_n : 0,
+            draft_acceptance_rate: (timings.draft_n ?? 0) > 0 ? (timings.draft_n_accepted ?? 0) / (timings.draft_n ?? 0) : 0,
             total_ms: Math.round((timings.prompt_ms || 0) + (timings.predicted_ms || 0)),
           });
         }
