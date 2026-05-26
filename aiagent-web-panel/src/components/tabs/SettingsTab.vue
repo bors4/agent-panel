@@ -28,7 +28,8 @@
         <label>PROJECT_PATH</label>
         <span class="hint">Путь к проекту</span>
       </div>
-      <input v-model="configCopy.projectPath" type="text" class="form-input" placeholder="C:\path\to\project" />
+      <input v-model="configCopy.projectPath" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
+      <p v-if="pathError" class="path-error">{{ pathError }}</p>
     </div>
     <div class="form-group">
       <div class="form-label">
@@ -239,6 +240,7 @@ const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
 // Состояния
 const tokenVisible = ref(false);
+const pathError = ref("");
 const loadingStates = ref({
   save: false,
   reset: false,
@@ -330,9 +332,26 @@ watch(configCopy, autoSave, { deep: true });
 watch(modelNameCopy, autoSave);
 watch(apiBasesCopy, autoSave, { deep: true });
 
+watch(() => configCopy.projectPath, () => {
+  pathError.value = "";
+});
+
 // Обработчики с loading states
+async function checkProjectPath() {
+  const p = configCopy.projectPath;
+  if (!p || p === "C:\\") { pathError.value = ""; return; }
+  try {
+    const res = await fetch(`/api/validate-path?path=${encodeURIComponent(p)}`);
+    const data = await res.json();
+    pathError.value = data.valid ? "" : "⚠️ Directory does not exist";
+  } catch {
+    pathError.value = "⚠️ Cannot validate path";
+  }
+}
+
 const handleSave = async () => {
   if (isSaving) return;
+  pathError.value = "";
   
   loadingStates.value.save = true;
   try {
@@ -657,6 +676,12 @@ select.form-input {
   color: #e74c3c;
   font-size: 11px;
   margin-top: 6px;
+}
+
+.path-error {
+  color: #e74c3c;
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 @keyframes spin {

@@ -77,7 +77,7 @@ describe("API Routes", () => {
     it("resolves projectPath with path.resolve", async () => {
       const res = await supertest(app)
         .post("/api/config")
-        .send({ projectPath: "/some/path" });
+        .send({ projectPath: process.cwd() });
       expect(res.status).toBe(200);
       expect(deps.config.projectPath).toBeDefined();
     });

@@ -5,6 +5,7 @@
 
 import { Router } from "express";
 import path from "path";
+import fs from "fs";
 import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
 import { loadAccounts, saveAccounts, getAccounts } from "../lib/accounts.js";
 import { configDefaults } from "../lib/configDefaults.js";
@@ -128,6 +129,18 @@ export function createApiRouter(deps) {
   });
 
   /**
+   * GET /api/validate-path — Проверить существование директории.
+   * Query: ?path=...
+   */
+  router.get("/validate-path", (req, res) => {
+    const checkPath = req.query.path;
+    if (!checkPath) return res.status(400).json({ valid: false, error: "Path parameter required" });
+    const resolved = path.resolve(checkPath);
+    const exists = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+    res.json({ valid: exists, resolved });
+  });
+
+  /**
    * POST /api/config — Обновить конфигурацию.
    * Body: { serverUrl?, modelName?, projectPath?, systemPrompt?, maxTokens?, temperature?, timeout?, token? }
    */
@@ -139,6 +152,12 @@ export function createApiRouter(deps) {
     if (body.modelName) config.modelName = body.modelName;
     if (body.projectPath !== undefined && body.projectPath !== null && body.projectPath !== "") {
       const resolved = path.resolve(body.projectPath);
+      if (!fs.existsSync(resolved)) {
+        return res.status(400).json({ error: `Directory does not exist: ${resolved}` });
+      }
+      if (!fs.statSync(resolved).isDirectory()) {
+        return res.status(400).json({ error: `Path is not a directory: ${resolved}` });
+      }
       config.projectPath = resolved;
       loadAccounts(config.projectPath);
       addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}", accounts: ${getAccounts().length}`, "info");
