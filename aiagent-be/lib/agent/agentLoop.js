@@ -94,8 +94,18 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
  * @returns {string|null} Извлечённая команда или null
  */
 function extractBash(content) {
-  const m = content.match(/`(?:bash|sh)?[\s\S]*?`/);
-  return m ? m[0].replace(/`[a-z]*\n?/g, "").trim() : null;
+  const start = content.indexOf("`");
+  if (start === -1) return null;
+  let idx = start + 1;
+  if (content.startsWith("bash", idx)) {
+    idx += 4;
+  } else if (content.startsWith("sh", idx)) {
+    idx += 2;
+  }
+  if (content[idx] === "\n") idx++;
+  const end = content.indexOf("`", idx);
+  if (end === -1) return null;
+  return content.slice(idx, end).trim();
 }
 
 /**

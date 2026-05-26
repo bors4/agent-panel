@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 38 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 5/13` · `P4: 5/5`
+> **Прогресс: 39 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 6/13` · `P4: 5/5`
 
 ---
 
@@ -228,7 +228,7 @@
 - [ ] #11 `[style][frontend]` **Смесь относительных (`/api/accounts`) и абсолютных URL в ToolsTab.vue**
   - За прокси на production может сломаться; унифицировать через `BASE_URL`
 
-- [ ] #12 `[perf][backend]` **ReDoS-потенциал в `extractBash()`**
+- [x] #12 `[perf][backend]` **ReDoS-потенциал в `extractBash()`**
   - `agentLoop.js:70-73`: `content.match(/⁠\`(?:bash|sh)?[\s\S]*?\`⁠/)` — backtracking при большом content
   - **Фикс:** использовать `indexOf` вместо regex
 
