@@ -27,6 +27,7 @@ import { spawn } from "child_process";
 import { safePath } from "../utils.js";
 import { checkAccountToolPermission } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
+import { logInfo } from "../logger.js";
 
 // ============================================================================
 // DEFAULT CONFIGURATION
@@ -495,7 +496,7 @@ export async function executeTool(toolCall, config = {}) {
     return { success: false, error: permission.reason, requiresApproval: toolCfg.permission === "ask" };
   }
 
-  console.log(`[executeTool] name=${name}, args=${JSON.stringify(args)}, projectPath="${projectPath}"`);
+  logInfo(`execute: ${name}`, { args: JSON.stringify(args).slice(0, 200), projectPath });
 
   try {
     switch (name) {

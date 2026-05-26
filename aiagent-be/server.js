@@ -601,11 +601,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     return;
   }
 
-  console.log("[continueAfterApproval] Called:", {
-    toolName: pending.toolName,
-    toolCallId: pending.toolCallId,
-    args: pending.args,
-    depth,
+  addLog(`continueAfterApproval: ${pending.toolName} (depth ${depth})`, "info");
   });
 
   stats.tools++;
@@ -776,11 +772,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       }
     }
 
-    console.log("[agent] Model response:", {
-      finishReason,
-      hasToolCalls: !!nextMessage?.tool_calls?.length,
-      contentLen: nextMessage?.content?.length,
-    });
+    addLog(`Model response: finish=${finishReason}, toolCalls=${!!nextMessage?.tool_calls?.length}, content=${nextMessage?.content?.length}`, "info");
 
     if (!nextMessage || (!nextMessage.content?.trim() && !nextMessage.tool_calls?.length)) {
       const reason = finishReason === "length" ? "Лимит токенов (max_tokens)" : "Ответ модели обрезан или невалиден";
@@ -877,7 +869,6 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
  * @returns {Promise<void>}
  */
 bot.on("callback_query", async (ctx) => {
-  console.log(`[🔔 CALLBACK] data="${ctx.callbackQuery.data}", chat=${ctx.chat.id}`);
   const callbackData = ctx.callbackQuery.data;
   const chatId = ctx.chat.id.toString();
   addLog(`Callback: ${callbackData} from ${chatId}`, "info");

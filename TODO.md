@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 37 / 71** | `P0: 0/4` · `P1: 3/12` · `P2: 9/22` · `P3: 5/13` · `P4: 5/5`
+> **Прогресс: 38 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 5/13` · `P4: 5/5`
 
 ---
 
@@ -81,7 +81,7 @@
 - [x] #10 `[bug][backend]` **`temperature || 0.1` — невозможно установить temperature=0**
   - Заменён `||` на `??` в `agentLoop.js`, `!== undefined` в `api.js` — temperature=0 теперь работает
 
-- [ ] #11 `[cleanup][backend]` **`console.log` в production-коде**
+- [x] #11 `[cleanup][backend]` **`console.log` в production-коде**
   - `server.js:435,523,604`: заменить на `addLog()`/`logInfo()`
   - `executeTool.js:446`: `console.log(\`[executeTool] name=${name}, args=${JSON.stringify(args)}...\`)` — args могут содержать секреты
   - **Фикс:** заменить на `logInfo()`, маскировать `args`
