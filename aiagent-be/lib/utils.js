@@ -37,7 +37,8 @@ export function safePath(userPath, projectRoot) {
   // Normalize to forward slashes for consistent comparison and output
   const normalizedPath = resolvedPath.replace(/\\/g, "/").toLowerCase();
 
-  if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(normalizedRoot + "/")) {
+  const rootPrefix = normalizedRoot.endsWith("/") ? normalizedRoot : normalizedRoot + "/";
+  if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(rootPrefix)) {
     throw new Error(`Path outside project is forbidden: ${normalizedPath} (root: ${normalizedRoot})`);
   }
   return resolvedPath.replace(/\\/g, "/");

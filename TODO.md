@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 44 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 11/13` · `P4: 5/5`
+> **Прогресс: 45 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 10/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -181,9 +181,9 @@
   - AbortError (таймаут) тоже не отлавливается отдельно — идёт в общий catch
   - **Фикс:** `response` guard + различать AbortError/TypeError/HTTP
 
-- [ ] #22 `[bug][backend]` **safePath ломается при projectRoot = корень диска (двойной слеш)**
-  - `utils.js:31,39`: `normalizedRoot = "e:/"`, проверка `startsWith(normalizedRoot + "/")` → `startsWith("e://")` никогда не совпадает
-  - **Фикс:** убрать `+ "/"` для drive-root путей, или использовать `path.relative()`
+- [x] #22 `[bug][backend]` **safePath ломается при projectRoot = корень диска (двойной слеш)**
+  - `utils.js:40`: `normalizedRoot.endsWith("/")` вместо безусловного `+ "/"`
+  - `server.test.js`: добавлен тест для `PROJECT_PATH=E:\`
 
 ---
 
