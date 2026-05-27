@@ -143,11 +143,11 @@
   - `server.js`: `deleteMessage()` добавлен в 3 места — ошибка, лимит итераций, внешний catch
   - Финальный ответ обновляет черновик через `editDraftMessage`
 
-- [ ] #13 `[perf][backend]` **`formatValue()` рекурсия без защиты от циклических ссылок**
+- [x] #13 `[perf][backend]` **`formatValue()` рекурсия без защиты от циклических ссылок**
   - `executeTool.js:255-285`: рекурсивный обход без защиты от circular ref → `RangeError`
   - **Фикс:** добавить `Set` для отслеживания посещённых объектов
 
-- [ ] #14 `[security][frontend]` **Hardcoded API key на фронтенде**
+- [x] #14 `[security][frontend]` **Hardcoded API key на фронтенде**
   - `"x-api-key": "agent-secret-key"` в ToolsTab.vue и client.js — если изменить `API_KEY` в `.env`, фронтенд перестанет работать
   - Вынести в env-переменную Vite
 
@@ -215,7 +215,7 @@
 - [ ] #7 `[perf][backend]` **Ограничение размера файлов при поиске**
   - `searchDirectory()` читает каждый файл полностью в память — добавить `maxFileSize`, пропускать бинарные файлы
 
-- [ ] #8 `[feature][backend]` **Очистка старых сессий**
+- [x] #8 `[feature][backend]` Отменена **Очистка старых сессий**
   - `chatHistories` никогда не очищается — добавить периодическую чистку (1 час без активности)
 
 - [x] #9 `[perf][frontend]` **`BotCheckCard.vue` — watch с `{ immediate: true }` вызывает фильтрацию токена на каждый триггер**

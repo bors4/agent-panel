@@ -34,7 +34,12 @@ describe("api/client accounts", () => {
     const result = await getAccounts();
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/accounts"),
-      expect.objectContaining({ headers: expect.objectContaining({ "x-api-key": expect.any(String) }) }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "x-api-key": expect.any(String),
+        }),
+      }),
     );
     expect(result.success).toBe(true);
   });
@@ -77,7 +82,8 @@ describe("api/client models", () => {
   });
 });
 
-describe("api/client validate path", () => {
+// Проверяем, что базовая функциональность работает с новым API_KEY поведением
+describe("api/client with new API_KEY behavior", () => {
   beforeEach(() => {
     global.fetch = vi.fn();
   });

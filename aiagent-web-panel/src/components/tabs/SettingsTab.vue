@@ -123,6 +123,20 @@
     </div>
     <div class="form-group">
       <div class="form-label">
+        <label>MAX_SEARCH_FILE_SIZE (bytes)</label>
+        <span class="hint">Макс. размер файла для поиска</span>
+      </div>
+      <input
+        v-model.number="configCopy.maxSearchFileSize"
+        type="number"
+        class="form-input"
+        min="65536"
+        max="10485760"
+        step="65536"
+      />
+    </div>
+    <div class="form-group">
+      <div class="form-label">
         <label>MAX_FILES_IN_PROMPT</label>
         <span class="hint">Файлов в контексте</span>
       </div>
@@ -236,6 +250,7 @@ const configCopy = reactive({
   maxFileChars: props.config.maxFileChars ?? configDefaults.maxFileChars,
   maxHistoryPairs: props.config.maxHistoryPairs ?? configDefaults.maxHistoryPairs,
   maxSearchResults: props.config.maxSearchResults ?? configDefaults.maxSearchResults,
+  maxSearchFileSize: props.config.maxSearchFileSize ?? configDefaults.maxSearchFileSize,
   maxFilesInPrompt: props.config.maxFilesInPrompt ?? configDefaults.maxFilesInPrompt,
   maxTokens: props.config.maxTokens ?? configDefaults.maxTokens,
   timeout: props.config.timeout ?? configDefaults.timeout,
@@ -309,6 +324,7 @@ watch(
     configCopy.maxFileChars = val.maxFileChars ?? configDefaults.maxFileChars;
     configCopy.maxHistoryPairs = val.maxHistoryPairs ?? configDefaults.maxHistoryPairs;
     configCopy.maxSearchResults = val.maxSearchResults ?? configDefaults.maxSearchResults;
+    configCopy.maxSearchFileSize = val.maxSearchFileSize ?? configDefaults.maxSearchFileSize;
     configCopy.maxFilesInPrompt = val.maxFilesInPrompt ?? configDefaults.maxFilesInPrompt;
     configCopy.maxTokens = val.maxTokens ?? configDefaults.maxTokens;
     configCopy.timeout = val.timeout ?? configDefaults.timeout;

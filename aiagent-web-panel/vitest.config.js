@@ -15,4 +15,8 @@ export default defineConfig({
       "@backend": fileURLToPath(new URL("../aiagent-be", import.meta.url)),
     },
   },
+  define: {
+    "import.meta.env.VITE_API_KEY": JSON.stringify("test-key"),
+    "import.meta.env.VITE_DISABLE_HMR_LOGS": JSON.stringify("true"),
+  },
 });

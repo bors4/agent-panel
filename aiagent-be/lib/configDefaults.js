@@ -11,5 +11,6 @@ export const configDefaults = {
   maxHistoryPairs: 5,
   maxSearchResults: 15,
   maxFilesInPrompt: 2,
+  maxSearchFileSize: 1048576, // 1 MB
   stream: true,
 };

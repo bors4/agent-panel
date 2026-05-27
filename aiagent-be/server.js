@@ -43,6 +43,7 @@ bot.use(stream());
  * @property {number} maxHistoryPairs - Макс. пар сообщений в истории
  * @property {number} maxSearchResults - Макс. результатов поиска
  * @property {number} maxFilesInPrompt - Макс. файлов в промпте
+ * @property {number} maxSearchFileSize - Макс. размер файла для поиска (байт)
  */
 const config = {
   serverUrl: configDefaults.serverUrl,
@@ -53,6 +54,7 @@ const config = {
   maxTokens: configDefaults.maxTokens,
   temperature: configDefaults.temperature,
   timeout: configDefaults.timeout,
+  maxSearchFileSize: configDefaults.maxSearchFileSize,
   stream: configDefaults.stream,
 };
 

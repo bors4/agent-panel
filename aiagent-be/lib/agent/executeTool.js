@@ -29,6 +29,17 @@ import { checkAccountToolPermission } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
 import { logInfo } from "../logger.js";
 
+const BINARY_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
+  ".mp3", ".mp4", ".avi", ".mov", ".wav", ".flac", ".ogg",
+  ".zip", ".tar", ".gz", ".rar", ".7z",
+  ".exe", ".dll", ".so", ".dylib", ".o", ".a", ".lib",
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".bin", ".dat", ".db", ".sqlite",
+  ".woff", ".woff2", ".ttf", ".eot", ".otf",
+  ".wasm", ".class", ".pyc", ".cur",
+]);
+
 // ============================================================================
 // DEFAULT CONFIGURATION
 // ============================================================================
@@ -291,20 +302,34 @@ function checkToolPermission(toolName, args, projectPath, account) {
 /**
  * Рекурсивно форматирует любое значение для безопасного отображения в Telegram.
  * Обрабатывает вложенные объекты, массивы и структуры файлов/директорий.
+ * Защищает от циклических ссылок.
  * @param {*} v - Значение для форматирования
  * @param {number} [depth=0] - Текущая глубина рекурсии
+ * @param {Set<Object>} [visited=new Set()] - Набор посещенных объектов для защиты от циклов
  * @returns {string} Отформатированная строка
  */
-export function formatValue(v, depth = 0) {
+export function formatValue(v, depth = 0, visited = new Set()) {
+  // Handle primitives
   if (v === null || v === undefined) return "N/A";
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+
+  // Handle objects (including arrays) for circular reference check
+  if (typeof v === "object") {
+    // Check for circular reference
+    if (visited.has(v)) {
+      return "[Circular]";
+    }
+    
+    // Add current object to visited set
+    visited.add(v);
+  }
 
   // Arrays: format each element with indentation
   if (Array.isArray(v)) {
     if (depth > 2) return `[${v.length} items]`;
     return v
       .map((item) => {
-        const formatted = formatValue(item, depth + 1);
+        const formatted = formatValue(item, depth + 1, visited);
         return Array.isArray(item) ? `\n${formatted}` : formatted;
       })
       .join("\n  ");
@@ -320,7 +345,7 @@ export function formatValue(v, depth = 0) {
     // Simple serialization for other objects
     if (depth > 1) return JSON.stringify(v);
     return Object.entries(v)
-      .map(([key, val]) => `  • ${key}: ${formatValue(val, depth + 1)}`)
+      .map(([key, val]) => `  • ${key}: ${formatValue(val, depth + 1, visited)}`)
       .join("\n");
   }
 
@@ -389,8 +414,9 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
  * @param {string|null} extension - Фильтр по расширению (e.g. "*.js") или null
  * @param {number} maxResults - Максимальное количество результатов
  * @param {string} projectPath - Корень проекта для вычисления относительных путей
+ * @param {number} maxSearchFileSize - Максимальный размер файла в байтах
  */
-async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath) {
+async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath, maxSearchFileSize) {
   if (depth > 5 || results.length >= maxResults) return;
 
   try {
@@ -403,26 +429,45 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
       const fullPath = path.join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
-        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath);
+        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath, maxSearchFileSize);
       } else if (entry.isFile()) {
         // Filter by extension if specified
         if (extension && !entry.name.endsWith(extension.replace("*", ""))) continue;
 
+        // Skip known binary extensions
+        const ext = path.extname(entry.name).toLowerCase();
+        if (BINARY_EXTENSIONS.has(ext)) continue;
+
         try {
-          const content = await fs.promises.readFile(fullPath, "utf-8");
-          const matches = content.match(pattern);
-          if (matches && results.length < maxResults) {
-            const relativePath = path.relative(projectPath, fullPath).replace(/\\/g, "/");
-            results.push({
-              file: relativePath,
-              matches: matches.length,
-              preview: content
-                .substring(
-                  Math.max(0, content.indexOf(matches[0]) - 50),
-                  Math.min(content.length, content.indexOf(matches[0]) + 100)
-                )
-                .replace(/\n/g, " "),
-            });
+          // Check file size before reading
+          const stat = await fs.promises.stat(fullPath);
+          if (stat.size > maxSearchFileSize) continue;
+
+          // Null-byte sniff on first 512 bytes, then full read via same handle
+          let filehandle;
+          try {
+            filehandle = await fs.promises.open(fullPath, "r");
+            const buf = Buffer.alloc(512);
+            const { bytesRead } = await filehandle.read(buf, 0, 512, 0);
+            if (bytesRead > 0 && buf.subarray(0, bytesRead).includes(0)) continue;
+
+            const content = await filehandle.readFile("utf-8");
+            const matches = content.match(pattern);
+            if (matches && results.length < maxResults) {
+              const relativePath = path.relative(projectPath, fullPath).replace(/\\/g, "/");
+              results.push({
+                file: relativePath,
+                matches: matches.length,
+                preview: content
+                  .substring(
+                    Math.max(0, content.indexOf(matches[0]) - 50),
+                    Math.min(content.length, content.indexOf(matches[0]) + 100)
+                  )
+                  .replace(/\n/g, " "),
+              });
+            }
+          } finally {
+            if (filehandle) await filehandle.close().catch(() => {});
           }
         } catch (_e) {
           /* skip unreadable files */
@@ -448,6 +493,7 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
  * @param {string} config.projectPath - Путь к проекту
  * @param {Object} [config.account] - Аккаунт пользователя
  * @param {number} [config.maxSearchResults=15] - Макс. результатов поиска
+ * @param {number} [config.maxSearchFileSize=1048576] - Макс. размер файла для поиска (байт)
  * @param {number} [config.maxFileChars=2000] - Макс. символов при чтении файла
  * @param {number} [config.maxFilesInPrompt=2] - Макс. файлов в промпте
  * @param {number} [config.filesRead=0] - Счётчик прочитанных файлов
@@ -467,6 +513,7 @@ export async function executeTool(toolCall, config = {}) {
   }
   const projectPath = path.resolve(rawPath);
   const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
+  const maxSearchFileSize = config.maxSearchFileSize ?? configDefaults.maxSearchFileSize;
 
   // Validate project directory exists
   try {
@@ -553,7 +600,7 @@ export async function executeTool(toolCall, config = {}) {
         const results = [];
         const include = args.include || null;
 
-        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath);
+        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath, maxSearchFileSize);
 
         return {
           success: true,

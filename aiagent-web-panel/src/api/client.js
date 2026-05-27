@@ -5,7 +5,14 @@
  */
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:3000/api";
-const API_KEY = import.meta.env.VITE_API_KEY || "agent-secret-key";
+const API_KEY = import.meta.env.VITE_API_KEY;
+
+// Проверяем наличие API_KEY
+if (!API_KEY) {
+  console.error("[api] VITE_API_KEY не задан в окружении! Фронтенд не будет отправлять API ключ.");
+  // Для удобства разработки можно вернуть null, чтобы запросы просто отправлялись без заголовка
+  // В проде лучше выбрасывать ошибку: throw new Error("API_KEY обязателен");
+}
 
 // ─────────────────────────────────────────────────────
 // 🔄 Состояние подключения и повторных попыток
@@ -74,9 +81,13 @@ async function apiFetch(endpoint, options = {}, retry = true) {
   const url = `${BASE_URL}${endpoint}`;
   const headers = {
     "Content-Type": "application/json",
-    "x-api-key": API_KEY,
+    ...(API_KEY && { "x-api-key": API_KEY }),
     ...options.headers,
   };
+
+  if (!API_KEY) {
+    console.warn("[api] VITE_API_KEY не задан — запрос отправляется без API ключа");
+  }
 
   try {
     const response = await fetch(url, { ...options, headers });
