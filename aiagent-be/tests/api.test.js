@@ -239,6 +239,18 @@ describe("API Routes", () => {
         .send({ message: "" });
       expect(res.status).toBe(400);
     });
+
+    it("handles fetch error gracefully (not TypeError)", async () => {
+      const origFetch = global.fetch;
+      global.fetch = vi.fn().mockRejectedValue(new Error("fetch failed"));
+      const res = await supertest(app)
+        .post("/api/chat")
+        .send({ message: "hello" });
+      global.fetch = origFetch;
+      expect(res.status).toBe(500);
+      expect(res.body.error).not.toContain("undefined");
+      expect(res.body.error).not.toContain("TypeError");
+    });
   });
 
   describe("GET /api/health", () => {

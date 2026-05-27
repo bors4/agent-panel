@@ -387,6 +387,9 @@ export function createApiRouter(deps) {
         clearTimeout(timeoutId);
       }
 
+      if (!response) {
+        throw new Error("AI server unreachable: request failed");
+      }
       if (!response.ok) {
         stats.errors++;
         throw new Error(`AI API error: ${response.status}`);

@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 45 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 10/22` · `P3: 11/13` · `P4: 5/5`
+> **Прогресс: 46 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 11/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -176,10 +176,9 @@
   - Если пользователь не ответил на подтверждение, запись висит вечно
   - **Фикс:** добавить timestamp + периодическая очистка (10 мин TTL)
 
-- [ ] #21 `[bug][backend]` **Сетевая ошибка в `/api/chat` до `response.ok` маскируется TypeError**
-  - `api.js:323-347`: при сетевой ошибке `response = undefined`, строка 345 падает с `TypeError: Cannot read properties of undefined (reading 'ok')`
-  - AbortError (таймаут) тоже не отлавливается отдельно — идёт в общий catch
-  - **Фикс:** `response` guard + различать AbortError/TypeError/HTTP
+- [x] #21 `[bug][backend]` **Сетевая ошибка в `/api/chat` до `response.ok` маскируется TypeError**
+  - `api.js:390`: guard `if (!response)` перед `response.ok` — вместо TypeError возвращает "AI server unreachable"
+  - Тест: проверяет внятное сообщение при сетевой ошибке, без `undefined`/`TypeError`
 
 - [x] #22 `[bug][backend]` **safePath ломается при projectRoot = корень диска (двойной слеш)**
   - `utils.js:40`: `normalizedRoot.endsWith("/")` вместо безусловного `+ "/"`
