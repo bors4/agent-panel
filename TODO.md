@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 48 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 13/22` · `P3: 11/13` · `P4: 5/5`
+> **Прогресс: 50 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 15/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -117,8 +117,8 @@
   - Активные процессы в `Map<taskId, {...}>`, команды `/tasks`, `/cancel`
   - Таймаут по умолчанию configurable (например 2 часа), `timeout: 0` = без лимита
 
-- [ ] #6 `[security][backend]` **Symlink path traversal в `safePath()`**
-  - Добавить `fs.realpathSync()` для разрешения симлинков перед проверкой пути
+- [x] #6 `[security][backend]` **Symlink path traversal в `safePath()`**
+  - Добавлен `resolveRealPath()` на `fs.realpathSync()` с рекурсивным parent-walk для несуществующих путей
 
 - [ ] #7 `[feature][backend][frontend]` **Добавить вызов инструментов в веб-панели (`/api/chat`)**
   - Интегрировать `agentLoopStep()` в `/api/chat`; добавить tool definitions; передавать account/permissions
@@ -151,7 +151,7 @@
   - `"x-api-key": "agent-secret-key"` в ToolsTab.vue и client.js — если изменить `API_KEY` в `.env`, фронтенд перестанет работать
   - Вынести в env-переменную Vite
 
-- [ ] #15 `[security][backend]` **ReDoS-потенциал в `new RegExp(pattern, "gi")` при поиске**
+- [x] #15 `[security][backend]` **ReDoS-потенциал в `new RegExp(pattern, "gi")` при поиске**
   - `executeTool.js:494`: лимит 200 символов есть, но паттерн типа `(a+)+b` даёт экспоненциальное backtracking
   - **Фикс:** добавить таймаут на выполнение regex (5с), обернуть в try/catch
 

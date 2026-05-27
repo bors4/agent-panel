@@ -69,7 +69,7 @@
 - Resolves relative to `projectRoot`, rejects traversal (`path.relative()` check)
 - Absolute paths allowed only if within `projectRoot`
 - `.toLowerCase()` normalization **on Windows only** (Linux: case-sensitive)
-- No symlink resolution (`realpathSync` not used — see TODO P2-#6)
+- Symlinks resolved via `fs.realpathSync()` (recursive parent-walk for non-existent paths)
 
 ## Execute Tool (Windows)
 

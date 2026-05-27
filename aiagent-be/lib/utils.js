@@ -3,8 +3,28 @@
  * @module utils
  */
 
+import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+
+/**
+ * Разрешает реальный путь на диске, проходя через симлинки.
+ * Для несуществующих путей поднимается до первого существующего предка.
+ * @param {string} p - Путь для разрешения
+ * @returns {string} Реальный путь
+ */
+function resolveRealPath(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch (e) {
+    if (e.code === "ENOENT" || e.code === "ENOTDIR") {
+      const parent = path.dirname(p);
+      if (parent === p) return p;
+      return path.join(resolveRealPath(parent), path.basename(p));
+    }
+    throw e;
+  }
+}
 
 /**
  * Безопасно разрешить пользовательский путь относительно корня проекта.
@@ -29,17 +49,20 @@ export function safePath(userPath, projectRoot) {
   }
 
   const resolvedRoot = path.resolve(trimmedRoot);
-  const normalizedRoot = resolvedRoot.replace(/\\/g, "/").toLowerCase();
 
   // If userPath is absolute, check if it's within the project root
   const resolvedPath = path.isAbsolute(cleanPath) ? path.resolve(cleanPath) : path.resolve(trimmedRoot, cleanPath);
 
-  // Normalize to forward slashes for consistent comparison and output
-  const normalizedPath = resolvedPath.replace(/\\/g, "/").toLowerCase();
+  // Resolve symlinks for boundary check (walk up for non-existent paths)
+  const realRoot = resolveRealPath(resolvedRoot);
+  const realPath = resolveRealPath(resolvedPath);
 
-  const rootPrefix = normalizedRoot.endsWith("/") ? normalizedRoot : normalizedRoot + "/";
-  if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(rootPrefix)) {
-    throw new Error(`Path outside project is forbidden: ${normalizedPath} (root: ${normalizedRoot})`);
+  const normalizedRealRoot = realRoot.replace(/\\/g, "/").toLowerCase();
+  const normalizedRealPath = realPath.replace(/\\/g, "/").toLowerCase();
+
+  const rootPrefix = normalizedRealRoot.endsWith("/") ? normalizedRealRoot : normalizedRealRoot + "/";
+  if (normalizedRealPath !== normalizedRealRoot && !normalizedRealPath.startsWith(rootPrefix)) {
+    throw new Error(`Path outside project is forbidden: ${resolvedPath.replace(/\\/g, "/")} (root: ${normalizedRealRoot})`);
   }
   return resolvedPath.replace(/\\/g, "/");
 }
