@@ -411,6 +411,42 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
 }
 
 // ============================================================================
+// HELPER: REDOS DETECTION
+// ============================================================================
+
+/**
+ * Проверяет паттерн на ReDoS-потенциал: квантификатор снаружи группы,
+ * внутри которой уже есть квантификатор (т.н. "nested quantifiers").
+ * @param {string} pattern - Regex паттерн
+ * @returns {boolean} true если паттерн потенциально опасен
+ */
+export function rejectReDoS(pattern) {
+  let depth = 0;
+  const depthHasQuantifier = new Set();
+
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "(" && pattern[i - 1] !== "\\") {
+      depth++;
+    } else if (c === ")" && pattern[i - 1] !== "\\") {
+      const hadQuantifier = depthHasQuantifier.has(depth);
+      const next = pattern[i + 1];
+      if (hadQuantifier && (next === "+" || next === "*" || next === "?" || next === "{")) {
+        return true;
+      }
+      depthHasQuantifier.delete(depth);
+      depth--;
+      if (hadQuantifier && depth > 0) {
+        depthHasQuantifier.add(depth);
+      }
+    } else if ((c === "+" || c === "*" || c === "?") && pattern[i - 1] !== "\\" && depth > 0) {
+      depthHasQuantifier.add(depth);
+    }
+  }
+  return false;
+}
+
+// ============================================================================
 // HELPER: SEARCH DIRECTORY
 // ============================================================================
 
@@ -425,8 +461,9 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
  * @param {number} maxResults - Максимальное количество результатов
  * @param {string} projectPath - Корень проекта для вычисления относительных путей
  * @param {number} maxSearchFileSize - Максимальный размер файла в байтах
+ * @param {number} maxFileChars - Макс. символов для regex matching
  */
-async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath, maxSearchFileSize) {
+async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath, maxSearchFileSize, maxFileChars) {
   if (depth > 5 || results.length >= maxResults) return;
 
   try {
@@ -439,7 +476,7 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
       const fullPath = path.join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
-        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath, maxSearchFileSize);
+        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath, maxSearchFileSize, maxFileChars);
       } else if (entry.isFile()) {
         // Filter by extension if specified
         if (extension && !entry.name.endsWith(extension.replace("*", ""))) continue;
@@ -462,7 +499,8 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
             if (bytesRead > 0 && buf.subarray(0, bytesRead).includes(0)) continue;
 
             const content = await filehandle.readFile("utf-8");
-            const matches = content.match(pattern);
+            const searchContent = content.slice(0, maxFileChars);
+            const matches = searchContent.match(pattern);
             if (matches && results.length < maxResults) {
               const relativePath = path.relative(projectPath, fullPath).replace(/\\/g, "/");
               results.push({
@@ -524,6 +562,7 @@ export async function executeTool(toolCall, config = {}) {
   const projectPath = path.resolve(rawPath);
   const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
   const maxSearchFileSize = config.maxSearchFileSize ?? configDefaults.maxSearchFileSize;
+  const maxFileChars = config.maxFileChars ?? configDefaults.maxFileChars;
 
   // Validate project directory exists
   try {
@@ -607,10 +646,13 @@ export async function executeTool(toolCall, config = {}) {
         } catch (e) {
           return { success: false, error: `Invalid regex pattern: ${e.message}` };
         }
+        if (rejectReDoS(pattern)) {
+          return { success: false, error: "Search pattern rejected: too complex (nested quantifiers)" };
+        }
         const results = [];
         const include = args.include || null;
 
-        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath, maxSearchFileSize);
+        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath, maxSearchFileSize, maxFileChars);
 
         return {
           success: true,
