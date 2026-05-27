@@ -227,14 +227,22 @@ export function updateToolConfig(name, settings) {
     toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
   }
   Object.assign(toolConfig[name], settings);
+  configDirty = true;
 }
+
+/** @type {Object|null} */
+let cachedConfig = null;
+/** @type {boolean} */
+let configDirty = true;
 
 /**
  * Получить полную конфигурацию всех инструментов.
  * Сливает DEFAULT_TOOL_CONFIG с текущими настройками и метаданными из TOOLS.
+ * Результат кэшируется до следующего updateToolConfig.
  * @returns {Object.<string, Object>} Конфигурация всех инструментов
  */
 export function getToolConfig() {
+  if (!configDirty && cachedConfig) return cachedConfig;
   const config = {};
   for (const [name, tool] of Object.entries(TOOLS)) {
     config[name] = {
@@ -247,6 +255,8 @@ export function getToolConfig() {
       input_schema: tool.input_schema,
     };
   }
+  configDirty = false;
+  cachedConfig = config;
   return config;
 }
 

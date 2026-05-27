@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 47 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 12/22` · `P3: 11/13` · `P4: 5/5`
+> **Прогресс: 48 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 13/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -155,9 +155,9 @@
   - `executeTool.js:494`: лимит 200 символов есть, но паттерн типа `(a+)+b` даёт экспоненциальное backtracking
   - **Фикс:** добавить таймаут на выполнение regex (5с), обернуть в try/catch
 
-- [ ] #16 `[perf][backend]` **`getToolConfig()` создаёт новые объекты на каждый вызов**
-  - Вызывается до 5+ раз за цикл агента, каждый раз создаёт 9×N полей → GC pressure
-  - **Фикс:** мемоизация с инвалидацией при `updateToolConfig`
+- [x] #16 `[perf][backend]` **`getToolConfig()` создаёт новые объекты на каждый вызов**
+  - `configDirty` + `cachedConfig`: инвалидация в `updateToolConfig`, повторное использование в `getToolConfig`
+  - Все 6 точек вызова читают, не мутируют — кэш безопасен
 
 - [x] #17 `[bug][frontend]` **`loadApiBases()` прямой fetch к AI-серверу — CORS-ошибка на другом origin**
   - Исправлен: `loadApiBases()` проксирует через `/api/models?serverUrl=...` на бэкенде
@@ -166,7 +166,7 @@
 - [x] #18 `[security][backend]` **`checkAccountToolPermission` execute игнорирует `include_paths`**
   - `accounts.js:99`: убрано исключение `toolName !== "execute"` — `include_paths` теперь применяется ко всем инструментам, включая execute
 
-- [ ] #19 `[bug][backend]` **parseToolCall не возвращает id для Format 2 (JSON) и Format 3 (<tool>)**
+- [x] #19 `[bug][backend]` **parseToolCall не возвращает id для Format 2 (JSON) и Format 3 (<tool>)**
   - `utils.js:108,124`: только Format 1 генерирует `id: "parsed_..."`. JSON и `<tool>` возвращают `{ name, args }` без id
   - `server.js:793`, `agentLoop.js:376`: `xmlTc.id` / `tc.id` = `undefined` → модель может не сопоставить результат с вызовом
   - **Фикс:** добавить генерацию `id` во все три формата
