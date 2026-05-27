@@ -123,6 +123,7 @@ const defaultConfig = {
   timeout: configDefaults.timeout,
   temperature: configDefaults.temperature,
   stream: configDefaults.stream,
+  insertUserAfterTool: configDefaults.insertUserAfterTool,
 };
 
 const localConfig = ref({ ...defaultConfig });
@@ -513,6 +514,7 @@ const saveSettings = async () => {
       timeout: localConfig.value.timeout,
       temperature: localConfig.value.temperature,
       stream: localConfig.value.stream,
+      insertUserAfterTool: localConfig.value.insertUserAfterTool,
     };
     try {
       await updateConfig(payload);

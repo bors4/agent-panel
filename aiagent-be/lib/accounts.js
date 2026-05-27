@@ -27,17 +27,20 @@ let accounts = [];
 export function loadAccounts(projectPath) {
   if (!projectPath) return;
   const filePath = path.join(projectPath, "accounts.json");
-  if (fs.existsSync(filePath)) {
-    try {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const parsed = JSON.parse(raw);
-      accounts = parsed.accounts || [];
-    } catch (e) {
-      const backupPath = filePath + `.bak.${Date.now()}`;
-      try { fs.renameSync(filePath, backupPath); } catch {}
-      console.error(`[accounts] Corrupted ${filePath}, backed up to ${backupPath}:`, e.message);
-      accounts = [];
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    accounts = parsed.accounts || [];
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      // File doesn't exist - graceful no-op (accounts remain unchanged)
+      return;
     }
+    // Handle other errors (corrupted JSON, permissions, etc.)
+    const backupPath = filePath + `.bak.${Date.now()}`;
+    try { fs.renameSync(filePath, backupPath); } catch {}
+    console.error(`[accounts] Corrupted ${filePath}, backed up to ${backupPath}:`, e.message);
+    accounts = [];
   }
 }
 

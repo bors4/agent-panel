@@ -200,16 +200,28 @@
       </div>
     </template>
     <div class="form-group">
-      <label class="toggle-row">
-        <div class="toggle-row-info">
-          <span class="toggle-label-text">Потоковый вывод (SSE)</span>
-          <span class="hint">Реального времени ответ модели</span>
-        </div>
+      <div class="form-label">
+        <label>Потоковый вывод (SSE)</label>
+        <span class="hint">Реального времени ответ модели</span>
+      </div>
+      <div class="toggle-control">
         <label class="toggle-switch">
           <input v-model="configCopy.stream" type="checkbox" />
           <span class="toggle-slider" />
         </label>
-      </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>insertUserAfterTool</label>
+        <span class="hint">Для Jinja-шаблонов qwen (user после tool)</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.insertUserAfterTool" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
     </div>
   </Card>
 
@@ -256,6 +268,7 @@ const configCopy = reactive({
   timeout: props.config.timeout ?? configDefaults.timeout,
   temperature: props.config.temperature ?? configDefaults.temperature,
   stream: props.config.stream ?? configDefaults.stream,
+  insertUserAfterTool: props.config.insertUserAfterTool ?? configDefaults.insertUserAfterTool,
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
@@ -330,6 +343,7 @@ watch(
     configCopy.timeout = val.timeout ?? configDefaults.timeout;
     configCopy.temperature = val.temperature ?? configDefaults.temperature;
     configCopy.stream = val.stream ?? configDefaults.stream;
+    configCopy.insertUserAfterTool = val.insertUserAfterTool ?? configDefaults.insertUserAfterTool;
     
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
@@ -622,26 +636,10 @@ select.form-input {
   font-weight: 600;
 }
 
-.toggle-row {
+.toggle-control {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
-  cursor: pointer;
-}
-
-.toggle-row-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.toggle-label-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  justify-content: flex-end;
+  padding: 4px 0;
 }
 
 .toggle-switch {

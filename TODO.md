@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 50 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 15/22` · `P3: 11/13` · `P4: 5/5`
+> **Прогресс: 42 / 57** | `P0: 0/4` · `P1: 5/13` · `P2: 19/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -65,10 +65,10 @@
   - `/start`, `/help`, `/model`, `/clear`, `/tools` работают для любого пользователя
   - При этом `bot.on("message")` блокирует неизвестных — несоответствие модели безопасности
 
-- [ ] #8 `[bug][backend]` **JSON.parse без обработки undefined/null в tool_calls модели**
-  - `agentLoop.js:191-194`, `server.js:546-549`: `JSON.parse(tc.function.arguments)` — если `arguments = undefined`, падает с TypeError
-  - `catch` без параметра — теряется стек ошибки
-  - **Фикс:** добавить проверку `arguments`, логировать ошибку в `catch(e)`
+- [x] #8 `[bug][backend]` **JSON.parse без обработки undefined/null в tool_calls модели**
+  - `agentLoop.js:435`: Добавлена проверка `tc.function.arguments == null` перед `JSON.parse`
+  - Улучшен `catch (e)` с логированием через `logError`
+  - Возвращаются осмысленные сообщения об ошибках вместо краша
 
 - [ ] #9 `[feature][backend]` **Режим "простого чата" без проектного контекста**
   - Возможность отключить проектный контекст — агент работает как обычный чат-бот
@@ -93,6 +93,12 @@
   - **Нюансы:** OpenRouter требует заголовок `HTTP-Referer` (можно `https://agent-panel.local`) и `X-Title`; модели возвращаются через `GET /v1/models`; стоимость токенов отличается от локальных моделей
   - `GET /api/models` должен уметь переключаться между LM Studio и OpenRouter по типу `serverUrl`
 
+- [ ] #13 `[bug][backend]` **Необработанные tool_calls теряются при `requiresApproval`**
+  - Когда в одном ответе модели несколько tool_calls, и первый требует approval, остальные не выполняются после одобрения
+  - Сохранять `unprocessedToolCalls` в `pendingApprovals` (`agentLoop.js:364-386`) и выполнять последовательно в `continueAfterApproval` (`server.js:607-`)
+  - `agentLoopStep` при `requiresApproval` должен вернуть оставшиеся tool_calls
+  - `continueAfterApproval` после успешного выполнения тула обработать следующий из списка
+
 ---
 
 ## 🟢 Low Priority (P2)
@@ -108,11 +114,11 @@
 - [x] #3 `[perf][backend]` **Синхронный file I/O блокирует event loop**
   - Все `*Sync` операции в `executeTool.js` заменить на `fs.promises`
 
-- [ ] #4 `[bug][backend]` **Race condition в `loadAccounts()` между existsSync и readFileSync**
+- [x] #4 `[bug][backend]` **Race condition в `loadAccounts()` между existsSync и readFileSync**
   - Если файл удалён между `fs.existsSync` и `fs.readFileSync` → `ENOENT` исключение
   - **Фикс:** убрать `existsSync`, обернуть `readFileSync` в try/catch с проверкой `e.code !== "ENOENT"`
 
-- [ ] #5 `[feature][backend]` **Асинхронное выполнение длительных команд (`execute`)**
+- [x] #5 `[feature][backend]` **Асинхронное выполнение длительных команд (`execute`)**
   - Запускать `execute` асинхронно, не блокировать callback handler
   - Активные процессы в `Map<taskId, {...}>`, команды `/tasks`, `/cancel`
   - Таймаут по умолчанию configurable (например 2 часа), `timeout: 0` = без лимита

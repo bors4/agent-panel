@@ -6,7 +6,7 @@
 import { Router } from "express";
 import path from "path";
 import fs from "fs";
-import { executeTool, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
+import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
 import { loadAccounts, saveAccounts, getAccounts } from "../lib/accounts.js";
 import { configDefaults } from "../lib/configDefaults.js";
 import { parseStreamedResponse } from "../lib/parseSSE.js";
@@ -103,9 +103,13 @@ export function createApiRouter(deps) {
     try {
       const { toolCall, projectPath } = req.body;
       if (!toolCall?.name) return res.status(400).json({ error: "toolCall.name required" });
-      const result = await executeTool(toolCall, {
+      let result = await executeTool(toolCall, {
         projectPath: projectPath || config.projectPath,
       });
+      // If async task (execute), await completion before returning to API caller
+      if (result.data?.taskId) {
+        result = await waitForTask(result.data.taskId);
+      }
       res.json({
         success: true,
         result,
@@ -114,6 +118,25 @@ export function createApiRouter(deps) {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ─── Task Management ────────────────────────────────────────────────────
+
+  /**
+   * GET /api/tasks — Список активных фоновых задач.
+   */
+  router.get("/tasks", (req, res) => {
+    res.json({ success: true, tasks: getActiveTasks() });
+  });
+
+  /**
+   * POST /api/tasks/:taskId/cancel — Отменить активную задачу.
+   */
+  router.post("/tasks/cancel", (req, res) => {
+    const { taskId } = req.body;
+    if (!taskId) return res.status(400).json({ error: "taskId required" });
+    const ok = cancelTask(taskId);
+    res.json({ success: ok, cancelled: ok });
   });
 
   // ─── Config ──────────────────────────────────────────────────────────────
@@ -187,6 +210,7 @@ export function createApiRouter(deps) {
     if (body.maxFilesInPrompt !== undefined) config.maxFilesInPrompt = parseInt(body.maxFilesInPrompt);
     if (body.maxSearchFileSize !== undefined) config.maxSearchFileSize = parseInt(body.maxSearchFileSize);
     if (body.stream !== undefined) config.stream = !!body.stream;
+    if (body.insertUserAfterTool !== undefined) config.insertUserAfterTool = !!body.insertUserAfterTool;
     if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
       process.env.TELEGRAM_BOT_TOKEN = body.token;
       tokenChanged = true;
