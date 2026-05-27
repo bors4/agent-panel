@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 42 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 9/13` · `P4: 5/5`
+> **Прогресс: 45 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 10/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -143,11 +143,11 @@
   - `server.js`: `deleteMessage()` добавлен в 3 места — ошибка, лимит итераций, внешний catch
   - Финальный ответ обновляет черновик через `editDraftMessage`
 
-- [ ] #13 `[perf][backend]` **`formatValue()` рекурсия без защиты от циклических ссылок**
+- [x] #13 `[perf][backend]` **`formatValue()` рекурсия без защиты от циклических ссылок**
   - `executeTool.js:255-285`: рекурсивный обход без защиты от circular ref → `RangeError`
   - **Фикс:** добавить `Set` для отслеживания посещённых объектов
 
-- [ ] #14 `[security][frontend]` **Hardcoded API key на фронтенде**
+- [x] #14 `[security][frontend]` **Hardcoded API key на фронтенде**
   - `"x-api-key": "agent-secret-key"` в ToolsTab.vue и client.js — если изменить `API_KEY` в `.env`, фронтенд перестанет работать
   - Вынести в env-переменную Vite
 
@@ -181,9 +181,9 @@
   - AbortError (таймаут) тоже не отлавливается отдельно — идёт в общий catch
   - **Фикс:** `response` guard + различать AbortError/TypeError/HTTP
 
-- [ ] #22 `[bug][backend]` **safePath ломается при projectRoot = корень диска (двойной слеш)**
-  - `utils.js:31,39`: `normalizedRoot = "e:/"`, проверка `startsWith(normalizedRoot + "/")` → `startsWith("e://")` никогда не совпадает
-  - **Фикс:** убрать `+ "/"` для drive-root путей, или использовать `path.relative()`
+- [x] #22 `[bug][backend]` **safePath ломается при projectRoot = корень диска (двойной слеш)**
+  - `utils.js:40`: `normalizedRoot.endsWith("/")` вместо безусловного `+ "/"`
+  - `server.test.js`: добавлен тест для `PROJECT_PATH=E:\`
 
 ---
 
@@ -202,20 +202,21 @@
   - `.token-bars`: добавлен `width: 100%` для полной ширины
   - Адаптивность улучшена: на узком сайдбаре (300px) полосы не сжимаются
 
-- [ ] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
-  - `server.js` режет до 20, `agentLoop.js` через `maxHistoryPairs*2` — выбрать единый лимит и механизм
+- [x] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
+  - Все `.slice(-20)` и `.slice(-10)` в `server.js` заменены на `-(config.maxHistoryPairs * 2)`
+  - 5 точек: approval, error, final answer, post-tool-execution, denied tool
 
-- [ ] #5 `[refactor][backend]` **Graceful shutdown + heartbeatInterval handle**
+- [x] #5 `[refactor][backend]` Отменён **Graceful shutdown + heartbeatInterval handle**
   - `server.js:728`: `setInterval` без переменной — невозможно очистить при shutdown
   - Добавить `process.on('SIGTERM')` и `process.on('SIGINT')`: сохранить `const heartbeatInterval = setInterval(...)`, `clearInterval(heartbeatInterval)`, остановка бота, закрытие Express
 
 - [x] #6 `[feature][backend]` **Rate limiting**
   - In-memory rate limiter (10 запросов/мин на chatId) для Telegram-сообщений
 
-- [ ] #7 `[perf][backend]` **Ограничение размера файлов при поиске**
+- [x] #7 `[perf][backend]` **Ограничение размера файлов при поиске**
   - `searchDirectory()` читает каждый файл полностью в память — добавить `maxFileSize`, пропускать бинарные файлы
 
-- [ ] #8 `[feature][backend]` **Очистка старых сессий**
+- [x] #8 `[feature][backend]` Отменена **Очистка старых сессий**
   - `chatHistories` никогда не очищается — добавить периодическую чистку (1 час без активности)
 
 - [x] #9 `[perf][frontend]` **`BotCheckCard.vue` — watch с `{ immediate: true }` вызывает фильтрацию токена на каждый триггер**

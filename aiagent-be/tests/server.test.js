@@ -126,6 +126,12 @@ describe("safePath", () => {
       const winRoot = "E:\\Git\\agent-panel";
       expect(() => safePath("C:\\Windows\\system32", winRoot)).toThrow("Path outside project is forbidden");
     });
+
+    it("allows path with drive-root projectRoot", () => {
+      if (!isWin) return;
+      const result = safePath("test/file.js", "E:\\");
+      expect(result.replace(/\\/g, "/").toLowerCase()).toBe("e:/test/file.js");
+    });
   });
 
   // ── Additional edge cases ─────────────────────────────────────────

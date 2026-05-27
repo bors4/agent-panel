@@ -185,6 +185,7 @@ export function createApiRouter(deps) {
     if (body.maxHistoryPairs !== undefined) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
     if (body.maxSearchResults !== undefined) config.maxSearchResults = parseInt(body.maxSearchResults);
     if (body.maxFilesInPrompt !== undefined) config.maxFilesInPrompt = parseInt(body.maxFilesInPrompt);
+    if (body.maxSearchFileSize !== undefined) config.maxSearchFileSize = parseInt(body.maxSearchFileSize);
     if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
       process.env.TELEGRAM_BOT_TOKEN = body.token;

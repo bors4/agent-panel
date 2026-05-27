@@ -42,7 +42,7 @@ npm run frontend:dev
 | `MODEL_NAME`         | `qwen3.5-2b`                   | Model identifier                                                                |
 | `SYSTEM_PROMPT`      | (empty)                        | Custom system prompt                                                            |
 | `API_PORT`           | `3000`                         | Backend API port                                                                |
-| `API_KEY`            | `agent-secret-key`             | API key for frontend auth                                                       |
+ | `VITE_API_KEY`        | (required)                   | Frontend API key. Must be set in `.env` or environment. No default. |
 | `MAX_TOKENS`         | `8192`                         | Max tokens per AI response                                                      |
 | `TEMPERATURE`        | `0.1`                          | AI response temperature                                                         |
 | `TIMEOUT`            | `120000`                       | Request timeout (ms)                                                            |
@@ -90,7 +90,7 @@ npm start
 
 ## API Endpoints
 
-Most endpoints require `x-api-key: agent-secret-key` header. Only `/api/health` is public.
+Most endpoints require `x-api-key` header with the value set in `VITE_API_KEY`. Only `/api/health` is public.
 
 | Method | Endpoint               | Description                                 |
 | ------ | ---------------------- | ------------------------------------------- |

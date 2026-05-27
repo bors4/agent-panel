@@ -43,6 +43,7 @@ bot.use(stream());
  * @property {number} maxHistoryPairs - Макс. пар сообщений в истории
  * @property {number} maxSearchResults - Макс. результатов поиска
  * @property {number} maxFilesInPrompt - Макс. файлов в промпте
+ * @property {number} maxSearchFileSize - Макс. размер файла для поиска (байт)
  */
 const config = {
   serverUrl: configDefaults.serverUrl,
@@ -53,6 +54,7 @@ const config = {
   maxTokens: configDefaults.maxTokens,
   temperature: configDefaults.temperature,
   timeout: configDefaults.timeout,
+  maxSearchFileSize: configDefaults.maxSearchFileSize,
   stream: configDefaults.stream,
 };
 
@@ -529,7 +531,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       messages: result.messages,
       account,
     });
-    chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
+    chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
     const paramStr = JSON.stringify(result.args);
     const displayParams =
       paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
@@ -546,7 +548,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
     const cleanHistory = (chatHistories.get(chatId) || []).filter(
       (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system"
     );
-    chatHistories.set(chatId, cleanHistory.slice(-10));
+    chatHistories.set(chatId, cleanHistory.slice(-(config.maxHistoryPairs * 2)));
     if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
     await replyMsg(ctx, `❌ Error: ${result.error}`);
     return true;
@@ -554,7 +556,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
 
   // Финальный ответ
   if (result.response !== undefined && result.response !== "continue") {
-    if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-20));
+    if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
     let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
     if (!cleanResponse) cleanResponse = "✅ Done.";
     if (typeof draftMsgId === "number") {
@@ -783,7 +785,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       return;
     }
 
-    const newHistory = [...history, toolMessage, nextMessage].filter((m) => m.role !== "system").slice(-20);
+    const newHistory = [...history, toolMessage, nextMessage].filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2));
     chatHistories.set(chatId, newHistory);
 
     // XML fallback: parse XML tool call if native function calling absent
@@ -908,7 +910,7 @@ bot.on("callback_query", async (ctx) => {
         },
       ];
       deniedMessages.push({ role: "assistant", content: "" });
-      chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-20));
+      chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
     }
 
     await replyMsg(ctx, `❌ <b>${toolName}</b> cancelled. The tool was not executed.`);

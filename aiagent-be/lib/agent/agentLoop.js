@@ -58,7 +58,7 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
     "\n" +
     "IMPORTANT: Use ONLY RELATIVE paths!\n" +
     '  GOOD: "test.txt", "src/app.js"\n' +
-    '  BAD: "E:\\Git\\test_project\\file.txt"\n\n' +
+    '  BAD: "E:\\dir\\test\\file.txt"\n\n' +
     "Commands:\n" +
     "  write - create file (filePath RELATIVE, content)\n" +
     "  read - read file (filePath RELATIVE)\n" +
@@ -148,6 +148,7 @@ function buildToolExecConfig(account, cfg) {
     account,
     maxFileChars: cfg.maxFileChars,
     maxSearchResults: cfg.maxSearchResults,
+    maxSearchFileSize: cfg.maxSearchFileSize,
     maxHistoryPairs: cfg.maxHistoryPairs,
     maxFilesInPrompt: cfg.maxFilesInPrompt,
     filesRead: 0,
