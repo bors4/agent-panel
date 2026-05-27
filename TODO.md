@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 42 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 9/13` · `P4: 5/5`
+> **Прогресс: 44 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 9/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -202,17 +202,18 @@
   - `.token-bars`: добавлен `width: 100%` для полной ширины
   - Адаптивность улучшена: на узком сайдбаре (300px) полосы не сжимаются
 
-- [ ] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
-  - `server.js` режет до 20, `agentLoop.js` через `maxHistoryPairs*2` — выбрать единый лимит и механизм
+- [x] #4 `[refactor][backend]` **Стандартизировать обрезку истории чата**
+  - Все `.slice(-20)` и `.slice(-10)` в `server.js` заменены на `-(config.maxHistoryPairs * 2)`
+  - 5 точек: approval, error, final answer, post-tool-execution, denied tool
 
-- [ ] #5 `[refactor][backend]` **Graceful shutdown + heartbeatInterval handle**
+- [x] #5 `[refactor][backend]` Отменён **Graceful shutdown + heartbeatInterval handle**
   - `server.js:728`: `setInterval` без переменной — невозможно очистить при shutdown
   - Добавить `process.on('SIGTERM')` и `process.on('SIGINT')`: сохранить `const heartbeatInterval = setInterval(...)`, `clearInterval(heartbeatInterval)`, остановка бота, закрытие Express
 
 - [x] #6 `[feature][backend]` **Rate limiting**
   - In-memory rate limiter (10 запросов/мин на chatId) для Telegram-сообщений
 
-- [ ] #7 `[perf][backend]` **Ограничение размера файлов при поиске**
+- [x] #7 `[perf][backend]` **Ограничение размера файлов при поиске**
   - `searchDirectory()` читает каждый файл полностью в память — добавить `maxFileSize`, пропускать бинарные файлы
 
 - [x] #8 `[feature][backend]` Отменена **Очистка старых сессий**
