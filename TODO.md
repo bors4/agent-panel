@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 46 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 11/22` · `P3: 11/13` · `P4: 5/5`
+> **Прогресс: 47 / 71** | `P0: 0/4` · `P1: 4/12` · `P2: 12/22` · `P3: 11/13` · `P4: 5/5`
 
 ---
 
@@ -171,10 +171,9 @@
   - `server.js:793`, `agentLoop.js:376`: `xmlTc.id` / `tc.id` = `undefined` → модель может не сопоставить результат с вызовом
   - **Фикс:** добавить генерацию `id` во все три формата
 
-- [ ] #20 `[feature][backend]` **Очистка просроченных pendingApprovals (TTL)**
-  - `server.js`: записи в `pendingApprovals` удаляются только при approve/deny/stop
-  - Если пользователь не ответил на подтверждение, запись висит вечно
-  - **Фикс:** добавить timestamp + периодическая очистка (10 мин TTL)
+- [x] #20 `[feature][backend]` **Очистка просроченных pendingApprovals (TTL)**
+  - `createdAt: Date.now()` в обоих `.set()` + `APPROVAL_TTL` (10 мин) в cleanup interval
+  - Удаляются те же интервалом 5 мин, что и rateLimitMap
 
 - [x] #21 `[bug][backend]` **Сетевая ошибка в `/api/chat` до `response.ok` маскируется TypeError**
   - `api.js:390`: guard `if (!response)` перед `response.ok` — вместо TypeError возвращает "AI server unreachable"

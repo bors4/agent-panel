@@ -91,12 +91,19 @@ function recordAndCheckRateLimit(chatId) {
   return entry.count <= RATE_LIMIT;
 }
 
+const APPROVAL_TTL = 10 * 60 * 1000; // 10 minutes
+
 // Periodic cleanup: remove stale entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [chatId, entry] of rateLimitMap) {
     if (now - entry.windowStart > RATE_WINDOW * 2) {
       rateLimitMap.delete(chatId);
+    }
+  }
+  for (const [chatId, entry] of pendingApprovals) {
+    if (now - entry.createdAt > APPROVAL_TTL) {
+      pendingApprovals.delete(chatId);
     }
   }
 }, 5 * 60_000).unref();
@@ -530,6 +537,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       toolCallId: result.toolCallId,
       messages: result.messages,
       account,
+      createdAt: Date.now(),
     });
     chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
     const paramStr = JSON.stringify(result.args);
@@ -827,6 +835,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
           toolCallId: tc.id,
           messages: newHistory,
           account,
+          createdAt: Date.now(),
         });
         const paramStr = JSON.stringify(ta);
         const displayParams = paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
