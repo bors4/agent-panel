@@ -24,6 +24,20 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 bot.api.config.use(autoRetry());
 bot.use(stream());
 
+bot.use(async (ctx, next) => {
+  const username = ctx.chat?.username;
+  const account = getAccountByUsername(username);
+  if (!account) {
+    await replyMsg(
+      ctx,
+      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered.\nContact the administrator to get access.`
+    );
+    return;
+  }
+  ctx.account = account;
+  await next();
+});
+
 // ─── Состояние приложения ──────────────────────────────────────────────────
 
 /**
@@ -176,7 +190,7 @@ function wsBroadcast(type, data) {
 
 import { agentLoopStep, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
 
-import { executeTool, waitForTask, cancelTask, getActiveTasks, TOOLS } from "./lib/agent/executeTool.js";
+import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 
 import { loadAccounts, getAccounts, getAccountByUsername } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
@@ -413,16 +427,7 @@ bot.on("message", async (ctx) => {
     return;
   }
 
-  const username = ctx.chat.username;
-  const account = getAccountByUsername(username);
-  if (!account) {
-    await replyMsg(
-      ctx,
-      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered. Contact the administrator.`
-    );
-    return;
-  }
-
+  const account = ctx.account;
   const chatId = ctx.chat.id.toString();
   if (!recordAndCheckRateLimit(chatId)) {
     await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
@@ -539,6 +544,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       messages: result.messages,
       account,
       createdAt: Date.now(),
+      pendingToolCalls: result.pendingToolCalls || [],
     });
     chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")).slice(-(config.maxHistoryPairs * 2)));
     const paramStr = JSON.stringify(result.args);
@@ -681,7 +687,43 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     const cleanHistory = rawHistory.filter(
       (m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")
     );
-    const newHistory = [...cleanHistory, toolMessage];
+    let newHistory = [...cleanHistory, toolMessage];
+
+    const remaining = pending.pendingToolCalls || [];
+    for (const next of remaining) {
+      const ts = getToolConfig()[next.name] || {};
+      if (ts.permission === "ask") {
+        pendingApprovals.set(chatId, {
+          toolName: next.name,
+          args: next.args,
+          toolCallId: next.id,
+          messages: newHistory,
+          account,
+          createdAt: Date.now(),
+          pendingToolCalls: remaining.slice(remaining.indexOf(next) + 1),
+        });
+        const paramStr = JSON.stringify(next.args);
+        const displayParams = paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
+        await replyMsg(
+          ctx,
+          `⚠️ Confirmation needed:\n\n📦 <b>${next.name}</b>\nParams: <code>${displayParams}</code>`,
+          { reply_markup: KEYBOARD_YES_NO(next.name) }
+        );
+        return;
+      }
+      stats.tools++;
+      let nextResult = await executeTool({ name: next.name, args: next.args }, { projectPath: config.projectPath, account });
+      if (nextResult.data?.taskId) {
+        nextResult = await waitForTask(nextResult.data.taskId);
+      }
+      addLog(`Tool executed (pending): ${next.name} = ${nextResult.success ? "OK" : "FAIL"}`, nextResult.success ? "success" : "error");
+      newHistory.push({
+        role: "tool",
+        tool_call_id: next.id,
+        content: JSON.stringify(nextResult).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+      });
+    }
+
     chatHistories.set(chatId, newHistory);
 
     const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account);
@@ -784,30 +826,18 @@ bot.command("clear", (ctx) => {
 });
 
 bot.command("tools", async (ctx) => {
-  const username = ctx.chat.username;
-  const account = getAccountByUsername(username);
-  let toolList;
-  if (account) {
-    toolList = Object.entries(TOOLS)
-      .map(([name, tool]) => {
-        const enabled = account.permissions?.[name] !== false;
-        const icon = enabled ? "✅" : "❌";
-        return `${icon} <b>${name}</b>: ${tool.description}`;
-      })
-      .join("\n");
-    ctx.reply(`📦 Tools for @${username} (${account.role}):\n\n${toolList}`, {
-      ...REPLY_OPTS,
-      parse_mode: "HTML",
-    });
-  } else {
-    toolList = Object.entries(TOOLS)
-      .map(([name, tool]) => `• <b>${name}</b>: ${tool.description}`)
-      .join("\n");
-    ctx.reply(`📦 Available tools:\n\n${toolList}`, {
-      ...REPLY_OPTS,
-      parse_mode: "HTML",
-    });
-  }
+  const account = ctx.account;
+  const toolList = Object.entries(TOOLS)
+    .map(([name, tool]) => {
+      const enabled = account.permissions?.[name] !== false;
+      const icon = enabled ? "✅" : "❌";
+      return `${icon} <b>${name}</b>: ${tool.description}`;
+    })
+    .join("\n");
+  ctx.reply(`📦 Tools for @${ctx.chat.username} (${account.role}):\n\n${toolList}`, {
+    ...REPLY_OPTS,
+    parse_mode: "HTML",
+  });
 });
 
 bot.command("tasks", (ctx) => {

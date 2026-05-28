@@ -233,7 +233,12 @@ export function updateToolConfig(name, settings) {
   if (!toolConfig[name]) {
     toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
   }
-  Object.assign(toolConfig[name], settings);
+  const blockedKeys = ["__proto__", "constructor", "prototype"];
+  for (const key of Object.keys(settings)) {
+    if (!blockedKeys.includes(key)) {
+      toolConfig[name][key] = settings[key];
+    }
+  }
   configDirty = true;
 }
 

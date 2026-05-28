@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 43 / 57** | `P0: 0/4` · `P1: 5/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 49 / 57** | `P0: 0/4` · `P1: 11/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -38,30 +38,30 @@
 
 ## 🟡 Medium Priority (P1)
 
-- [ ] #1 `[security][backend]` **Нет аутентификации API** — `x-api-key` никогда не проверяется на бэкенде
+- [x] #1 `[security][backend]` **Нет аутентификации API** — `x-api-key` никогда не проверяется на бэкенде
   - Добавить middleware в `routes/api.js`: проверять заголовок `x-api-key` против `config.apiKey` на всех маршрутах (кроме health)
   - Фронтенд уже отправляет заголовок — нужна только проверка на сервере
 
 - [x] #2 `[security][backend]` **Telegram bot token в ответе API**
   - `GET /api/config` возвращал `{ token: process.env.TELEGRAM_BOT_TOKEN }` — убрано, возвращается `hasToken: boolean`
 
-- [ ] #3 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
+- [x] #3 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
   - На Linux файловая система чувствительна к регистру: `/home/User/file.txt` ≠ `/home/user/file.txt`
   - Использовать `.toLowerCase()` только на Windows (`process.platform === "win32"`)
 
 - [x] #4 `[bug][backend]` **Fetch-запросы к AI API не имеют таймаута**
   - `agentLoop.js`, `server.js`, `api.js` — `AbortController` + таймаут добавлены во всех трёх файлах
 
-- [ ] #5 `[bug][frontend]` **Ответ модели теряется при смене вкладки или перезагрузке страницы в ChatTab**
+- [x] #5 `[bug][frontend]` **Ответ модели теряется при смене вкладки или перезагрузке страницы в ChatTab**
   - **Корень:** `ChatTab.vue` рендерится через `v-if` — при смене вкладки компонент уничтожается
   - `watch(messages, ...)` останавливается при unmount, `sendMessage()` не вызывает `saveChatHistory()` после ответа
-  - **Фикс:** вызывать `saveChatHistory()` явно после `directChat()`; рассмотреть `<KeepAlive>` или `v-show` вместо `v-if`
+  - **Фикс:** `v-show` вместо `v-if`, persist approvalMessages/pendingApproval/pendingToolCalls в localStorage, onUnmounted save
 
-- [ ] #6 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
+- [x] #6 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
   - `Object.assign(config, newConfig)` — уязвим к `__proto__` / `constructor`
   - **Фикс:** использовать `Object.keys(newConfig).forEach(k => { if (k in config) config[k] = newConfig[k]; })`
 
-- [ ] #7 `[security][backend]` **Все команды Telegram доступны без аккаунта**
+- [x] #7 `[security][backend]` **Все команды Telegram доступны без аккаунта**
   - `/start`, `/help`, `/model`, `/clear`, `/tools` работают для любого пользователя
   - При этом `bot.on("message")` блокирует неизвестных — несоответствие модели безопасности
 
@@ -93,7 +93,7 @@
   - **Нюансы:** OpenRouter требует заголовок `HTTP-Referer` (можно `https://agent-panel.local`) и `X-Title`; модели возвращаются через `GET /v1/models`; стоимость токенов отличается от локальных моделей
   - `GET /api/models` должен уметь переключаться между LM Studio и OpenRouter по типу `serverUrl`
 
-- [ ] #13 `[bug][backend]` **Необработанные tool_calls теряются при `requiresApproval`**
+- [x] #13 `[bug][backend]` **Необработанные tool_calls теряются при `requiresApproval`**
   - Когда в одном ответе модели несколько tool_calls, и первый требует approval, остальные не выполняются после одобрения
   - Сохранять `unprocessedToolCalls` в `pendingApprovals` (`agentLoop.js:364-386`) и выполнять последовательно в `continueAfterApproval` (`server.js:607-`)
   - `agentLoopStep` при `requiresApproval` должен вернуть оставшиеся tool_calls

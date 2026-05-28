@@ -166,6 +166,7 @@ const chatContainer = ref(null);
 const AGENT_MODE_KEY = "agent-chat-mode";
 const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) !== "false");
 const pendingApproval = ref(null);
+const pendingToolCalls = ref([]);
 const approvalMessages = ref([]);
 
 function onAgentModeChange() {
@@ -174,7 +175,66 @@ function onAgentModeChange() {
 
 // 🔥 Константы для localStorage
 const CHAT_HISTORY_KEY = "agent-chat-history";
+const APPROVAL_MESSAGES_KEY = "agent-approval-messages";
 const MAX_HISTORY_LENGTH = 50;
+
+function saveApprovalMessages(msgs) {
+  try {
+    localStorage.setItem(APPROVAL_MESSAGES_KEY, JSON.stringify(msgs));
+  } catch {}
+}
+
+function loadApprovalMessages() {
+  try {
+    const saved = localStorage.getItem(APPROVAL_MESSAGES_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return [];
+}
+
+function clearApprovalMessages() {
+  localStorage.removeItem(APPROVAL_MESSAGES_KEY);
+}
+
+// 🔥 Pending approval persistence
+const PENDING_APPROVAL_KEY = "agent-pending-approval";
+const PENDING_TOOL_CALLS_KEY = "agent-pending-tool-calls";
+
+function savePendingApproval(approval) {
+  try {
+    if (approval) {
+      localStorage.setItem(PENDING_APPROVAL_KEY, JSON.stringify(approval));
+    } else {
+      localStorage.removeItem(PENDING_APPROVAL_KEY);
+    }
+  } catch {}
+}
+
+function loadPendingApproval() {
+  try {
+    const saved = localStorage.getItem(PENDING_APPROVAL_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return null;
+}
+
+function savePendingToolCalls(toolCalls) {
+  try {
+    if (toolCalls && toolCalls.length > 0) {
+      localStorage.setItem(PENDING_TOOL_CALLS_KEY, JSON.stringify(toolCalls));
+    } else {
+      localStorage.removeItem(PENDING_TOOL_CALLS_KEY);
+    }
+  } catch {}
+}
+
+function loadPendingToolCalls() {
+  try {
+    const saved = localStorage.getItem(PENDING_TOOL_CALLS_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return [];
+}
 
 // 🔥 Именованная функция для слушателя storage (чтобы можно было удалить)
 function handleStorageChange(e) {
@@ -222,8 +282,12 @@ const menuY = ref(0);
 function clearChatHistory() {
   messages.value = [];
   pendingApproval.value = null;
+  pendingToolCalls.value = [];
   approvalMessages.value = [];
   localStorage.removeItem(CHAT_HISTORY_KEY);
+  clearApprovalMessages();
+  savePendingApproval(null);
+  savePendingToolCalls([]);
 }
 
 // 🎯 Контекстное меню
@@ -298,6 +362,7 @@ function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolN
       args: approvalArgs,
       toolCallId: approvalToolCallId,
     };
+    savePendingApproval(pendingApproval.value);
     messages.value.push({
       role: "system",
       type: "approval",
@@ -354,6 +419,9 @@ async function sendAgentMessage(text) {
 
   // Сохраняем сообщения для продолжения (при одобрении)
   approvalMessages.value = result.messages || [];
+  saveApprovalMessages(approvalMessages.value);
+  pendingToolCalls.value = result.pendingToolCalls || [];
+  savePendingToolCalls(pendingToolCalls.value);
   return result;
 }
 
@@ -372,6 +440,9 @@ async function approveTool(msg) {
 
   isTyping.value = true;
   pendingApproval.value = null;
+  savePendingApproval(null);
+  pendingToolCalls.value = [];
+  savePendingToolCalls([]);
 
   try {
     const result = await agentChatContinue({
@@ -405,6 +476,7 @@ async function approveTool(msg) {
     );
 
     approvalMessages.value = result.messages || [];
+    saveApprovalMessages(approvalMessages.value);
   } catch (e) {
     isTyping.value = false;
     messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
@@ -424,6 +496,9 @@ async function rejectTool(msg) {
   messages.value = messages.value.filter(m => m !== msg);
   isTyping.value = true;
   pendingApproval.value = null;
+  savePendingApproval(null);
+  pendingToolCalls.value = [];
+  savePendingToolCalls([]);
 
   try {
     const result = await agentChatContinue({
@@ -457,6 +532,7 @@ async function rejectTool(msg) {
     );
 
     approvalMessages.value = result.messages || [];
+    saveApprovalMessages(approvalMessages.value);
   } catch (e) {
     isTyping.value = false;
     messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
@@ -650,11 +726,18 @@ const scrollToBottom = () => {
 // 🔥 Lifecycle hooks
 onMounted(() => {
   loadChatHistory();
+  approvalMessages.value = loadApprovalMessages();
+  pendingApproval.value = loadPendingApproval();
+  pendingToolCalls.value = loadPendingToolCalls();
   nextTick(() => scrollToBottom());
   window.addEventListener("storage", handleStorageChange);
 });
 
 onUnmounted(() => {
+  saveChatHistory(messages.value);
+  saveApprovalMessages(approvalMessages.value);
+  savePendingApproval(pendingApproval.value);
+  savePendingToolCalls(pendingToolCalls.value);
   window.removeEventListener("storage", handleStorageChange);
 });
 

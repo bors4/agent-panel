@@ -67,7 +67,7 @@
       <QuickSettingsTab v-if="activeTab === 'quick'" :settings="quickSettings" @save="handleQuickSettingsSave" />
 
       <ChatTab
-        v-if="activeTab === 'chat'"
+        v-show="activeTab === 'chat'"
         ref="chatTabRef"
         :is-active="isRunning"
         :model-name="modelName"
