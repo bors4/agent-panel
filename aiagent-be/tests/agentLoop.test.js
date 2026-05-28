@@ -37,7 +37,7 @@ describe("buildSystemMessage", () => {
   it("includes account role when provided", () => {
     const account = { role: "user" };
     const msg = buildSystemMessage(projectPath, "", true, account);
-    expect(msg).toContain("Your role: user");
+    expect(msg).toContain("Role: user");
   });
 
   it("includes allowed directories from account", () => {
@@ -52,13 +52,12 @@ describe("buildSystemMessage", () => {
   it("emphasizes relative paths only", () => {
     const msg = buildSystemMessage(projectPath, "", true);
     expect(msg).toContain("RELATIVE");
-    expect(msg).toContain('GOOD: "test.txt"');
-    expect(msg).toContain('BAD: "E:\\');
+    expect(msg).toContain("relative");
   });
 
   it("includes Windows rules", () => {
     const msg = buildSystemMessage(projectPath, "", true);
-    expect(msg).toContain("WINDOWS RULES");
+    expect(msg).toContain("Windows Rules");
     expect(msg).toContain("PowerShell");
   });
 });

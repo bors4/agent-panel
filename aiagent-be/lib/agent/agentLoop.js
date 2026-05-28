@@ -4,12 +4,13 @@
  * @module agentLoop
  */
 
-import { executeTool, getToolConfig } from "./executeTool.js";
+import { executeTool, waitForTask, getToolConfig } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
 import { parseStreamedResponse } from "../parseSSE.js";
-import { logWarn } from "../logger.js";
+import { logWarn, logError } from "../logger.js";
+import { getInstructionLoader } from "../instructionLoader.js";
 
 /** Максимальное количество итераций (вызовов инструментов) за один запрос. */
 export const MAX_AGENT_ITERATIONS = 5;
@@ -44,7 +45,7 @@ function buildToolsDescription(account, globalToolConfig) {
 
 /**
  * Собирает system message для AI модели на основе конфигурации и аккаунта.
- * Включает описание инструментов, правила работы и пути проекта.
+ * Делегирует сборку InstructionLoader, который загружает инструкции из файлов.
  * @param {string} projectPath - Путь к проекту
  * @param {string} systemPrompt - Кастомный system prompt
  * @param {boolean} useFunctionCalling - Использовать function calling (true) или XML-формат (false)
@@ -52,44 +53,19 @@ function buildToolsDescription(account, globalToolConfig) {
  * @returns {string} Полный system prompt
  */
 export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
-  let ctx =
-    "You are AI assistant in: " +
-    projectPath +
-    "\n" +
-    "IMPORTANT: Use ONLY RELATIVE paths!\n" +
-    '  GOOD: "test.txt", "src/app.js"\n' +
-    '  BAD: "E:\\dir\\test\\file.txt"\n\n' +
-    "Commands:\n" +
-    "  write - create file (filePath RELATIVE, content)\n" +
-    "  read - read file (filePath RELATIVE)\n" +
-    "  move - rename/move (source RELATIVE, destination RELATIVE)\n" +
-    "  delete - delete (path RELATIVE)\n" +
-    '  list_dir - list (path RELATIVE like ".")\n' +
-    "  execute - run command\n" +
-    "File format rules:\n" +
-    "  - write tool content is saved as-is — no wrappers, no response objects\n" +
-    "  - Match content format to file extension (.json -> JSON, .html -> HTML, .py -> Python, etc.)\n" +
-    "  - For structured data files, provide the raw data structure (not a stringified version)\n" +
-    "WINDOWS RULES:\n" +
-    '- Wrap URLs with & in quotes: curl -s "https://...&key=..."\n' +
-    "- Do NOT use jq. Use PowerShell: curl ... | ConvertFrom-Json\n" +
-    "- Prefer PowerShell for complex pipes\n";
+  const loader = getInstructionLoader();
+  const toolConfig = getToolConfig();
 
-  if (account) {
-    ctx += "\n\nYour role: " + account.role + "\n";
-    if (account.include_paths?.length > 0) {
-      ctx += "Allowed directories: " + account.include_paths.join(", ") + "\n";
-    }
-  }
+  const basePrompt = loader.buildSystemPrompt({
+    projectPath,
+    systemPrompt,
+    useFunctionCalling,
+    account,
+    toolConfig,
+  });
 
-  if (systemPrompt) ctx += "\n" + systemPrompt;
-
-  const td = buildToolsDescription(account, getToolConfig());
-  if (useFunctionCalling) {
-    return ctx + td + "\n\nUse function calling.";
-  } else {
-    return ctx + td + "\n\nUse: <tool_call><function>move</function><parameter=source>test.txt";
-  }
+  const td = buildToolsDescription(account, toolConfig);
+  return basePrompt + "\n\n" + td;
 }
 
 /**
@@ -114,6 +90,20 @@ function extractBash(content) {
 }
 
 /**
+ * Выполнить инструмент и дождаться завершения (для execute — фоновой задачи).
+ * @param {Object} toolCall - Вызов инструмента { name, args }
+ * @param {Object} toolExecConfig - Конфигурация выполнения
+ * @returns {Promise<Object>} Результат выполнения
+ */
+async function executeToolAndWait(toolCall, toolExecConfig) {
+  const r = await executeTool(toolCall, toolExecConfig);
+  if (r.data?.taskId) {
+    return await waitForTask(r.data.taskId);
+  }
+  return r;
+}
+
+/**
  * Обрезать историю чата до указанного количества пар сообщений.
  * НЕ сохраняет system message — agentLoopStep добавляет его сам.
  * Фильтрует пустые assistant-сообщения для экономии контекста.
@@ -121,19 +111,75 @@ function extractBash(content) {
  * @param {number} maxPairs - Максимальное количество пар
  * @returns {Array} Обрезанный массив
  */
+function filterOutEmptyAssistant(messages) {
+  return messages.filter(
+    (m) => !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length)
+  );
+}
+
 function truncateHistory(messages, maxPairs) {
   if (!maxPairs || maxPairs <= 0) return messages;
   // Убираем system message — agentLoopStep сам добавит новый
-  const nonSystem = messages.filter(
-    (m) => m.role !== "system" && !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length)
-  );
+  const nonSystem = filterOutEmptyAssistant(messages.filter(
+    (m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")
+  ));
   const maxMsgs = maxPairs * 2;
   let startIdx = Math.max(0, nonSystem.length - maxMsgs);
+  // Найти ближайший user перед startIdx
+  // История должна начинаться с user (или быть пустой)
+  while (startIdx > 0 && nonSystem[startIdx].role !== "user") {
+    startIdx--;
+  }
+  // Если не нашли user - начинаем с 0
+  if (nonSystem[startIdx]?.role !== "user") {
+    startIdx = 0;
+  }
   // Пропускаем orphan tool сообщения в начале
   while (startIdx < nonSystem.length && nonSystem[startIdx].role === "tool") {
     startIdx++;
   }
   return nonSystem.slice(startIdx);
+}
+
+function validateAndFixHistory(messages) {
+  // Находим первое сообщение после system
+  const firstNonSystem = messages.find(m => m.role !== "system");
+
+  if (!firstNonSystem) {
+    // Нет сообщений кроме system - добавляем пустой user
+    messages.push({ role: "user", content: "." });
+    return messages;
+  }
+
+  if (firstNonSystem.role !== "user") {
+    // Первое сообщение не user - добавляем placeholder в начало
+    const systemIdx = messages.findIndex(m => m.role === "system");
+    messages.splice(systemIdx + 1, 0, {
+      role: "user",
+      content: "Continue from where we left off."
+    });
+  }
+
+  // Проверяем пары assistant(tool_call) → tool(result)
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    if (msg.role === "assistant" && msg.tool_calls?.length > 0) {
+      // Ищем следующее сообщение - должно быть tool с соответствующим tool_call_id
+      const nextMsg = messages[i + 1];
+
+      if (!nextMsg || nextMsg.role !== "tool") {
+        // Нет tool-результата - добавляем placeholder
+        messages.splice(i + 1, 0, {
+          role: "tool",
+          tool_call_id: msg.tool_calls[0].id,
+          content: JSON.stringify({ error: "Tool execution was interrupted" })
+        });
+      }
+    }
+  }
+
+  return messages;
 }
 
 /**
@@ -151,6 +197,7 @@ function buildToolExecConfig(account, cfg) {
     maxSearchFileSize: cfg.maxSearchFileSize,
     maxHistoryPairs: cfg.maxHistoryPairs,
     maxFilesInPrompt: cfg.maxFilesInPrompt,
+    executeTimeout: cfg.executeTimeout,
     filesRead: 0,
   };
 }
@@ -176,7 +223,15 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     },
     ...truncateHistory(history, cfg.maxHistoryPairs),
   ];
-  if (message) messages.push({ role: "user", content: message });
+
+  if (message && message.trim()) {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "user" || lastMsg.content !== message) {
+      messages.push({ role: "user", content: message });
+    }
+  }
+
+  messages = validateAndFixHistory(messages);
   let iterations = 0,
     finalResponse = "",
     useFunctionCalling = true,
@@ -350,10 +405,17 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         for (const tc of msg.tool_calls) {
           const tn = tc.function.name;
           let ta;
+
+          // Validate arguments exist before parsing
+          if (tc.function.arguments == null) {
+            return { error: "Tool call arguments are missing or null" };
+          }
+
           try {
             ta = JSON.parse(tc.function.arguments);
-          } catch {
-            return { error: "Invalid JSON in tool call" };
+          } catch (e) {
+            logError(`Failed to parse tool arguments for ${tn}: ${e.message}`);
+            return { error: "Invalid JSON in tool call arguments" };
           }
           const ts = toolConfig[tn] || {};
           if (ts.permission === "ask") {
@@ -370,13 +432,21 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             };
           }
           onProgress?.({ type: "tool", toolName: tn, args: ta });
-          const r = await executeTool({ name: tn, args: ta }, toolExecConfig);
+          const r = await executeToolAndWait({ name: tn, args: ta }, toolExecConfig);
           if (tn === "read" && r.success) toolExecConfig.filesRead++;
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
             content: JSON.stringify(r),
           });
+          if (cfg.insertUserAfterTool) {
+            messages.push({ role: "user", content: "Continue" });
+            // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
+            const recentUserMessages = messages.slice(-5).filter(m => m.role === "user" && m.content === "Continue").length;
+            if (recentUserMessages >= 3) {
+              break;
+            }
+          }
         }
         continue;
       }
@@ -392,25 +462,41 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             messages,
           };
         onProgress?.({ type: "tool", toolName: tc.name, args: tc.args });
-        const r = await executeTool(tc, toolExecConfig);
+        const r = await executeToolAndWait(tc, toolExecConfig);
         if (tc.name === "read" && r.success) toolExecConfig.filesRead++;
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
           content: JSON.stringify(r),
         });
+        if (cfg.insertUserAfterTool) {
+          messages.push({ role: "user", content: "Continue" });
+          // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
+          const recentUserMessages = messages.slice(-5).filter(m => m.role === "user" && m.content === "Continue").length;
+          if (recentUserMessages >= 3) {
+            break;
+          }
+        }
         continue;
       }
 
       const bash = extractBash(content);
       if (bash && !useFunctionCalling) {
         onProgress?.({ type: "tool", toolName: "execute", args: { command: bash } });
-        const r = await executeTool({ name: "execute", args: { command: bash } }, toolExecConfig);
+        const r = await executeToolAndWait({ name: "execute", args: { command: bash } }, toolExecConfig);
         messages.push({
           role: "tool",
           tool_call_id: `bash_${Date.now()}`,
           content: JSON.stringify(r),
         });
+        if (cfg.insertUserAfterTool) {
+          messages.push({ role: "user", content: "Continue" });
+          // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
+          const recentUserMessages = messages.slice(-5).filter(m => m.role === "user" && m.content === "Continue").length;
+          if (recentUserMessages >= 3) {
+            break;
+          }
+        }
         continue;
       }
 

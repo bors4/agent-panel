@@ -23,6 +23,7 @@
 
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { spawn } from "child_process";
 import { safePath } from "../utils.js";
 import { checkAccountToolPermission } from "../accounts.js";
@@ -50,6 +51,12 @@ export const DEFAULT_TOOL_CONFIG = {
   permission: "ask",
   exclude_paths: [],
 };
+
+/**
+ * Активные дочерние процессы (длительные команды execute).
+ * @type {Map<string, {child: ChildProcess, pid: number, taskId: string, command: string, startTime: number, status: string, stdout: string, stderr: string, exitCode: number|null, error: string|null, promise: Promise, completedAt: number|null}>}
+ */
+export const activeProcesses = new Map();
 
 // ============================================================================
 // TOOL DEFINITIONS
@@ -126,13 +133,13 @@ export const TOOLS = {
   },
   execute: {
     name: "execute",
-    description: "Execute a shell command in the project directory",
+    description: "Execute a shell command. Error output (stderr) is returned on failure — learn from it. Prefer simple, direct commands.",
     category: "system",
     examples: ['<tool>{"name": "execute", "args": {"command": "npm install", "timeout": 60}}</tool>'],
     input_schema: {
       type: "object",
       properties: {
-        command: { type: "string", description: "Shell command to execute" },
+        command: { type: "string", description: "Shell command to execute. Prefer simple one-line commands." },
         timeout: {
           type: "number",
           description: "Timeout in seconds (max 120)",
@@ -227,14 +234,22 @@ export function updateToolConfig(name, settings) {
     toolConfig[name] = { ...DEFAULT_TOOL_CONFIG };
   }
   Object.assign(toolConfig[name], settings);
+  configDirty = true;
 }
+
+/** @type {Object|null} */
+let cachedConfig = null;
+/** @type {boolean} */
+let configDirty = true;
 
 /**
  * Получить полную конфигурацию всех инструментов.
  * Сливает DEFAULT_TOOL_CONFIG с текущими настройками и метаданными из TOOLS.
+ * Результат кэшируется до следующего updateToolConfig.
  * @returns {Object.<string, Object>} Конфигурация всех инструментов
  */
 export function getToolConfig() {
+  if (!configDirty && cachedConfig) return cachedConfig;
   const config = {};
   for (const [name, tool] of Object.entries(TOOLS)) {
     config[name] = {
@@ -247,6 +262,8 @@ export function getToolConfig() {
       input_schema: tool.input_schema,
     };
   }
+  configDirty = false;
+  cachedConfig = config;
   return config;
 }
 
@@ -401,6 +418,42 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
 }
 
 // ============================================================================
+// HELPER: REDOS DETECTION
+// ============================================================================
+
+/**
+ * Проверяет паттерн на ReDoS-потенциал: квантификатор снаружи группы,
+ * внутри которой уже есть квантификатор (т.н. "nested quantifiers").
+ * @param {string} pattern - Regex паттерн
+ * @returns {boolean} true если паттерн потенциально опасен
+ */
+export function rejectReDoS(pattern) {
+  let depth = 0;
+  const depthHasQuantifier = new Set();
+
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "(" && pattern[i - 1] !== "\\") {
+      depth++;
+    } else if (c === ")" && pattern[i - 1] !== "\\") {
+      const hadQuantifier = depthHasQuantifier.has(depth);
+      const next = pattern[i + 1];
+      if (hadQuantifier && (next === "+" || next === "*" || next === "?" || next === "{")) {
+        return true;
+      }
+      depthHasQuantifier.delete(depth);
+      depth--;
+      if (hadQuantifier && depth > 0) {
+        depthHasQuantifier.add(depth);
+      }
+    } else if ((c === "+" || c === "*" || c === "?") && pattern[i - 1] !== "\\" && depth > 0) {
+      depthHasQuantifier.add(depth);
+    }
+  }
+  return false;
+}
+
+// ============================================================================
 // HELPER: SEARCH DIRECTORY
 // ============================================================================
 
@@ -415,8 +468,9 @@ async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
  * @param {number} maxResults - Максимальное количество результатов
  * @param {string} projectPath - Корень проекта для вычисления относительных путей
  * @param {number} maxSearchFileSize - Максимальный размер файла в байтах
+ * @param {number} maxFileChars - Макс. символов для regex matching
  */
-async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath, maxSearchFileSize) {
+async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath, maxSearchFileSize, maxFileChars) {
   if (depth > 5 || results.length >= maxResults) return;
 
   try {
@@ -429,7 +483,7 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
       const fullPath = path.join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
-        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath, maxSearchFileSize);
+        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath, maxSearchFileSize, maxFileChars);
       } else if (entry.isFile()) {
         // Filter by extension if specified
         if (extension && !entry.name.endsWith(extension.replace("*", ""))) continue;
@@ -452,7 +506,8 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
             if (bytesRead > 0 && buf.subarray(0, bytesRead).includes(0)) continue;
 
             const content = await filehandle.readFile("utf-8");
-            const matches = content.match(pattern);
+            const searchContent = content.slice(0, maxFileChars);
+            const matches = searchContent.match(pattern);
             if (matches && results.length < maxResults) {
               const relativePath = path.relative(projectPath, fullPath).replace(/\\/g, "/");
               results.push({
@@ -514,6 +569,7 @@ export async function executeTool(toolCall, config = {}) {
   const projectPath = path.resolve(rawPath);
   const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
   const maxSearchFileSize = config.maxSearchFileSize ?? configDefaults.maxSearchFileSize;
+  const maxFileChars = config.maxFileChars ?? configDefaults.maxFileChars;
 
   // Validate project directory exists
   try {
@@ -597,10 +653,13 @@ export async function executeTool(toolCall, config = {}) {
         } catch (e) {
           return { success: false, error: `Invalid regex pattern: ${e.message}` };
         }
+        if (rejectReDoS(pattern)) {
+          return { success: false, error: "Search pattern rejected: too complex (nested quantifiers)" };
+        }
         const results = [];
         const include = args.include || null;
 
-        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath, maxSearchFileSize);
+        await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath, maxSearchFileSize, maxFileChars);
 
         return {
           success: true,
@@ -639,81 +698,103 @@ export async function executeTool(toolCall, config = {}) {
 
       // ────────────────────────────────────────────────────────────────────
       case "execute": {
-        const timeoutSec = args.timeout != null ? Math.min(Math.max(args.timeout, 1), 3600) : 30;
+        const taskId = crypto.randomUUID();
+        const defaultTimeout = config.executeTimeout ?? configDefaults.executeTimeout;
+        const timeoutSec = args.timeout !== undefined
+          ? (args.timeout > 0 ? Math.min(args.timeout, 3600) : (args.timeout === 0 ? 0 : 1))
+          : defaultTimeout;
         const isWin = process.platform === "win32";
         const trimmedCmd = args.command.trimStart();
         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
 
+        let child;
         try {
-          const result = await new Promise((resolve, reject) => {
-            const { shell, shellArgs } = isWin && isPwsh
-              ? (() => {
-                  const pwshCmd = trimmedCmd
-                    .replace(/^(powershell|pwsh)\s+/i, "")
-                    .replace(/^(-command|-c)\s+/i, "")
-                    .trim()
-                    .replace(/^["'](.*)["']\s*$/, "$1");
-                  return { shell: "powershell.exe", shellArgs: ["-NoLogo", "-NoProfile", "-Command", pwshCmd] };
-                })()
-              : isWin
-                ? { shell: "cmd.exe", shellArgs: ["/d", "/c", args.command] }
-                : { shell: "/bin/sh", shellArgs: ["-c", args.command] };
+          const { shell, shellArgs } = isWin && isPwsh
+            ? (() => {
+                const pwshCmd = trimmedCmd
+                  .replace(/^(powershell|pwsh)\s+/i, "")
+                  .replace(/^(-command|-c)\s+/i, "")
+                  .trim()
+                  .replace(/^["'](.*)["']\s*$/, "$1");
+                return { shell: "powershell.exe", shellArgs: ["-NoLogo", "-NoProfile", "-Command", pwshCmd] };
+              })()
+            : isWin
+              ? { shell: "cmd.exe", shellArgs: ["/d", "/c", args.command] }
+              : { shell: "/bin/sh", shellArgs: ["-c", args.command] };
 
-            const child = spawn(shell, shellArgs, {
-              cwd: projectPath,
-              encoding: "utf-8",
-              maxBuffer: 10 * 1024 * 1024,
-              windowsHide: true,
-              windowsVerbatimArguments: isWin,
-            });
+          child = spawn(shell, shellArgs, {
+            cwd: projectPath,
+            encoding: "utf-8",
+            maxBuffer: 10 * 1024 * 1024,
+            windowsHide: true,
+            windowsVerbatimArguments: isWin,
+          });
+        } catch (e) {
+          return { success: false, error: `Failed to spawn process: ${e.message}` };
+        }
 
-            let stdout = "";
-            let stderr = "";
+        const entry = {
+          child,
+          pid: child.pid,
+          taskId,
+          command: args.command,
+          startTime: Date.now(),
+          status: "running",
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          error: null,
+        };
+        activeProcesses.set(taskId, entry);
 
-            child.stdout.on("data", (data) => {
-              stdout += data.toString();
-            });
-            child.stderr.on("data", (data) => {
-              stderr += data.toString();
-            });
+        entry.promise = new Promise((resolve) => {
+          child.stdout.on("data", (data) => {
+            entry.stdout += data.toString();
+          });
+          child.stderr.on("data", (data) => {
+            entry.stderr += data.toString();
+          });
 
-            const timer = setTimeout(() => {
+          let timer;
+          if (timeoutSec > 0) {
+            timer = setTimeout(() => {
               if (process.platform === "win32") {
                 child.kill();
               } else {
                 child.kill("SIGTERM");
               }
-              reject(new Error(`Command timed out after ${timeoutSec}s`));
+              entry.status = "timeout";
+              entry.completedAt = Date.now();
+              resolve({ stdout: entry.stdout.trim(), stderr: entry.stderr.trim(), exitCode: null, error: `Command timed out after ${timeoutSec}s` });
             }, timeoutSec * 1000);
+          }
 
-            child.on("error", (err) => {
-              clearTimeout(timer);
-              reject(err);
-            });
-
-            child.on("close", (code, signal) => {
-              clearTimeout(timer);
-              const exitCode = code ?? (signal ? 1 : 0);
-              resolve({
-                stdout: stdout.trim(),
-                stderr: stderr.trim(),
-                exitCode,
-              });
-            });
+          child.on("error", (err) => {
+            clearTimeout(timer);
+            entry.status = "error";
+            entry.completedAt = Date.now();
+            entry.error = err.message;
+            resolve({ stdout: entry.stdout.trim(), stderr: entry.stderr.trim(), exitCode: 1, error: err.message });
           });
 
-          return {
-            success: result.exitCode === 0,
-            data: {
-              stdout: result.stdout,
-              stderr: result.stderr,
-              exitCode: result.exitCode,
-            },
-            error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
-          };
-        } catch (e) {
-          return { success: false, error: e.message };
-        }
+          child.on("close", (code, signal) => {
+            clearTimeout(timer);
+            entry.exitCode = code ?? (signal ? 1 : 0);
+            entry.status = entry.exitCode === 0 ? "completed" : "failed";
+            entry.completedAt = Date.now();
+            resolve({ stdout: entry.stdout.trim(), stderr: entry.stderr.trim(), exitCode: entry.exitCode });
+          });
+        });
+
+        // Clean up from active processes after 1 min
+        entry.promise.then(() => {
+          setTimeout(() => activeProcesses.delete(taskId), 60000);
+        });
+
+        return {
+          success: true,
+          data: { taskId, pid: child.pid, status: "running", command: args.command },
+        };
       }
 
       // ────────────────────────────────────────────────────────────────────
@@ -797,4 +878,84 @@ export async function executeTool(toolCall, config = {}) {
     console.error(`[executeTool] Error in ${name}:`, e);
     return { success: false, error: e.message };
   }
+}
+
+// ============================================================================
+// ASYNC TASK HELPERS
+// ============================================================================
+
+/**
+ * Дождаться завершения фоновой задачи (execute).
+ * @param {string} taskId - ID задачи из executeTool
+ * @returns {Promise<{success: boolean, data: {stdout: string, stderr: string, exitCode: number}, error?: string}>}
+ */
+export async function waitForTask(taskId) {
+  const entry = activeProcesses.get(taskId);
+  if (!entry) throw new Error(`Task ${taskId} not found or expired`);
+
+  let result;
+  if (entry.status === "running") {
+    // Wait for the promise, but also check if task might have been cleaned up during await
+    try {
+      result = await entry.promise;
+    } catch (err) {
+      // If promise was somehow corrupted or cleanup happened, use stored data
+      result = { 
+        stdout: entry.stdout.trim(), 
+        stderr: entry.stderr.trim(), 
+        exitCode: entry.exitCode || 1, 
+        error: err.message || "Task execution failed" 
+      };
+    }
+  } else {
+    result = { stdout: entry.stdout.trim(), stderr: entry.stderr.trim(), exitCode: entry.exitCode, error: entry.error };
+  }
+
+  return {
+    success: result.exitCode === 0,
+    data: {
+      stdout: result.stdout || "",
+      stderr: result.stderr || "",
+      exitCode: result.exitCode,
+    },
+    error: result.exitCode !== 0 ? (result.error || `Command exited with code ${result.exitCode}`) : undefined,
+  };
+}
+
+/**
+ * Отменить запущенную задачу.
+ * @param {string} taskId - ID задачи
+ * @returns {boolean} true если задача была отменена
+ */
+export function cancelTask(taskId) {
+  const entry = activeProcesses.get(taskId);
+  if (!entry || entry.status !== "running") return false;
+  if (process.platform === "win32") {
+    entry.child.kill();
+  } else {
+    entry.child.kill("SIGTERM");
+  }
+  entry.status = "cancelled";
+  entry.completedAt = Date.now();
+  return true;
+}
+
+/**
+ * Получить список активных задач.
+ * @returns {Array<{taskId: string, pid: number, command: string, startTime: number, uptime: number}>}
+ */
+export function getActiveTasks() {
+  const tasks = [];
+  for (const [, entry] of activeProcesses) {
+    if (entry.status === "running") {
+      tasks.push({
+        taskId: entry.taskId,
+        pid: entry.pid,
+        command: entry.command.substring(0, 100),
+        startTime: entry.startTime,
+        uptime: Date.now() - entry.startTime,
+      });
+    }
+  }
+  return tasks;
 }

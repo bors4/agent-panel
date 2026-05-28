@@ -316,6 +316,52 @@ export async function executeTool(toolCall) {
   return response.json();
 }
 
+/**
+ * Agent loop чат — использует agentLoopStep с инструментами и правами аккаунта.
+ * @param {Object} options - Параметры запроса
+ * @param {string} options.message - Сообщение пользователя
+ * @param {Array} [options.messages] - Предыдущие сообщения
+ * @param {string} [options.accountName] - Имя аккаунта для прав доступа
+ * @param {boolean} [options.useAgentLoop=true] - Флаг agent loop
+ * @returns {Promise<Object>} Ответ с toolCalls, toolResults и reply
+ */
+export async function agentChat(options) {
+  const response = await apiFetch("/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message: options.message,
+      messages: options.messages || [],
+      accountName: options.accountName || "",
+      useAgentLoop: true,
+      projectPath: options.projectPath,
+      serverUrl: options.serverUrl,
+      modelName: options.modelName,
+      systemPrompt: options.systemPrompt,
+    }),
+  });
+  return response.json();
+}
+
+/**
+ * Продолжить agent loop после одобрения/отклонения инструмента.
+ * @param {Object} options
+ * @param {Array} options.messages - Текущие сообщения
+ * @param {Object} options.approvalDecision - { approved, toolName, args, toolCallId }
+ * @param {string} [options.accountName] - Имя аккаунта
+ * @returns {Promise<Object>}
+ */
+export async function agentChatContinue(options) {
+  const response = await apiFetch("/chat/continue", {
+    method: "POST",
+    body: JSON.stringify({
+      messages: options.messages,
+      approvalDecision: options.approvalDecision,
+      accountName: options.accountName || "",
+    }),
+  });
+  return response.json();
+}
+
 export async function getTools() {
   const response = await apiFetch("/tools");
   return response.json();

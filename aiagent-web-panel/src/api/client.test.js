@@ -26,13 +26,13 @@ describe("api/client connection state", () => {
 
 describe("api/client accounts", () => {
   beforeEach(() => {
-    global.fetch = vi.fn();
+    globalThis.fetch = vi.fn();
   });
 
   it("getAccounts calls GET /api/accounts", async () => {
-    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, accounts: [] }) });
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, accounts: [] }) });
     const result = await getAccounts();
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/accounts"),
       expect.objectContaining({
         headers: expect.objectContaining({
@@ -45,9 +45,9 @@ describe("api/client accounts", () => {
   });
 
   it("postAccounts calls POST /api/accounts with payload", async () => {
-    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, accounts: [] }) });
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, accounts: [] }) });
     await postAccounts({ accounts: [{ username: "test" }] });
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/accounts"),
       expect.objectContaining({
         method: "POST",
@@ -57,9 +57,9 @@ describe("api/client accounts", () => {
   });
 
   it("postImportAccounts calls POST /api/accounts/import", async () => {
-    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, accounts: [] }) });
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, accounts: [] }) });
     await postImportAccounts({ accounts: [{ username: "imported" }] });
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/accounts/import"),
       expect.objectContaining({ method: "POST" }),
     );
@@ -68,13 +68,13 @@ describe("api/client accounts", () => {
 
 describe("api/client models", () => {
   beforeEach(() => {
-    global.fetch = vi.fn();
+    globalThis.fetch = vi.fn();
   });
 
   it("getModels calls GET /api/models with serverUrl param", async () => {
-    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ models: [] }) });
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ models: [] }) });
     const result = await getModels("http://localhost:8080/v1");
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/models?serverUrl="),
       expect.any(Object),
     );
@@ -85,13 +85,13 @@ describe("api/client models", () => {
 // Проверяем, что базовая функциональность работает с новым API_KEY поведением
 describe("api/client with new API_KEY behavior", () => {
   beforeEach(() => {
-    global.fetch = vi.fn();
+    globalThis.fetch = vi.fn();
   });
 
   it("checkPath calls GET /api/validate-path with path param", async () => {
-    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ valid: true }) });
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ valid: true }) });
     const result = await checkPath("/some/path");
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/validate-path?path="),
       expect.any(Object),
     );

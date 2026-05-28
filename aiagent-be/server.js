@@ -56,6 +56,7 @@ const config = {
   timeout: configDefaults.timeout,
   maxSearchFileSize: configDefaults.maxSearchFileSize,
   stream: configDefaults.stream,
+  insertUserAfterTool: configDefaults.insertUserAfterTool,
 };
 
 /**
@@ -91,12 +92,19 @@ function recordAndCheckRateLimit(chatId) {
   return entry.count <= RATE_LIMIT;
 }
 
+const APPROVAL_TTL = 10 * 60 * 1000; // 10 minutes
+
 // Periodic cleanup: remove stale entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [chatId, entry] of rateLimitMap) {
     if (now - entry.windowStart > RATE_WINDOW * 2) {
       rateLimitMap.delete(chatId);
+    }
+  }
+  for (const [chatId, entry] of pendingApprovals) {
+    if (now - entry.createdAt > APPROVAL_TTL) {
+      pendingApprovals.delete(chatId);
     }
   }
 }, 5 * 60_000).unref();
@@ -166,13 +174,13 @@ function wsBroadcast(type, data) {
 
 // ─── Импорт модулей ────────────────────────────────────────────────────────
 
-import { agentLoopStep, buildSystemMessage, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
-import { parseStreamedResponse } from "./lib/parseSSE.js";
-import { executeTool, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
-import { loadAccounts, getAccounts, getAccountByUsername, isToolEnabledForAccount } from "./lib/accounts.js";
+import { agentLoopStep, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
+
+import { executeTool, waitForTask, cancelTask, getActiveTasks, TOOLS } from "./lib/agent/executeTool.js";
+
+import { loadAccounts, getAccounts, getAccountByUsername } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 import { createApiRouter } from "./routes/api.js";
-import { parseToolCall } from "./lib/utils.js";
 
 // ─── Утилиты логирования ───────────────────────────────────────────────────
 
@@ -530,11 +538,23 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       toolCallId: result.toolCallId,
       messages: result.messages,
       account,
+      createdAt: Date.now(),
     });
-    chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
+    chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")).slice(-(config.maxHistoryPairs * 2)));
     const paramStr = JSON.stringify(result.args);
     const displayParams =
-      paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
+      result.toolName === "write" && result.args.content
+        ? JSON.stringify({
+            ...result.args,
+            content:
+              result.args.content.length > 200
+                ? result.args.content.substring(0, 200) +
+                  `… [content truncated: ${result.args.content.length} chars]`
+                : result.args.content,
+          })
+        : paramStr.length > 300
+          ? paramStr.substring(0, 300) + "… [truncated]"
+          : paramStr;
     await replyMsg(
       ctx,
       `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${displayParams}</code>`,
@@ -611,10 +631,22 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   const account = pending.account;
 
   try {
-    const result = await executeTool(
+    let result = await executeTool(
       { name: pending.toolName, args: pending.args },
       { projectPath: config.projectPath, account }
     );
+
+    // Handle async execute: return taskId immediately, then await completion
+    if (result.data?.taskId) {
+      const taskId = result.data.taskId;
+      await replyMsg(ctx, `🔄 <b>${pending.toolName}</b>: Task <code>${taskId}</code> started…`);
+      try {
+        result = await waitForTask(taskId);
+      } catch (error) {
+        addLog(`waitForTask error for ${pending.toolName}: ${error.message}`, "error");
+        result = { success: false, error: `Task execution failed: ${error.message}` };
+      }
+    }
 
     addLog(
       `Tool executed: ${pending.toolName} = ${result.success ? "OK" : "FAIL:" + result.error}`,
@@ -622,7 +654,18 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     );
 
     if (!result.success) {
-      await replyMsg(ctx, `❌ <b>${pending.toolName}</b> failed: ${result.error}`);
+      const errorToolMessage = {
+        role: "tool",
+        tool_call_id: pending.toolCallId,
+        content: JSON.stringify(result).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+      };
+      const rawH = chatHistories.get(chatId) || pending.messages || [];
+      const h = rawH.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
+      const newHistory = [...h, errorToolMessage].filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2));
+      chatHistories.set(chatId, newHistory);
+      const stderr = result.data?.stderr?.trim();
+      const errorMsg = result.error + (stderr ? `\n\nstderr:\n\`\`\`\n${stderr.slice(0, 500)}\n\`\`\`` : "");
+      await replyMsg(ctx, `❌ <b>${pending.toolName}</b> failed: ${errorMsg}`);
       return;
     }
 
@@ -634,229 +677,25 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
       toolMessage.tool_call_id = pending.toolCallId;
     }
 
-    const mergedToolConfig = getToolConfig();
-    const toolsDef = Object.values(mergedToolConfig)
-      .filter((t) => isToolEnabledForAccount(account, t.name, mergedToolConfig))
-      .map((t) => ({
-        type: "function",
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: t.input_schema,
-        },
-      }));
-
-    const history = chatHistories.get(chatId) || pending.messages || [];
-    const systemMessage = {
-      role: "system",
-      content: buildSystemMessage(config.projectPath, config.systemPrompt, true, account),
-    };
-
-    const controller = new AbortController();
-    const timeout = config.timeout ?? configDefaults.timeout;
-    let timeoutId = setTimeout(() => controller.abort(), timeout);
-    let response;
-    try {
-      response = await fetch(config.serverUrl + "/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + config.apiKey,
-        },
-        body: JSON.stringify({
-          model: config.modelName,
-          messages: [systemMessage, ...history, toolMessage],
-          max_tokens: config.maxTokens ?? configDefaults.maxTokens,
-          temperature: config.temperature ?? configDefaults.temperature,
-          tools: toolsDef,
-          tool_choice: "auto",
-          stream: config.stream ?? false,
-        }),
-        signal: controller.signal,
-      });
-    } catch (e) {
-      clearTimeout(timeoutId);
-      if (e.name === "AbortError") {
-        throw new Error("Request timed out. Try again or increase the timeout setting.", { cause: e });
-      }
-      throw e;
-    }
-
-    if (!response.ok) {
-      clearTimeout(timeoutId);
-      throw new Error(`AI API error: ${response.status}`);
-    }
-
-    let nextMessage, finishReason;
-    if (config.stream) {
-      try {
-        const { content, toolCalls, finishReason: fr, usage, timings } = await parseStreamedResponse(response, {
-          onContent: () => {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => controller.abort(), timeout);
-          },
-        });
-        finishReason = fr;
-        nextMessage = {
-          role: "assistant",
-          content: content || null,
-          tool_calls: toolCalls
-            ? toolCalls.map((tc) => ({
-                id: tc.id,
-                type: tc.type,
-                function: { name: tc.function.name, arguments: tc.function.arguments },
-              }))
-            : undefined,
-        };
-        let effectiveUsage = usage;
-        if (!effectiveUsage && timings) {
-          effectiveUsage = {
-            prompt_tokens: timings.prompt_n || 0,
-            completion_tokens: timings.predicted_n || 0,
-            total_tokens: (timings.prompt_n || 0) + (timings.predicted_n || 0),
-            prompt_tokens_details: {
-              cached_tokens: timings.cache_n || 0,
-            },
-          };
-        }
-          if (effectiveUsage) {
-            tokenUsage.prompt += effectiveUsage.prompt_tokens || 0;
-            tokenUsage.completion += effectiveUsage.completion_tokens || 0;
-            tokenUsage.total += effectiveUsage.total_tokens || 0;
-            if (effectiveUsage.prompt_tokens_details?.cached_tokens !== undefined) {
-              tokenUsage.cached += effectiveUsage.prompt_tokens_details.cached_tokens;
-            }
-            if (timings?.tokens_cached) tokenUsage.tokensCached = timings.tokens_cached;
-            wsBroadcast("tokenUsage", { ...tokenUsage });
-          }
-          if (timings) {
-            wsBroadcast("perfStats", buildPerfStats(timings));
-          }
-        } catch (e) {
-          if (e.name === "AbortError") {
-          throw new Error("Generation timed out. Try again or increase the timeout setting.", { cause: e });
-        }
-        throw e;
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    } else {
-      clearTimeout(timeoutId);
-      const data = await response.json();
-      finishReason = data.choices?.[0]?.finish_reason;
-      nextMessage = data.choices?.[0]?.message || {};
-      const usage = data.usage;
-      const timings = data.timings;
-      let effectiveUsage = usage;
-      if (!effectiveUsage && timings) {
-        effectiveUsage = {
-          prompt_tokens: timings.prompt_n || 0,
-          completion_tokens: timings.predicted_n || 0,
-          total_tokens: (timings.prompt_n || 0) + (timings.predicted_n || 0),
-          prompt_tokens_details: {
-            cached_tokens: timings.cache_n || 0,
-          },
-        };
-      }
-      if (effectiveUsage) {
-        tokenUsage.prompt += effectiveUsage.prompt_tokens || 0;
-        tokenUsage.completion += effectiveUsage.completion_tokens || 0;
-        tokenUsage.total += effectiveUsage.total_tokens || 0;
-        if (effectiveUsage.prompt_tokens_details?.cached_tokens !== undefined) {
-          tokenUsage.cached += effectiveUsage.prompt_tokens_details.cached_tokens;
-        }
-        if (timings?.tokens_cached) tokenUsage.tokensCached = timings.tokens_cached;
-        wsBroadcast("tokenUsage", { ...tokenUsage });
-      }
-      if (timings) {
-        wsBroadcast("perfStats", buildPerfStats(timings));
-      }
-    }
-
-    addLog(`Model response: finish=${finishReason}, toolCalls=${!!nextMessage?.tool_calls?.length}, content=${nextMessage?.content?.length}`, "info");
-
-    if (!nextMessage || (!nextMessage.content?.trim() && !nextMessage.tool_calls?.length)) {
-      const reason = finishReason === "length" ? "Лимит токенов (max_tokens)" : "Ответ модели обрезан или невалиден";
-      addLog(`Model response empty/invalid. finish_reason: ${finishReason}`, "warning");
-      await replyMsg(
-        ctx,
-        `⚠️ ${reason}. Модель не сгенерировала полный вызов инструмента. Попробуйте разбить задачу или увеличить MAX_TOKENS.`
-      );
-      return;
-    }
-
-    const newHistory = [...history, toolMessage, nextMessage].filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2));
+    const rawHistory = pending.messages || chatHistories.get(chatId) || [];
+    const cleanHistory = rawHistory.filter(
+      (m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")
+    );
+    const newHistory = [...cleanHistory, toolMessage];
     chatHistories.set(chatId, newHistory);
 
-    // XML fallback: parse XML tool call if native function calling absent
-    if (!nextMessage.tool_calls?.length) {
-      const xmlTc = parseToolCall(nextMessage.content || "");
-      if (xmlTc) {
-        nextMessage.tool_calls = [{
-          id: xmlTc.id,
-          type: "function",
-          function: { name: xmlTc.name, arguments: JSON.stringify(xmlTc.args) },
-        }];
-      }
+    const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account);
+    if (retryResult.tokenUsage) {
+      tokenUsage.prompt += retryResult.tokenUsage.prompt || 0;
+      tokenUsage.completion += retryResult.tokenUsage.completion || 0;
+      tokenUsage.total += retryResult.tokenUsage.total || 0;
+      tokenUsage.cached += retryResult.tokenUsage.cached || 0;
+      wsBroadcast("tokenUsage", { ...tokenUsage });
     }
-
-    // Модель вернула новый tool_call
-    if (nextMessage.tool_calls?.length > 0) {
-      const tc = nextMessage.tool_calls[0];
-      const tn = tc.function.name;
-      let ta;
-      try {
-        ta = JSON.parse(tc.function.arguments);
-      } catch {
-        throw new Error("Invalid JSON in tool call");
-      }
-
-      const ts = mergedToolConfig[tn] || {};
-      if (!mergedToolConfig[tn]?.enabled) {
-        await replyMsg(ctx, `❌ <b>${tn}</b> is disabled globally.`);
-        return;
-      }
-      if (account && account.permissions?.[tn] === false) {
-        await replyMsg(ctx, `❌ <b>${tn}</b> is not available for your account.`);
-        return;
-      }
-      if (ts.permission === "ask") {
-        pendingApprovals.set(chatId, {
-          toolName: tn,
-          args: ta,
-          toolCallId: tc.id,
-          messages: newHistory,
-          account,
-        });
-        const paramStr = JSON.stringify(ta);
-        const displayParams = paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
-        await replyMsg(ctx, `⚠️ Confirmation needed:\n\n📦 <b>${tn}</b>\nParams: <code>${displayParams}</code>`, {
-          reply_markup: KEYBOARD_YES_NO(tn),
-        });
-        return;
-      }
-
-      // Авто-выполнение следующего инструмента
-      await continueAfterApproval(
-        ctx,
-        {
-          toolName: tn,
-          args: ta,
-          toolCallId: tc.id,
-          messages: newHistory,
-          account,
-        },
-        depth + 1
-      );
-      return;
+    if (retryResult.timings) {
+      wsBroadcast("perfStats", buildPerfStats(retryResult.timings));
     }
-
-    const finalText = nextMessage.content || "✅ Готово.";
-    if (ctx.chat?.type === "private") {
-      await ctx.replyWithStream(chunkText(finalText));
-    } else {
-      await replyMsg(ctx, finalText);
-    }
+    return await handleAgentResult(ctx, chatId, retryResult, account);
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
     console.error("[continueAfterApproval] Full error:", error);
@@ -930,7 +769,7 @@ bot.command("start", (ctx) => {
 
 bot.command("help", (ctx) => {
   ctx.reply(
-    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list",
+    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel <id> - Cancel task",
     REPLY_OPTS
   );
 });
@@ -968,6 +807,41 @@ bot.command("tools", async (ctx) => {
       ...REPLY_OPTS,
       parse_mode: "HTML",
     });
+  }
+});
+
+bot.command("tasks", (ctx) => {
+  const tasks = getActiveTasks();
+  if (tasks.length === 0) {
+    ctx.reply("No active tasks.", REPLY_OPTS);
+    return;
+  }
+  const lines = tasks.map((t) => {
+    const uptime = Math.floor(t.uptime / 1000);
+    return `• <code>${t.taskId.substring(0, 8)}</code> <b>${t.command}</b> (${uptime}s)`;
+  });
+  ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
+});
+
+bot.command("cancel", (ctx) => {
+  const text = ctx.message?.text || "";
+  const parts = text.trim().split(/\s+/);
+  const taskIdArg = parts[1];
+  if (!taskIdArg) {
+    ctx.reply("Usage: /cancel <taskId>", REPLY_OPTS);
+    return;
+  }
+  // Find by prefix (first 8 chars)
+  const tasks = getActiveTasks();
+  const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
+  if (!match) {
+    ctx.reply(`❌ Task not found: ${taskIdArg}`, REPLY_OPTS);
+    return;
+  }
+  if (cancelTask(match.taskId)) {
+    ctx.reply(`❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`, REPLY_OPTS);
+  } else {
+    ctx.reply(`⚠️ Task ${taskIdArg} is no longer running.`, REPLY_OPTS);
   }
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatValue } from "../lib/agent/executeTool.js";
+import { formatValue, rejectReDoS } from "../lib/agent/executeTool.js";
 
 describe("formatValue", () => {
   it("formats null/undefined as N/A", () => {
@@ -59,5 +59,67 @@ describe("formatValue", () => {
     b.ref = a;
     const result = formatValue(a);
     expect(result).toContain("[Circular]");
+  });
+});
+
+describe("rejectReDoS", () => {
+  it("rejects (a+)+b", () => {
+    expect(rejectReDoS("(a+)+b")).toBe(true);
+  });
+
+  it("rejects (a*)*", () => {
+    expect(rejectReDoS("(a*)*")).toBe(true);
+  });
+
+  it("rejects ((a+)+)+ three-level nesting", () => {
+    expect(rejectReDoS("((a+)+)+")).toBe(true);
+  });
+
+  it("rejects (a+)?b with optional outer quantifier", () => {
+    expect(rejectReDoS("(a+)?b")).toBe(true);
+  });
+
+  it("rejects (a+){2,}b with range outer quantifier", () => {
+    expect(rejectReDoS("(a+){2,}b")).toBe(true);
+  });
+
+  it("rejects ((b+))+ with propagated inner quantifier", () => {
+    expect(rejectReDoS("((b+))+")).toBe(true);
+  });
+
+  it("rejects (?:a+)+b non-capturing group", () => {
+    expect(rejectReDoS("(?:a+)+b")).toBe(true);
+  });
+
+  it("allows simple text TODO", () => {
+    expect(rejectReDoS("TODO")).toBe(false);
+  });
+
+  it("allows (a|b)+c single-level alternation", () => {
+    expect(rejectReDoS("(a|b)+c")).toBe(false);
+  });
+
+  it("allows (foo|bar) without outer quantifier", () => {
+    expect(rejectReDoS("(foo|bar)")).toBe(false);
+  });
+
+  it("allows (a|b)? optional group without inner quantifier", () => {
+    expect(rejectReDoS("(a|b)?")).toBe(false);
+  });
+
+  it("allows [a-z]+ char class", () => {
+    expect(rejectReDoS("[a-z]+")).toBe(false);
+  });
+
+  it("allows .* simple star", () => {
+    expect(rejectReDoS(".*")).toBe(false);
+  });
+
+  it("allows (a+)(b+) separate groups", () => {
+    expect(rejectReDoS("(a+)(b+)")).toBe(false);
+  });
+
+  it("allows empty string", () => {
+    expect(rejectReDoS("")).toBe(false);
   });
 });

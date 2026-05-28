@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { safePath, parseToolCall } from "../lib/utils.js";
-import { executeTool, getToolConfig, updateToolConfig, TOOLS, DEFAULT_TOOL_CONFIG } from "../lib/agent/executeTool.js";
+import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, updateToolConfig, TOOLS, DEFAULT_TOOL_CONFIG } from "../lib/agent/executeTool.js";
 import * as logger from "../lib/logger.js";
 
 // ─── Mock console ────────────────────────────────────────────────
@@ -272,13 +272,60 @@ describe("executeTool", () => {
     expect(result.error).toContain("outside project");
   });
 
-  it("runs shell commands", async () => {
+  it("runs shell commands asynchronously", async () => {
     const result = await executeTool(
       { name: "execute", args: { command: 'echo "test"', timeout: 10 } },
       { projectPath: testDir }
     );
     expect(result.success).toBe(true);
-    expect(result.data.stdout).toContain("test");
+    expect(result.data.taskId).toBeDefined();
+    expect(result.data.status).toBe("running");
+    // Wait for completion
+    const final = await waitForTask(result.data.taskId);
+    expect(final.success).toBe(true);
+    expect(final.data.stdout).toContain("test");
+  });
+
+  it("cancelTask kills a running process", async () => {
+    // Start a long-running command
+    const result = await executeTool(
+      { name: "execute", args: { command: "powershell.exe Start-Sleep 60", timeout: 120 } },
+      { projectPath: testDir }
+    );
+    expect(result.success).toBe(true);
+    expect(result.data.taskId).toBeDefined();
+    // Cancel it
+    const cancelled = cancelTask(result.data.taskId);
+    expect(cancelled).toBe(true);
+    // Wait for the cancelled process to finish
+    const final = await waitForTask(result.data.taskId);
+    expect(final.success).toBe(false);
+    expect(result.data.status).toBe("running");
+  });
+
+  it("timeout: 0 does not set a timer", async () => {
+    const result = await executeTool(
+      { name: "execute", args: { command: 'echo "no timeout"', timeout: 0 } },
+      { projectPath: testDir }
+    );
+    expect(result.success).toBe(true);
+    expect(result.data.status).toBe("running");
+    const final = await waitForTask(result.data.taskId);
+    expect(final.success).toBe(true);
+    expect(final.data.stdout).toContain("no timeout");
+  });
+
+  it("getActiveTasks lists running tasks", async () => {
+    const result = await executeTool(
+      { name: "execute", args: { command: "powershell.exe Start-Sleep 30", timeout: 60 } },
+      { projectPath: testDir }
+    );
+    expect(result.success).toBe(true);
+    const tasks = getActiveTasks();
+    expect(tasks.length).toBeGreaterThanOrEqual(1);
+    expect(tasks.some((t) => t.taskId === result.data.taskId)).toBe(true);
+    // Clean up
+    cancelTask(result.data.taskId);
   });
 
   it("returns error for unknown tool", async () => {
