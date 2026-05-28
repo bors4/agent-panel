@@ -70,11 +70,9 @@
                 <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
               </div>
               <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
-                <span>⚡ {{ msg.usage.total_tokens }} tokens</span>
-                <span class="token-detail">(p:{{ msg.usage.prompt_tokens }}, c:{{ msg.usage.completion_tokens }})</span>
-                <span v-if="msg.usage.prompt_tokens_details?.cached_tokens !== undefined" class="token-detail"
-                  >cached:{{ msg.usage.prompt_tokens_details.cached_tokens }}</span
-                >
+                <span>⚡ {{ msg.usage.total }} tokens</span>
+                <span class="token-detail">(p:{{ msg.usage.prompt }}, c:{{ msg.usage.completion }})</span>
+                <span v-if="msg.usage.cached > 0" class="token-detail">cached:{{ msg.usage.cached }}</span>
               </div>
             </template>
           </div>

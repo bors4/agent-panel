@@ -426,6 +426,30 @@ export function createApiRouter(deps) {
           }
         }
 
+        if (result.tokenUsage) {
+          deps.tokenUsage.prompt += result.tokenUsage.prompt || 0;
+          deps.tokenUsage.completion += result.tokenUsage.completion || 0;
+          deps.tokenUsage.total += result.tokenUsage.total || 0;
+          deps.tokenUsage.cached += result.tokenUsage.cached || 0;
+          wsBroadcast("tokenUsage", { ...deps.tokenUsage });
+        }
+        if (result.timings) {
+          wsBroadcast("perfStats", {
+            prompt_n: result.timings.prompt_n || 0,
+            predicted_n: result.timings.predicted_n || 0,
+            prompt_ms: Math.round(result.timings.prompt_ms || 0),
+            predicted_ms: Math.round(result.timings.predicted_ms || 0),
+            prompt_per_second: result.timings.prompt_per_second || 0,
+            predicted_per_second: result.timings.predicted_per_second || 0,
+            cache_n: result.timings.cache_n ?? 0,
+            tokens_cached: result.timings.tokens_cached ?? 0,
+            draft_n: result.timings.draft_n || 0,
+            draft_n_accepted: result.timings.draft_n_accepted || 0,
+            draft_acceptance_rate: (result.timings.draft_n ?? 0) > 0 ? (result.timings.draft_n_accepted ?? 0) / (result.timings.draft_n ?? 0) : 0,
+            total_ms: Math.round((result.timings.prompt_ms || 0) + (result.timings.predicted_ms || 0)),
+          });
+        }
+
         return res.json({
           success: true,
           reply: result.response || "",

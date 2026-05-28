@@ -685,6 +685,16 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     chatHistories.set(chatId, newHistory);
 
     const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account);
+    if (retryResult.tokenUsage) {
+      tokenUsage.prompt += retryResult.tokenUsage.prompt || 0;
+      tokenUsage.completion += retryResult.tokenUsage.completion || 0;
+      tokenUsage.total += retryResult.tokenUsage.total || 0;
+      tokenUsage.cached += retryResult.tokenUsage.cached || 0;
+      wsBroadcast("tokenUsage", { ...tokenUsage });
+    }
+    if (retryResult.timings) {
+      wsBroadcast("perfStats", buildPerfStats(retryResult.timings));
+    }
     return await handleAgentResult(ctx, chatId, retryResult, account);
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
