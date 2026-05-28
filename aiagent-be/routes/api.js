@@ -32,6 +32,17 @@ export function createApiRouter(deps) {
   const { config, stats, chatHistories, pendingApprovals, addLog, wsBroadcast } =
     deps;
 
+  // ─── Auth middleware ─────────────────────────────────────────────────────
+  router.use((req, res, next) => {
+    if (req.path === "/health") return next();
+    const apiKey = req.headers["x-api-key"];
+    if (!apiKey || apiKey !== config.apiKey) {
+      addLog(`API auth failed: ${req.method} ${req.path} from ${req.ip}`, "warning");
+      return res.status(401).json({ error: "Unauthorized: invalid or missing API key" });
+    }
+    next();
+  });
+
   // ─── Tools ───────────────────────────────────────────────────────────────
 
   /**
