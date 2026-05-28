@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 45 / 57** | `P0: 0/4` · `P1: 7/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 46 / 57** | `P0: 0/4` · `P1: 8/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -57,7 +57,7 @@
   - `watch(messages, ...)` останавливается при unmount, `sendMessage()` не вызывает `saveChatHistory()` после ответа
   - **Фикс:** вызывать `saveChatHistory()` явно после `directChat()`; рассмотреть `<KeepAlive>` или `v-show` вместо `v-if`
 
-- [ ] #6 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
+- [x] #6 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
   - `Object.assign(config, newConfig)` — уязвим к `__proto__` / `constructor`
   - **Фикс:** использовать `Object.keys(newConfig).forEach(k => { if (k in config) config[k] = newConfig[k]; })`
 

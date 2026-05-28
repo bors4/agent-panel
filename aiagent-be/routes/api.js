@@ -173,6 +173,12 @@ export function createApiRouter(deps) {
    */
   router.post("/config", (req, res) => {
     const body = req.body || {};
+    const blockedKeys = ["__proto__", "constructor", "prototype"];
+    const hasPrototypePollution = Object.keys(body).some((k) => blockedKeys.includes(k));
+    if (hasPrototypePollution) {
+      addLog("POST /api/config blocked: prototype pollution attempt detected", "error");
+      return res.status(400).json({ error: "Invalid config keys" });
+    }
     let tokenChanged = false;
     addLog(`POST /api/config received keys: ${Object.keys(body).join(", ")}`, "info");
     if (body.serverUrl) config.serverUrl = body.serverUrl;
