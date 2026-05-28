@@ -224,6 +224,13 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     ...truncateHistory(history, cfg.maxHistoryPairs),
   ];
 
+  if (message && message.trim()) {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "user" || lastMsg.content !== message) {
+      messages.push({ role: "user", content: message });
+    }
+  }
+
   messages = validateAndFixHistory(messages);
   let iterations = 0,
     finalResponse = "",

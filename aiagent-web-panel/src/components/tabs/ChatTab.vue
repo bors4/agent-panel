@@ -341,6 +341,7 @@ async function sendAgentMessage(text) {
       content: result.reply,
       usage: result.tokenUsage || null,
     });
+    if (result.tokenUsage) emit("token-usage", result.tokenUsage);
   }
 
   // Добавляем tool calls и results
