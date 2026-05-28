@@ -57,8 +57,13 @@ export function safePath(userPath, projectRoot) {
   const realRoot = resolveRealPath(resolvedRoot);
   const realPath = resolveRealPath(resolvedPath);
 
-  const normalizedRealRoot = realRoot.replace(/\\/g, "/").toLowerCase();
-  const normalizedRealPath = realPath.replace(/\\/g, "/").toLowerCase();
+  const isWindows = process.platform === "win32";
+  const normalize = (p) => {
+    const normalized = p.replace(/\\/g, "/");
+    return isWindows ? normalized.toLowerCase() : normalized;
+  };
+  const normalizedRealRoot = normalize(realRoot);
+  const normalizedRealPath = normalize(realPath);
 
   const rootPrefix = normalizedRealRoot.endsWith("/") ? normalizedRealRoot : normalizedRealRoot + "/";
   if (normalizedRealPath !== normalizedRealRoot && !normalizedRealPath.startsWith(rootPrefix)) {

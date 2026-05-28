@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 47 / 57** | `P0: 0/4` · `P1: 9/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 48 / 57** | `P0: 0/4` · `P1: 10/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -45,7 +45,7 @@
 - [x] #2 `[security][backend]` **Telegram bot token в ответе API**
   - `GET /api/config` возвращал `{ token: process.env.TELEGRAM_BOT_TOKEN }` — убрано, возвращается `hasToken: boolean`
 
-- [ ] #3 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
+- [x] #3 `[bug][backend]` **`safePath()` использует `.toLowerCase()` для сравнения путей — ломается на Linux**
   - На Linux файловая система чувствительна к регистру: `/home/User/file.txt` ≠ `/home/user/file.txt`
   - Использовать `.toLowerCase()` только на Windows (`process.platform === "win32"`)
 
@@ -55,7 +55,7 @@
 - [x] #5 `[bug][frontend]` **Ответ модели теряется при смене вкладки или перезагрузке страницы в ChatTab**
   - **Корень:** `ChatTab.vue` рендерится через `v-if` — при смене вкладки компонент уничтожается
   - `watch(messages, ...)` останавливается при unmount, `sendMessage()` не вызывает `saveChatHistory()` после ответа
-  - **Фикс:** вызывать `saveChatHistory()` явно после `directChat()`; рассмотреть `<KeepAlive>` или `v-show` вместо `v-if`
+  - **Фикс:** `v-show` вместо `v-if`, persist approvalMessages/pendingApproval/pendingToolCalls в localStorage, onUnmounted save
 
 - [x] #6 `[security][backend]` **`updateAgentConfig()` — Object.assign без защиты от prototype pollution**
   - `Object.assign(config, newConfig)` — уязвим к `__proto__` / `constructor`
