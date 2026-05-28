@@ -466,6 +466,7 @@ export function createApiRouter(deps) {
           approvalToolName: result.toolName,
           approvalArgs: result.args,
           approvalToolCallId: result.toolCallId,
+          pendingToolCalls: result.pendingToolCalls || null,
           tokenUsage: result.tokenUsage || null,
         });
       }
