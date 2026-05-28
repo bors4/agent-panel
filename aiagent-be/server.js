@@ -24,6 +24,20 @@ const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 bot.api.config.use(autoRetry());
 bot.use(stream());
 
+bot.use(async (ctx, next) => {
+  const username = ctx.chat?.username;
+  const account = getAccountByUsername(username);
+  if (!account) {
+    await replyMsg(
+      ctx,
+      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered.\nContact the administrator to get access.`
+    );
+    return;
+  }
+  ctx.account = account;
+  await next();
+});
+
 // ─── Состояние приложения ──────────────────────────────────────────────────
 
 /**
@@ -413,16 +427,7 @@ bot.on("message", async (ctx) => {
     return;
   }
 
-  const username = ctx.chat.username;
-  const account = getAccountByUsername(username);
-  if (!account) {
-    await replyMsg(
-      ctx,
-      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered. Contact the administrator.`
-    );
-    return;
-  }
-
+  const account = ctx.account;
   const chatId = ctx.chat.id.toString();
   if (!recordAndCheckRateLimit(chatId)) {
     await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
@@ -821,30 +826,18 @@ bot.command("clear", (ctx) => {
 });
 
 bot.command("tools", async (ctx) => {
-  const username = ctx.chat.username;
-  const account = getAccountByUsername(username);
-  let toolList;
-  if (account) {
-    toolList = Object.entries(TOOLS)
-      .map(([name, tool]) => {
-        const enabled = account.permissions?.[name] !== false;
-        const icon = enabled ? "✅" : "❌";
-        return `${icon} <b>${name}</b>: ${tool.description}`;
-      })
-      .join("\n");
-    ctx.reply(`📦 Tools for @${username} (${account.role}):\n\n${toolList}`, {
-      ...REPLY_OPTS,
-      parse_mode: "HTML",
-    });
-  } else {
-    toolList = Object.entries(TOOLS)
-      .map(([name, tool]) => `• <b>${name}</b>: ${tool.description}`)
-      .join("\n");
-    ctx.reply(`📦 Available tools:\n\n${toolList}`, {
-      ...REPLY_OPTS,
-      parse_mode: "HTML",
-    });
-  }
+  const account = ctx.account;
+  const toolList = Object.entries(TOOLS)
+    .map(([name, tool]) => {
+      const enabled = account.permissions?.[name] !== false;
+      const icon = enabled ? "✅" : "❌";
+      return `${icon} <b>${name}</b>: ${tool.description}`;
+    })
+    .join("\n");
+  ctx.reply(`📦 Tools for @${ctx.chat.username} (${account.role}):\n\n${toolList}`, {
+    ...REPLY_OPTS,
+    parse_mode: "HTML",
+  });
 });
 
 bot.command("tasks", (ctx) => {

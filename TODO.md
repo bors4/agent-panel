@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 44 / 57** | `P0: 0/4` · `P1: 6/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 45 / 57** | `P0: 0/4` · `P1: 7/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -61,7 +61,7 @@
   - `Object.assign(config, newConfig)` — уязвим к `__proto__` / `constructor`
   - **Фикс:** использовать `Object.keys(newConfig).forEach(k => { if (k in config) config[k] = newConfig[k]; })`
 
-- [ ] #7 `[security][backend]` **Все команды Telegram доступны без аккаунта**
+- [x] #7 `[security][backend]` **Все команды Telegram доступны без аккаунта**
   - `/start`, `/help`, `/model`, `/clear`, `/tools` работают для любого пользователя
   - При этом `bot.on("message")` блокирует неизвестных — несоответствие модели безопасности
 
