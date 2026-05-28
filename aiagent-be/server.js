@@ -176,7 +176,7 @@ function wsBroadcast(type, data) {
 
 import { agentLoopStep, MAX_AGENT_ITERATIONS } from "./lib/agent/agentLoop.js";
 
-import { executeTool, waitForTask, cancelTask, getActiveTasks, TOOLS } from "./lib/agent/executeTool.js";
+import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, TOOLS } from "./lib/agent/executeTool.js";
 
 import { loadAccounts, getAccounts, getAccountByUsername } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
@@ -539,6 +539,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
       messages: result.messages,
       account,
       createdAt: Date.now(),
+      pendingToolCalls: result.pendingToolCalls || [],
     });
     chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")).slice(-(config.maxHistoryPairs * 2)));
     const paramStr = JSON.stringify(result.args);
@@ -681,7 +682,43 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     const cleanHistory = rawHistory.filter(
       (m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")
     );
-    const newHistory = [...cleanHistory, toolMessage];
+    let newHistory = [...cleanHistory, toolMessage];
+
+    const remaining = pending.pendingToolCalls || [];
+    for (const next of remaining) {
+      const ts = getToolConfig()[next.name] || {};
+      if (ts.permission === "ask") {
+        pendingApprovals.set(chatId, {
+          toolName: next.name,
+          args: next.args,
+          toolCallId: next.id,
+          messages: newHistory,
+          account,
+          createdAt: Date.now(),
+          pendingToolCalls: remaining.slice(remaining.indexOf(next) + 1),
+        });
+        const paramStr = JSON.stringify(next.args);
+        const displayParams = paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;
+        await replyMsg(
+          ctx,
+          `⚠️ Confirmation needed:\n\n📦 <b>${next.name}</b>\nParams: <code>${displayParams}</code>`,
+          { reply_markup: KEYBOARD_YES_NO(next.name) }
+        );
+        return;
+      }
+      stats.tools++;
+      let nextResult = await executeTool({ name: next.name, args: next.args }, { projectPath: config.projectPath, account });
+      if (nextResult.data?.taskId) {
+        nextResult = await waitForTask(nextResult.data.taskId);
+      }
+      addLog(`Tool executed (pending): ${next.name} = ${nextResult.success ? "OK" : "FAIL"}`, nextResult.success ? "success" : "error");
+      newHistory.push({
+        role: "tool",
+        tool_call_id: next.id,
+        content: JSON.stringify(nextResult).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+      });
+    }
+
     chatHistories.set(chatId, newHistory);
 
     const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account);

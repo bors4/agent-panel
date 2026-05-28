@@ -402,7 +402,8 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const content = msg?.content || "";
 
       if (msg.tool_calls?.length > 0) {
-        for (const tc of msg.tool_calls) {
+        for (let tcIdx = 0; tcIdx < msg.tool_calls.length; tcIdx++) {
+          const tc = msg.tool_calls[tcIdx];
           const tn = tc.function.name;
           let ta;
 
@@ -419,6 +420,11 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           }
           const ts = toolConfig[tn] || {};
           if (ts.permission === "ask") {
+            const remaining = msg.tool_calls.slice(tcIdx + 1).map((rtc) => ({
+              id: rtc.id,
+              name: rtc.function.name,
+              args: (() => { try { return JSON.parse(rtc.function.arguments); } catch { return {}; } })(),
+            }));
             messages.push({
               role: "assistant",
               content: "[TOOL APPROVAL REQUIRED] The user must approve: " + tn + "(" + JSON.stringify(ta) + ")",
@@ -427,8 +433,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
               requiresApproval: true,
               toolName: tn,
               args: ta,
-              toolCallId: tc.id, // ← КРИТИЧНО: сохраняем ID от модели
+              toolCallId: tc.id,
               messages,
+              pendingToolCalls: remaining.length > 0 ? remaining : undefined,
             };
           }
           onProgress?.({ type: "tool", toolName: tn, args: ta });

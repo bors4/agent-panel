@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 43 / 57** | `P0: 0/4` · `P1: 5/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 44 / 57** | `P0: 0/4` · `P1: 6/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -93,7 +93,7 @@
   - **Нюансы:** OpenRouter требует заголовок `HTTP-Referer` (можно `https://agent-panel.local`) и `X-Title`; модели возвращаются через `GET /v1/models`; стоимость токенов отличается от локальных моделей
   - `GET /api/models` должен уметь переключаться между LM Studio и OpenRouter по типу `serverUrl`
 
-- [ ] #13 `[bug][backend]` **Необработанные tool_calls теряются при `requiresApproval`**
+- [x] #13 `[bug][backend]` **Необработанные tool_calls теряются при `requiresApproval`**
   - Когда в одном ответе модели несколько tool_calls, и первый требует approval, остальные не выполняются после одобрения
   - Сохранять `unprocessedToolCalls` в `pendingApprovals` (`agentLoop.js:364-386`) и выполнять последовательно в `continueAfterApproval` (`server.js:607-`)
   - `agentLoopStep` при `requiresApproval` должен вернуть оставшиеся tool_calls
