@@ -10,6 +10,7 @@ import { isToolEnabledForAccount } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
 import { parseStreamedResponse } from "../parseSSE.js";
 import { logWarn, logError } from "../logger.js";
+import { getInstructionLoader } from "../instructionLoader.js";
 
 /** Максимальное количество итераций (вызовов инструментов) за один запрос. */
 export const MAX_AGENT_ITERATIONS = 5;
@@ -44,7 +45,7 @@ function buildToolsDescription(account, globalToolConfig) {
 
 /**
  * Собирает system message для AI модели на основе конфигурации и аккаунта.
- * Включает описание инструментов, правила работы и пути проекта.
+ * Делегирует сборку InstructionLoader, который загружает инструкции из файлов.
  * @param {string} projectPath - Путь к проекту
  * @param {string} systemPrompt - Кастомный system prompt
  * @param {boolean} useFunctionCalling - Использовать function calling (true) или XML-формат (false)
@@ -52,50 +53,19 @@ function buildToolsDescription(account, globalToolConfig) {
  * @returns {string} Полный system prompt
  */
 export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
-  let ctx =
-    "You are AI assistant in: " +
-    projectPath +
-    "\n" +
-    "IMPORTANT: Use ONLY RELATIVE paths!\n" +
-    '  GOOD: "test.txt", "src/app.js"\n' +
-    '  BAD: "E:\\dir\\test\\file.txt"\n\n' +
-    "Commands:\n" +
-    "  write - create file (filePath RELATIVE, content)\n" +
-    "  read - read file (filePath RELATIVE)\n" +
-    "  move - rename/move (source RELATIVE, destination RELATIVE)\n" +
-    "  delete - delete (path RELATIVE)\n" +
-    '  list_dir - list (path RELATIVE like ".")\n' +
-    "  execute - run command\n" +
-    "EXECUTE RULES:\n" +
-    "- FIRST determine the OS (Windows or Unix) before running any command. Use: (Get-CimInstance Win32_OperatingSystem).Caption on Windows, or uname -a on Unix\n" +
-    "- Prefer simple one-line commands; avoid complex scripts or pipes\n" +
-    "- For checking versions: <name> --version or <name> -v (most tools support one)\n" +
-    "- For checking help: <name> --help or <name> -h\n" +
-    "- Error output (stderr) is returned — use it to diagnose and fix the next attempt\n" +
-    "File format rules:\n" +
-    "  - write tool content is saved as-is — no wrappers, no response objects\n" +
-    "  - Match content format to file extension (.json -> JSON, .html -> HTML, .py -> Python, etc.)\n" +
-    "  - For structured data files, provide the raw data structure (not a stringified version)\n" +
-    "WINDOWS RULES:\n" +
-    '- Wrap URLs with & in quotes: curl -s "https://...&key=..."\n' +
-    "- Do NOT use jq. Use PowerShell: curl ... | ConvertFrom-Json\n" +
-    "- Prefer PowerShell for complex pipes\n";
+  const loader = getInstructionLoader();
+  const toolConfig = getToolConfig();
 
-  if (account) {
-    ctx += "\n\nYour role: " + account.role + "\n";
-    if (account.include_paths?.length > 0) {
-      ctx += "Allowed directories: " + account.include_paths.join(", ") + "\n";
-    }
-  }
+  const basePrompt = loader.buildSystemPrompt({
+    projectPath,
+    systemPrompt,
+    useFunctionCalling,
+    account,
+    toolConfig,
+  });
 
-  if (systemPrompt) ctx += "\n" + systemPrompt;
-
-  const td = buildToolsDescription(account, getToolConfig());
-  if (useFunctionCalling) {
-    return ctx + td + "\n\nUse function calling.";
-  } else {
-    return ctx + td + "\n\nUse: <tool_call><function>move</function><parameter=source>test.txt";
-  }
+  const td = buildToolsDescription(account, toolConfig);
+  return basePrompt + "\n\n" + td;
 }
 
 /**
@@ -184,9 +154,9 @@ function validateAndFixHistory(messages) {
   if (firstNonSystem.role !== "user") {
     // Первое сообщение не user - добавляем placeholder в начало
     const systemIdx = messages.findIndex(m => m.role === "system");
-    messages.splice(systemIdx + 1, 0, { 
-      role: "user", 
-      content: "Continue from where we left off." 
+    messages.splice(systemIdx + 1, 0, {
+      role: "user",
+      content: "Continue from where we left off."
     });
   }
 
@@ -253,10 +223,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     },
     ...truncateHistory(history, cfg.maxHistoryPairs),
   ];
-  if (message) messages.push({ role: "user", content: message });
-  if (!messages.some((m) => m.role === "user")) {
-    messages.push({ role: "user", content: "." });
-  }
+
   messages = validateAndFixHistory(messages);
   let iterations = 0,
     finalResponse = "",
@@ -431,12 +398,12 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         for (const tc of msg.tool_calls) {
           const tn = tc.function.name;
           let ta;
-          
+
           // Validate arguments exist before parsing
           if (tc.function.arguments == null) {
             return { error: "Tool call arguments are missing or null" };
           }
-          
+
           try {
             ta = JSON.parse(tc.function.arguments);
           } catch (e) {
