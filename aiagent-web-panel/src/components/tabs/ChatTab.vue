@@ -2,11 +2,20 @@
   <Card>
     <template #header>
       <div class="chat-header">
-        <h2>💬 Чат с агентом</h2>
-        <span class="status-badge" :class="{ active: isActive }">
-          <span class="status-dot" />
-          {{ isActive ? "Агент запущен" : "Агент не запущен" }}
-        </span>
+        <div class="chat-header-left">
+          <h2>💬 Чат с агентом</h2>
+          <span class="status-badge" :class="{ active: isActive }">
+            <span class="status-dot" />
+            {{ isActive ? "Агент запущен" : "Агент не запущен" }}
+          </span>
+        </div>
+        <div class="chat-header-right">
+          <label class="agent-toggle" title="Использовать agent loop с инструментами">
+            <span class="toggle-label">Agent</span>
+            <input v-model="agentMode" type="checkbox" @change="onAgentModeChange" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
     </template>
     <div class="chat-container" @contextmenu.prevent="showContextMenu">
@@ -17,22 +26,57 @@
             {{ isActive ? "Введите сообщение для начала диалога" : "Запустите агента для начала общения" }}
           </div>
         </div>
-        <div v-for="(msg, index) in messages" :key="index" :class="['chat-msg', msg.role]">
+        <div v-for="(msg, index) in messages" :key="index" :class="['chat-msg', msg.role, msg.type ? 'msg-' + msg.type : '']">
           <div class="chat-avatar">
-            {{ msg.role === "user" ? "👤" : "🤖" }}
+            <template v-if="msg.type === 'tool_call'">🔧</template>
+            <template v-else-if="msg.type === 'tool_result'">📊</template>
+            <template v-else-if="msg.type === 'approval'">🔐</template>
+            <template v-else>{{ msg.role === "user" ? "👤" : "🤖" }}</template>
           </div>
           <div class="chat-msg-col">
-            <div class="chat-bubble" :class="{ streaming: msg.streaming }">
-              {{ msg.content }}
-              <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
+            <!-- Tool call block -->
+            <div v-if="msg.type === 'tool_call'" class="tool-call-block" :class="{ collapsed: !msg.expanded }">
+              <div class="tool-call-header" @click="msg.expanded = !msg.expanded">
+                <span class="tool-call-name">🔧 {{ msg.toolName }}({{ msg.toolArgsShort }})</span>
+                <span class="tool-call-toggle">{{ msg.expanded ? "▲" : "▼" }}</span>
+              </div>
+              <pre v-if="msg.expanded" class="tool-call-args">{{ msg.toolArgsPretty }}</pre>
             </div>
-            <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
-              <span>⚡ {{ msg.usage.total_tokens }} tokens</span>
-              <span class="token-detail">(p:{{ msg.usage.prompt_tokens }}, c:{{ msg.usage.completion_tokens }})</span>
-              <span v-if="msg.usage.prompt_tokens_details?.cached_tokens !== undefined" class="token-detail"
-                >cached:{{ msg.usage.prompt_tokens_details.cached_tokens }}</span
-              >
+            <!-- Tool result block -->
+            <div v-else-if="msg.type === 'tool_result'" class="tool-result-block" :class="{ collapsed: !msg.expanded }">
+              <div class="tool-result-header" @click="msg.expanded = !msg.expanded">
+                <span class="tool-result-status" :class="msg.success ? 'success' : 'error'">
+                  {{ msg.success ? "✅" : "❌" }}
+                </span>
+                <span class="tool-result-label">{{ msg.success ? "Успешно" : "Ошибка" }}</span>
+                <span class="tool-call-toggle">{{ msg.expanded ? "▲" : "▼" }}</span>
+              </div>
+              <pre v-if="msg.expanded" class="tool-result-output">{{ msg.output }}</pre>
             </div>
+            <!-- Approval request block -->
+            <div v-else-if="msg.type === 'approval'" class="approval-block">
+              <div class="approval-header">🔐 Требуется одобрение</div>
+              <div class="approval-tool">Инструмент: <strong>{{ msg.toolName }}</strong></div>
+              <pre class="approval-args">{{ msg.toolArgsPretty }}</pre>
+              <div class="approval-buttons">
+                <button class="approval-btn approve" @click="approveTool(msg)">✅ Одобрить</button>
+                <button class="approval-btn reject" @click="rejectTool(msg)">❌ Отклонить</button>
+              </div>
+            </div>
+            <!-- Regular message -->
+            <template v-else>
+              <div class="chat-bubble" :class="{ streaming: msg.streaming }">
+                {{ msg.content }}
+                <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
+              </div>
+              <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
+                <span>⚡ {{ msg.usage.total_tokens }} tokens</span>
+                <span class="token-detail">(p:{{ msg.usage.prompt_tokens }}, c:{{ msg.usage.completion_tokens }})</span>
+                <span v-if="msg.usage.prompt_tokens_details?.cached_tokens !== undefined" class="token-detail"
+                  >cached:{{ msg.usage.prompt_tokens_details.cached_tokens }}</span
+                >
+              </div>
+            </template>
           </div>
         </div>
         <div v-if="isTyping" class="chat-msg bot">
@@ -47,29 +91,6 @@
         </div>
       </div>
       <div class="chat-input-area">
-        <div class="chat-tools-menu">
-          <button
-            class="chat-tools-btn"
-            :class="{ active: toolsMenuOpen }"
-            title="Инструменты чата"
-            @click="toolsMenuOpen = !toolsMenuOpen"
-          >
-            <span class="dot dot-top" />
-            <span class="dot dot-middle" />
-            <span class="dot dot-bottom" />
-          </button>
-          <Transition name="tools-menu-fade">
-            <div v-if="toolsMenuOpen" class="tools-dropdown" @click="toolsMenuOpen = false">
-              <div
-                class="tools-dropdown-item"
-                :class="{ disabled: messages.length === 0 }"
-                @click.stop="handleClearChat"
-              >
-                🗑️ Очистить чат
-              </div>
-            </div>
-          </Transition>
-        </div>
         <input
           v-model="inputMessage"
           type="text"
@@ -79,6 +100,14 @@
           @keypress="handleKeypress"
         />
         <button class="chat-send" :disabled="!isActive || !inputMessage.trim()" @click="sendMessage">➤</button>
+        <button
+          class="chat-clear"
+          :disabled="messages.length === 0"
+          title="Очистить чат"
+          @click="handleClearChat"
+        >
+          🗑
+        </button>
       </div>
     </div>
     <Transition name="contextmenu-fade">
@@ -113,7 +142,7 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
-import { directChat, directChatStream } from "@/api/client";
+import { directChat, directChatStream, agentChat, agentChatContinue } from "@/api/client";
 
 const props = defineProps({
   isActive: Boolean,
@@ -134,6 +163,16 @@ const isTyping = ref(false);
 const isStreaming = ref(false);
 const streamingContent = ref("");
 const chatContainer = ref(null);
+
+// Agent mode state
+const AGENT_MODE_KEY = "agent-chat-mode";
+const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) !== "false");
+const pendingApproval = ref(null);
+const approvalMessages = ref([]);
+
+function onAgentModeChange() {
+  localStorage.setItem(AGENT_MODE_KEY, agentMode.value.toString());
+}
 
 // 🔥 Константы для localStorage
 const CHAT_HISTORY_KEY = "agent-chat-history";
@@ -180,11 +219,12 @@ const showConfirm = ref(false);
 const contextMenuVisible = ref(false);
 const menuX = ref(0);
 const menuY = ref(0);
-const toolsMenuOpen = ref(false);
 
 // 🔥 Очистка истории
 function clearChatHistory() {
   messages.value = [];
+  pendingApproval.value = null;
+  approvalMessages.value = [];
   localStorage.removeItem(CHAT_HISTORY_KEY);
 }
 
@@ -217,6 +257,213 @@ const handleKeypress = (e) => {
   }
 };
 
+// Преобразовать toolCalls и toolResults из ответа в сообщения для чата
+function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolName, approvalArgs, approvalToolCallId) {
+  if (toolCalls?.length > 0) {
+    for (const tc of toolCalls) {
+      let argsParsed;
+      try { argsParsed = JSON.parse(tc.args); } catch { argsParsed = tc.args; }
+      const argsStr = typeof argsParsed === "object" ? JSON.stringify(argsParsed, null, 2) : String(tc.args);
+      const shortStr = typeof argsParsed === "object"
+        ? Object.keys(argsParsed).slice(0, 3).map(k => `${k}=${String(argsParsed[k]).substring(0, 30)}`).join(", ") + (Object.keys(argsParsed).length > 3 ? "..." : "")
+        : String(tc.args).substring(0, 50);
+      messages.value.push({
+        role: "system",
+        type: "tool_call",
+        toolName: tc.name,
+        toolArgsPretty: argsStr,
+        toolArgsShort: shortStr,
+        expanded: false,
+        toolCallId: tc.id,
+      });
+    }
+  }
+
+  if (toolResults?.length > 0) {
+    for (const tr of toolResults) {
+      messages.value.push({
+        role: "system",
+        type: "tool_result",
+        success: tr.success,
+        output: String(tr.output),
+        expanded: false,
+      });
+    }
+  }
+
+  if (requiresApproval) {
+    let argsParsed;
+    try { argsParsed = JSON.parse(approvalArgs); } catch { argsParsed = approvalArgs; }
+    const argsStr = typeof argsParsed === "object" ? JSON.stringify(argsParsed, null, 2) : String(approvalArgs);
+    pendingApproval.value = {
+      toolName: approvalToolName,
+      args: approvalArgs,
+      toolCallId: approvalToolCallId,
+    };
+    messages.value.push({
+      role: "system",
+      type: "approval",
+      toolName: approvalToolName,
+      toolArgsPretty: argsStr,
+      pendingApproval: true,
+      toolCallId: approvalToolCallId,
+    });
+  }
+}
+
+// Agent loop send message
+async function sendAgentMessage(text) {
+  // Собираем историю для отправки на бэкенд
+  const historyMsgs = messages.value
+    .filter(m => !m.type) // только обычные сообщения
+    .map(m => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content }));
+
+  const result = await agentChat({
+    message: text,
+    messages: historyMsgs,
+    accountName: "",
+    projectPath: props.projectPath,
+    serverUrl: props.serverUrl,
+    modelName: props.modelName,
+    systemPrompt: props.systemPrompt,
+  });
+
+  isTyping.value = false;
+
+  if (!result.success) {
+    throw new Error(result.error || "Agent loop failed");
+  }
+
+  // Добавляем ответ бота
+  if (result.reply) {
+    messages.value.push({
+      role: "bot",
+      content: result.reply,
+      usage: result.tokenUsage || null,
+    });
+  }
+
+  // Добавляем tool calls и results
+  addToolMessages(
+    result.toolCalls,
+    result.toolResults,
+    result.requiresApproval,
+    result.approvalToolName,
+    result.approvalArgs,
+    result.approvalToolCallId
+  );
+
+  // Сохраняем сообщения для продолжения (при одобрении)
+  approvalMessages.value = result.messages || [];
+  return result;
+}
+
+async function approveTool(msg) {
+  if (!pendingApproval.value) return;
+
+  const decision = {
+    approved: true,
+    toolName: pendingApproval.value.toolName,
+    args: pendingApproval.value.args,
+    toolCallId: pendingApproval.value.toolCallId,
+  };
+
+  // Убираем approval блок и добавляем одобрение
+  messages.value = messages.value.filter(m => m !== msg);
+
+  isTyping.value = true;
+  pendingApproval.value = null;
+
+  try {
+    const result = await agentChatContinue({
+      messages: approvalMessages.value,
+      approvalDecision: decision,
+      accountName: "",
+    });
+
+    isTyping.value = false;
+
+    if (!result.success) {
+      messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
+      return;
+    }
+
+    if (result.reply) {
+      messages.value.push({
+        role: "bot",
+        content: result.reply,
+        usage: result.tokenUsage || null,
+      });
+    }
+
+    addToolMessages(
+      result.toolCalls,
+      result.toolResults,
+      result.requiresApproval,
+      result.approvalToolName,
+      result.approvalArgs,
+      result.approvalToolCallId
+    );
+
+    approvalMessages.value = result.messages || [];
+  } catch (e) {
+    isTyping.value = false;
+    messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+  }
+}
+
+async function rejectTool(msg) {
+  if (!pendingApproval.value) return;
+
+  const decision = {
+    approved: false,
+    toolName: pendingApproval.value.toolName,
+    args: pendingApproval.value.args,
+    toolCallId: pendingApproval.value.toolCallId,
+  };
+
+  messages.value = messages.value.filter(m => m !== msg);
+  isTyping.value = true;
+  pendingApproval.value = null;
+
+  try {
+    const result = await agentChatContinue({
+      messages: approvalMessages.value,
+      approvalDecision: decision,
+      accountName: "",
+    });
+
+    isTyping.value = false;
+
+    if (!result.success) {
+      messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
+      return;
+    }
+
+    if (result.reply) {
+      messages.value.push({
+        role: "bot",
+        content: result.reply,
+        usage: result.tokenUsage || null,
+      });
+    }
+
+    addToolMessages(
+      result.toolCalls,
+      result.toolResults,
+      result.requiresApproval,
+      result.approvalToolName,
+      result.approvalArgs,
+      result.approvalToolCallId
+    );
+
+    approvalMessages.value = result.messages || [];
+  } catch (e) {
+    isTyping.value = false;
+    messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+  }
+}
+
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return;
 
@@ -236,6 +483,42 @@ const sendMessage = async () => {
       message: `[VERBOSE] Request → model: ${props.modelName}, server: ${props.serverUrl}`,
       type: "system",
     });
+  }
+
+  // Agent mode — используем agent loop
+  if (agentMode.value) {
+    try {
+      const result = await sendAgentMessage(text);
+      const latency = Date.now() - startTime;
+
+      if (props.verbose) {
+        const toolCount = (result.toolCalls?.length || 0) + (result.toolResults?.length || 0);
+        emit("log", {
+          message: `[VERBOSE] Agent loop (${latency}ms): ${result.reply?.substring(0, 100) || "empty"}, tools: ${toolCount}`,
+          type: "success",
+        });
+      } else {
+        emit("log", {
+          message: `Agent response (${latency}ms): ${result.reply?.substring(0, 100)}...`,
+          type: "success",
+        });
+      }
+    } catch (error) {
+      const latency = Date.now() - startTime;
+      isTyping.value = false;
+      messages.value.push({
+        role: "bot",
+        content: `❌ Ошибка: ${error.message}`,
+      });
+      emit("log", {
+        message: `Agent error (${latency}ms): ${error.message}`,
+        type: "error",
+      });
+    }
+
+    await nextTick();
+    scrollToBottom();
+    return;
   }
 
   try {
@@ -401,6 +684,20 @@ defineExpose({ clearChatHistory });
   justify-content: space-between;
   align-items: center;
   width: 100%;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chat-header-left {
+  display: flex;
+  align-items: center;
+}
+
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .status-badge {
@@ -447,113 +744,30 @@ defineExpose({ clearChatHistory });
   }
 }
 
-.chat-tools-menu {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  position: relative;
-}
-
-.tools-btn {
+/* Chat clear button */
+.chat-clear {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
-  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  font-size: 15px;
   transition: var(--transition);
-  padding: 0;
-  position: relative;
-  transform: rotate(180deg);
+  flex-shrink: 0;
 }
 
-.tools-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
+.chat-clear:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
 }
 
-.tools-btn:hover:not(:disabled) .dot {
-  background: var(--accent-primary);
-}
-
-.tools-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  display: block;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Анимация в крестик */
-.tools-btn.active .dot-top {
-  transform: translateY(5.5px) rotate(45deg);
-  background: var(--error);
-}
-
-.tools-btn.active .dot-middle {
-  opacity: 0;
-  transform: scale(0);
-}
-
-.tools-btn.active .dot-bottom {
-  transform: translateY(-5.5px) rotate(-45deg);
-  background: var(--error);
-}
-
-/* Tools dropdown — opens upward */
-.tools-dropdown {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 10000;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
-  min-width: 180px;
-  overflow: hidden;
-  animation: menuSlideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@keyframes menuSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.tools-dropdown-item {
-  padding: 10px 16px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-  transition: background 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tools-dropdown-item:hover {
-  background: var(--bg-hover);
-  color: var(--accent-primary);
-}
-
-.tools-dropdown-item.disabled {
+.chat-clear:disabled {
   opacity: 0.3;
   cursor: not-allowed;
 }
@@ -893,5 +1107,213 @@ defineExpose({ clearChatHistory });
     transform: translateY(-6px);
     opacity: 1;
   }
+}
+
+/* ─── Agent mode toggle ─── */
+.agent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+}
+
+.toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.agent-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  width: 32px;
+  height: 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  position: relative;
+  transition: var(--transition);
+}
+
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  left: 2px;
+  top: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: var(--transition);
+}
+
+.agent-toggle input:checked + .toggle-slider {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.agent-toggle input:checked + .toggle-slider::before {
+  transform: translateX(14px);
+  background: white;
+}
+
+/* Tool call block */
+.tool-call-block,
+.tool-result-block {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin: 2px 0;
+  max-width: 450px;
+}
+
+.tool-call-header,
+.tool-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.tool-call-header:hover,
+.tool-result-header:hover {
+  background: var(--bg-hover);
+}
+
+.tool-call-name {
+  flex: 1;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--accent-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-toggle {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.tool-call-args,
+.tool-result-output {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 8px 10px;
+  margin: 0;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+.tool-result-block .tool-result-status {
+  font-size: 13px;
+}
+
+.tool-result-label {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tool-result-header .success {
+  color: #10b981;
+}
+
+.tool-result-header .error {
+  color: #ef4444;
+}
+
+.collapsed .tool-call-args,
+.collapsed .tool-result-output {
+  display: none;
+}
+
+/* Approval block */
+.approval-block {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  max-width: 400px;
+}
+
+.approval-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-bottom: 6px;
+}
+
+.approval-tool {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.approval-args {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  margin: 4px 0 8px;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.approval-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.approval-btn {
+  padding: 5px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.approval-btn.approve {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.approval-btn.approve:hover {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.approval-btn.reject {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.approval-btn.reject:hover {
+  background: rgba(239, 68, 68, 0.2);
 }
 </style>

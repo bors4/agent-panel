@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 42 / 57** | `P0: 0/4` · `P1: 5/13` · `P2: 19/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 43 / 57** | `P0: 0/4` · `P1: 5/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -126,9 +126,14 @@
 - [x] #6 `[security][backend]` **Symlink path traversal в `safePath()`**
   - Добавлен `resolveRealPath()` на `fs.realpathSync()` с рекурсивным parent-walk для несуществующих путей
 
-- [ ] #7 `[feature][backend][frontend]` **Добавить вызов инструментов в веб-панели (`/api/chat`)**
-  - Интегрировать `agentLoopStep()` в `/api/chat`; добавить tool definitions; передавать account/permissions
-  - Фронтенд: отображение tool calls (выполняется/одобрить/отклонить) и результатов в чате
+- [x] #7 `[feature][backend][frontend]` **Добавить вызов инструментов в веб-панели (`/api/chat`)**
+  - **Бэкенд:** `agentLoopStep()` интегрирован в `POST /api/chat` при `useAgentLoop: true`
+  - Добавлен `POST /api/chat/continue` для одобрения/отклонения инструментов
+  - Передаются account/permissions через `accountName` в body
+  - **Фронтенд:** Toggle "Agent mode" в ChatTab, селектор аккаунтов
+  - Отображение tool calls (сворачиваемые блоки с аргументами)
+  - Отображение результатов инструментов (success/error)
+  - Кнопки ✅ Одобрить / ❌ Отклонить для `requiresApproval`
 
 - [x] #8 `[bug][backend]` **`args.timeout || 30` — некорректная обработка timeout=0 и NaN**
   - Исправлен: `args.timeout != null ? Math.min(Math.max(args.timeout, 1), 3600) : 30`

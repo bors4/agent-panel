@@ -7,7 +7,8 @@ import { Router } from "express";
 import path from "path";
 import fs from "fs";
 import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
-import { loadAccounts, saveAccounts, getAccounts } from "../lib/accounts.js";
+import { agentLoopStep, MAX_AGENT_ITERATIONS } from "../lib/agent/agentLoop.js";
+import { loadAccounts, saveAccounts, getAccounts, getAccountByUsername } from "../lib/accounts.js";
 import { configDefaults } from "../lib/configDefaults.js";
 import { parseStreamedResponse } from "../lib/parseSSE.js";
 
@@ -370,7 +371,7 @@ export function createApiRouter(deps) {
    */
   router.post("/chat", async (req, res) => {
     try {
-      const { message, modelName, serverUrl, projectPath, systemPrompt, stream: useStream } = req.body;
+      const { message, modelName, serverUrl, projectPath, systemPrompt, stream: useStream, useAgentLoop } = req.body;
       if (!message) return res.status(400).json({ error: "Message required" });
 
       const actualServerUrl = serverUrl || config.serverUrl;
@@ -380,6 +381,64 @@ export function createApiRouter(deps) {
       const isStream = useStream ?? config.stream ?? false;
 
       stats.requests++;
+
+      // Agent loop mode — использует agentLoopStep с инструментами и правами
+      if (useAgentLoop) {
+        const accountName = req.body.accountName;
+        const account = accountName ? getAccountByUsername(accountName) : null;
+
+        const agentCfg = {
+          ...config,
+          projectPath: workPath,
+          serverUrl: actualServerUrl,
+          modelName: model,
+          systemPrompt: sysPrompt,
+        };
+
+        const messages = req.body.messages || [];
+        const result = await agentLoopStep(message, "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account);
+
+        if (result.error) {
+          return res.json({ success: false, error: result.error, messages: result.messages || messages });
+        }
+
+        // Извлекаем tool_calls и tool_results из сообщений для удобства фронтенда
+        const toolCalls = [];
+        const toolResults = [];
+        for (const msg of (result.messages || [])) {
+          if (msg.role === "assistant" && msg.tool_calls?.length > 0) {
+            for (const tc of msg.tool_calls) {
+              toolCalls.push({
+                id: tc.id,
+                name: tc.function?.name,
+                args: tc.function?.arguments,
+              });
+            }
+          }
+          if (msg.role === "tool") {
+            let parsed;
+            try { parsed = JSON.parse(msg.content); } catch { parsed = msg.content; }
+            toolResults.push({
+              toolCallId: msg.tool_call_id,
+              success: parsed?.success,
+              output: parsed?.stdout || parsed?.content || parsed?.error || msg.content,
+            });
+          }
+        }
+
+        return res.json({
+          success: true,
+          reply: result.response || "",
+          messages: result.messages || [],
+          toolCalls,
+          toolResults,
+          requiresApproval: result.requiresApproval || false,
+          approvalToolName: result.toolName,
+          approvalArgs: result.args,
+          approvalToolCallId: result.toolCallId,
+          tokenUsage: result.tokenUsage || null,
+        });
+      }
 
       let systemContext = `Ты работаешь в проекте: ${workPath}. Все операции выполняй относительно этого пути.`;
       if (sysPrompt) systemContext += `\n\n${sysPrompt}`;
@@ -593,6 +652,105 @@ export function createApiRouter(deps) {
         res.write("data: [DONE]\n\n");
         res.end();
       }
+    }
+  });
+
+  // ─── Agent Loop Approval ─────────────────────────────────────────────────
+
+  /**
+   * POST /api/chat/continue — Продолжить agent loop после одобрения/отклонения инструмента.
+   * Body: { messages, approvalDecision: { approved, toolName, args, toolCallId } }
+   */
+  router.post("/chat/continue", async (req, res) => {
+    try {
+      const { messages, approvalDecision } = req.body;
+      if (!messages || !approvalDecision) {
+        return res.status(400).json({ error: "messages and approvalDecision required" });
+      }
+
+      const { approved, toolName, args, toolCallId } = approvalDecision;
+      const accountName = req.body.accountName;
+      const account = accountName ? getAccountByUsername(accountName) : null;
+
+      if (approved) {
+        // Выполняем инструмент и добавляем результат в историю
+        let toolResult;
+        try {
+          toolResult = await executeTool({ name: toolName, args }, { projectPath: config.projectPath, account });
+        } catch (e) {
+          toolResult = { success: false, error: e.message };
+        }
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCallId || `web_${Date.now()}`,
+          content: JSON.stringify(toolResult),
+        });
+      } else {
+        // Отклонено — добавляем сообщение об отказе
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCallId || `web_${Date.now()}`,
+          content: JSON.stringify({ success: false, error: "Tool execution was rejected by user" }),
+        });
+      }
+
+      if (config.insertUserAfterTool) {
+        messages.push({ role: "user", content: "Continue" });
+      }
+
+      const agentCfg = {
+        ...config,
+        projectPath: config.projectPath,
+        serverUrl: config.serverUrl,
+        modelName: config.modelName,
+        systemPrompt: config.systemPrompt,
+      };
+
+      const result = await agentLoopStep("", "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account);
+
+      if (result.error) {
+        return res.json({ success: false, error: result.error, messages: result.messages || messages });
+      }
+
+      const toolCalls = [];
+      const toolResults = [];
+      for (const msg of (result.messages || [])) {
+        if (msg.role === "assistant" && msg.tool_calls?.length > 0) {
+          for (const tc of msg.tool_calls) {
+            toolCalls.push({
+              id: tc.id,
+              name: tc.function?.name,
+              args: tc.function?.arguments,
+            });
+          }
+        }
+        if (msg.role === "tool") {
+          let parsed;
+          try { parsed = JSON.parse(msg.content); } catch { parsed = msg.content; }
+          toolResults.push({
+            toolCallId: msg.tool_call_id,
+            success: parsed?.success,
+            output: parsed?.stdout || parsed?.content || parsed?.error || msg.content,
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        reply: result.response || "",
+        messages: result.messages || [],
+        toolCalls,
+        toolResults,
+        requiresApproval: result.requiresApproval || false,
+        approvalToolName: result.toolName,
+        approvalArgs: result.args,
+        approvalToolCallId: result.toolCallId,
+        tokenUsage: result.tokenUsage || null,
+      });
+    } catch (error) {
+      stats.errors++;
+      addLog(`Chat continue error: ${error.message}`, "error");
+      res.status(500).json({ error: error.message });
     }
   });
 
