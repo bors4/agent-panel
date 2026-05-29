@@ -42,6 +42,41 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 // ============================================================================
+// COMMAND SAFETY
+// ============================================================================
+
+/** Паттерны опасных конструкций shell для блокировки command injection. */
+const BLOCKED_PATTERNS = [
+  { pattern: /;\s*\S/, description: "command chaining with semicolon" },
+  { pattern: /&&\s*\S/, description: "conditional chaining with &&" },
+  { pattern: /\|\s*\S/, description: "pipe" },
+  { pattern: /\$\(.*\)/, description: "subshell $()" },
+  { pattern: /`[^`]+`/, description: "backtick subshell" },
+  { pattern: />>?\s*\S/, description: "redirect output" },
+  { pattern: /<\s*\S/, description: "input redirect" },
+  { pattern: /rm\s+-rf\s+[/~]/i, description: "recursive delete from root" },
+  { pattern: /del\s+\/[fqs]/i, description: "Windows force delete" },
+  { pattern: /format\s+[a-zA-Z]:/i, description: "disk format" },
+  { pattern: /shutdown|reboot|halt|poweroff/i, description: "system power" },
+  { pattern: /mkfs|dd\s+if=/i, description: "disk write" },
+  { pattern: /:\(\)\s*\{/, description: "fork bomb" },
+];
+
+/**
+ * Проверить команду на наличие опасных паттернов.
+ * @param {string} command - Shell команда
+ * @returns {{blocked: boolean, reason?: string}}
+ */
+export function sanitizeCommand(command) {
+  for (const { pattern, description } of BLOCKED_PATTERNS) {
+    if (pattern.test(command)) {
+      return { blocked: true, reason: `Blocked: ${description}` };
+    }
+  }
+  return { blocked: false };
+}
+
+// ============================================================================
 // DEFAULT CONFIGURATION
 // ============================================================================
 
@@ -716,6 +751,12 @@ export async function executeTool(toolCall, config = {}) {
         const timeoutSec = args.timeout !== undefined
           ? (args.timeout > 0 ? Math.min(args.timeout, 3600) : (args.timeout === 0 ? 0 : 1))
           : defaultTimeout;
+
+        const cmdCheck = sanitizeCommand(args.command);
+        if (cmdCheck.blocked) {
+          return { success: false, error: cmdCheck.reason };
+        }
+
         const isWin = process.platform === "win32";
         const trimmedCmd = args.command.trimStart();
         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);

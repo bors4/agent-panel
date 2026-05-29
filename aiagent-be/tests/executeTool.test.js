@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatValue, rejectReDoS } from "../lib/agent/executeTool.js";
+import { formatValue, rejectReDoS, sanitizeCommand } from "../lib/agent/executeTool.js";
 
 describe("formatValue", () => {
   it("formats null/undefined as N/A", () => {
@@ -121,5 +121,76 @@ describe("rejectReDoS", () => {
 
   it("allows empty string", () => {
     expect(rejectReDoS("")).toBe(false);
+  });
+});
+
+describe("sanitizeCommand", () => {
+  it("allows simple commands", () => {
+    expect(sanitizeCommand("echo hello").blocked).toBe(false);
+    expect(sanitizeCommand("ls -la").blocked).toBe(false);
+    expect(sanitizeCommand("cat file.txt").blocked).toBe(false);
+    expect(sanitizeCommand("npm install").blocked).toBe(false);
+    expect(sanitizeCommand("git status").blocked).toBe(false);
+  });
+
+  it("blocks semicolon chaining", () => {
+    expect(sanitizeCommand("echo hello; rm -rf /").blocked).toBe(true);
+    expect(sanitizeCommand("echo hello; cat /etc/passwd").blocked).toBe(true);
+  });
+
+  it("blocks && chaining", () => {
+    expect(sanitizeCommand("echo hello && rm -rf /").blocked).toBe(true);
+    expect(sanitizeCommand("npm install && rm -rf /").blocked).toBe(true);
+  });
+
+  it("blocks pipe", () => {
+    expect(sanitizeCommand("echo hello | grep test").blocked).toBe(true);
+    expect(sanitizeCommand("cat file | head -5").blocked).toBe(true);
+  });
+
+  it("blocks $() subshell", () => {
+    expect(sanitizeCommand("echo $(whoami)").blocked).toBe(true);
+    expect(sanitizeCommand("echo $(cat /etc/passwd)").blocked).toBe(true);
+  });
+
+  it("blocks backtick subshell", () => {
+    expect(sanitizeCommand("echo `whoami`").blocked).toBe(true);
+    expect(sanitizeCommand("echo `cat /etc/passwd`").blocked).toBe(true);
+  });
+
+  it("blocks redirect", () => {
+    expect(sanitizeCommand("echo test > file.txt").blocked).toBe(true);
+    expect(sanitizeCommand("echo test >> file.txt").blocked).toBe(true);
+  });
+
+  it("blocks input redirect", () => {
+    expect(sanitizeCommand("cat < /etc/passwd").blocked).toBe(true);
+  });
+
+  it("blocks rm -rf /", () => {
+    expect(sanitizeCommand("rm -rf /").blocked).toBe(true);
+    expect(sanitizeCommand("rm -rf ~").blocked).toBe(true);
+    expect(sanitizeCommand("rm -rf /home").blocked).toBe(true);
+  });
+
+  it("blocks Windows dangerous commands", () => {
+    expect(sanitizeCommand("del /f /s /q").blocked).toBe(true);
+    expect(sanitizeCommand("format C:").blocked).toBe(true);
+  });
+
+  it("blocks system power commands", () => {
+    expect(sanitizeCommand("shutdown -r now").blocked).toBe(true);
+    expect(sanitizeCommand("reboot").blocked).toBe(true);
+    expect(sanitizeCommand("halt").blocked).toBe(true);
+    expect(sanitizeCommand("poweroff").blocked).toBe(true);
+  });
+
+  it("blocks disk write commands", () => {
+    expect(sanitizeCommand("mkfs /dev/sda").blocked).toBe(true);
+    expect(sanitizeCommand("dd if=/dev/zero of=/dev/sda").blocked).toBe(true);
+  });
+
+  it("blocks fork bomb", () => {
+    expect(sanitizeCommand(":(){ :|:& };:").blocked).toBe(true);
   });
 });
