@@ -4,7 +4,7 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 50 / 57** | `P0: 0/4` · `P1: 12/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 51 / 57** | `P0: 1/4` · `P1: 12/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
@@ -29,7 +29,7 @@
   - На Windows `spawn` использует `cmd.exe` с shell-интерпретацией; PowerShell команды тоже исполняются через shell
   - Добавить allowlist разрешённых команд, валидацию, блокировку опасных паттернов (`rm -rf`, `del /f`, `format` и т.д.)
 
-- [ ] #4 `[security][backend]` **Path traversal в `checkAccountToolPermission` через `include_paths`**
+- [x] #4 `[security][backend]` **Path traversal в `checkAccountToolPermission` через `include_paths`**
   - `accounts.js:73-89`: `path.resolve(projectPath, "../../../Windows")` обходит проверку
   - `include_paths` с корнем диска (`E:\`) пропускает любой путь на этом диске
   - **Фикс:** добавить проверку вхождения пути в `projectPath` через `path.relative()`
