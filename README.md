@@ -22,30 +22,74 @@ Monorepo with Vue 3 frontend dashboard and Express/GrammY backend for controllin
 # Install dependencies (root level)
 npm install
 
-# Run both frontend and backend concurrently
+# Set secrets as environment variables (see below)
+# Then run both frontend and backend concurrently
 npm run dev
-
-# Backend only
-npm run backend:dev
-
-# Frontend only
-npm run frontend:dev
 ```
 
-## Environment Variables (`.env`)
+## Setting Environment Variables
+
+Secrets (`TELEGRAM_BOT_TOKEN`, `API_KEY`, `VITE_API_KEY`) **must** be set as OS environment variables. They are **not** stored in `.env` to prevent accidental leaks.
+
+### Windows (PowerShell)
+
+```powershell
+# Current session
+$env:TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
+$env:API_KEY="your-api-key"
+$env:VITE_API_KEY="your-api-key"
+
+# Permanent (User scope)
+[System.Environment]::SetEnvironmentVariable("TELEGRAM_BOT_TOKEN", "your-telegram-bot-token", "User")
+[System.Environment]::SetEnvironmentVariable("API_KEY", "your-api-key", "User")
+[System.Environment]::SetEnvironmentVariable("VITE_API_KEY", "your-api-key", "User")
+```
+
+### Linux / macOS
+
+```bash
+# Current session
+export TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
+export API_KEY="your-api-key"
+export VITE_API_KEY="your-api-key"
+
+# Permanent — add to ~/.bashrc, ~/.zshrc, or ~/.profile
+echo 'export TELEGRAM_BOT_TOKEN="your-telegram-bot-token"' >> ~/.bashrc
+echo 'export API_KEY="your-api-key"' >> ~/.bashrc
+echo 'export VITE_API_KEY="your-api-key"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Non-secret config (optional)
+
+Copy `.env.example` to `.env` and customize non-secret values:
+
+```bash
+cp .env.example .env
+```
+
+## Environment Variables
+
+**Secrets** (set as OS env vars, NOT in `.env`):
 
 | Variable             | Default                        | Description                                                                     |
 | -------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
 | `TELEGRAM_BOT_TOKEN` | (required)                     | Telegram bot token                                                              |
-| `PROJECT_PATH`       | (optional)                     | Project context path. If not set, must be configured via UI before starting bot |
-| `SERVER_URL`         | `http://192.168.1.101:1234/v1` | AI model server URL                                                             |
-| `MODEL_NAME`         | `qwen3.5-2b`                   | Model identifier                                                                |
-| `SYSTEM_PROMPT`      | (empty)                        | Custom system prompt                                                            |
-| `API_PORT`           | `3000`                         | Backend API port                                                                |
- | `VITE_API_KEY`        | (required)                   | Frontend API key. Must be set in `.env` or environment. No default. |
-| `MAX_TOKENS`         | `8192`                         | Max tokens per AI response                                                      |
-| `TEMPERATURE`        | `0.1`                          | AI response temperature                                                         |
-| `TIMEOUT`            | `120000`                       | Request timeout (ms)                                                            |
+| `API_KEY`            | `agent-secret-key`             | API key for AI server authentication                                            |
+| `VITE_API_KEY`       | (required)                     | Frontend API key for authorizing requests to backend                            |
+
+**Non-secret config** (safe to keep in `.env`):
+
+| Variable         | Default                        | Description                                                                     |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------- |
+| `PROJECT_PATH`   | (optional)                     | Project context path. If not set, must be configured via UI before starting bot |
+| `SERVER_URL`     | `http://192.168.1.101:1234/v1` | AI model server URL                                                             |
+| `MODEL_NAME`     | `qwen3.5-2b`                   | Model identifier                                                                |
+| `SYSTEM_PROMPT`  | (empty)                        | Custom system prompt                                                            |
+| `API_PORT`       | `3000`                         | Backend API port                                                                |
+| `MAX_TOKENS`     | `8192`                         | Max tokens per AI response                                                      |
+| `TEMPERATURE`    | `0.1`                          | AI response temperature                                                         |
+| `TIMEOUT`        | `120000`                       | Request timeout (ms)                                                            |
 
 ## Development
 
