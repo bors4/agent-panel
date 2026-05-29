@@ -399,6 +399,101 @@ async function clearButtons(ctx) {
   }
 }
 
+// ─── Telegram Commands ─────────────────────────────────────────────────────
+
+bot.command("start", (ctx) => {
+  if (config.modelName === "Имя модели") {
+    ctx.reply("⚠️ Модель не выбрана. Настройте модель в веб-интерфейсе.", REPLY_OPTS);
+    return;
+  }
+  updateStatus("running", "Работает");
+  ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
+});
+
+bot.command("help", (ctx) => {
+  ctx.reply(
+    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel &lt;id&gt; - Cancel task\n/mode &lt;chat|project&gt; - Switch mode",
+    REPLY_OPTS
+  );
+});
+
+bot.command("model", (ctx) => {
+  ctx.reply(`Model: ${config.modelName}\nServer: ${config.serverUrl}`, REPLY_OPTS);
+});
+
+bot.command("clear", (ctx) => {
+  chatHistories.delete(ctx.chat.id.toString());
+  ctx.reply("🗑️ History cleared!", REPLY_OPTS);
+});
+
+bot.command("tools", async (ctx) => {
+  const account = ctx.account;
+  const toolList = Object.entries(TOOLS)
+    .map(([name, tool]) => {
+      const enabled = account.permissions?.[name] !== false;
+      const icon = enabled ? "✅" : "❌";
+      return `${icon} <b>${name}</b>: ${tool.description}`;
+    })
+    .join("\n");
+  ctx.reply(`📦 Tools for @${ctx.chat.username} (${account.role}):\n\n${toolList}`, {
+    ...REPLY_OPTS,
+    parse_mode: "HTML",
+  });
+});
+
+bot.command("tasks", (ctx) => {
+  const tasks = getActiveTasks();
+  if (tasks.length === 0) {
+    ctx.reply("No active tasks.", REPLY_OPTS);
+    return;
+  }
+  const lines = tasks.map((t) => {
+    const uptime = Math.floor(t.uptime / 1000);
+    return `• <code>${t.taskId.substring(0, 8)}</code> <b>${t.command}</b> (${uptime}s)`;
+  });
+  ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
+});
+
+bot.command("cancel", (ctx) => {
+  const text = ctx.message?.text || "";
+  const parts = text.trim().split(/\s+/);
+  const taskIdArg = parts[1];
+  if (!taskIdArg) {
+    ctx.reply("Usage: /cancel &lt;taskId&gt;", REPLY_OPTS);
+    return;
+  }
+  // Find by prefix (first 8 chars)
+  const tasks = getActiveTasks();
+  const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
+  if (!match) {
+    ctx.reply(`❌ Task not found: ${taskIdArg}`, REPLY_OPTS);
+    return;
+  }
+  if (cancelTask(match.taskId)) {
+    ctx.reply(`❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`, REPLY_OPTS);
+  } else {
+    ctx.reply(`⚠️ Task ${taskIdArg} is no longer running.`, REPLY_OPTS);
+  }
+});
+
+bot.command("mode", (ctx) => {
+  const text = ctx.message?.text || "";
+  const parts = text.trim().split(/\s+/);
+  const mode = parts[1];
+  if (mode === "chat") {
+    config.chatMode = true;
+    ctx.reply("✅ Chat mode enabled. No project context.", REPLY_OPTS);
+  } else if (mode === "project") {
+    config.chatMode = false;
+    ctx.reply("✅ Project mode enabled.", REPLY_OPTS);
+  } else {
+    ctx.reply(
+      `Current mode: <b>${config.chatMode ? "chat" : "project"}</b>\n\nUsage: /mode chat | /mode project`,
+      REPLY_OPTS
+    );
+  }
+});
+
 // ─── Обработка сообщений от пользователей ───────────────────────────────────
 
 /**
@@ -795,101 +890,6 @@ bot.on("callback_query", async (ctx) => {
     }
 
     await replyMsg(ctx, `❌ <b>${toolName}</b> cancelled. The tool was not executed.`);
-  }
-});
-
-// ─── Telegram Commands ─────────────────────────────────────────────────────
-
-bot.command("start", (ctx) => {
-  if (config.modelName === "Имя модели") {
-    ctx.reply("⚠️ Модель не выбрана. Настройте модель в веб-интерфейсе.", REPLY_OPTS);
-    return;
-  }
-  updateStatus("running", "Работает");
-  ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
-});
-
-bot.command("help", (ctx) => {
-  ctx.reply(
-    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel <id> - Cancel task\n/mode <chat|project> - Switch mode",
-    REPLY_OPTS
-  );
-});
-
-bot.command("model", (ctx) => {
-  ctx.reply(`Model: ${config.modelName}\nServer: ${config.serverUrl}`, REPLY_OPTS);
-});
-
-bot.command("clear", (ctx) => {
-  chatHistories.delete(ctx.chat.id.toString());
-  ctx.reply("🗑️ History cleared!", REPLY_OPTS);
-});
-
-bot.command("tools", async (ctx) => {
-  const account = ctx.account;
-  const toolList = Object.entries(TOOLS)
-    .map(([name, tool]) => {
-      const enabled = account.permissions?.[name] !== false;
-      const icon = enabled ? "✅" : "❌";
-      return `${icon} <b>${name}</b>: ${tool.description}`;
-    })
-    .join("\n");
-  ctx.reply(`📦 Tools for @${ctx.chat.username} (${account.role}):\n\n${toolList}`, {
-    ...REPLY_OPTS,
-    parse_mode: "HTML",
-  });
-});
-
-bot.command("tasks", (ctx) => {
-  const tasks = getActiveTasks();
-  if (tasks.length === 0) {
-    ctx.reply("No active tasks.", REPLY_OPTS);
-    return;
-  }
-  const lines = tasks.map((t) => {
-    const uptime = Math.floor(t.uptime / 1000);
-    return `• <code>${t.taskId.substring(0, 8)}</code> <b>${t.command}</b> (${uptime}s)`;
-  });
-  ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
-});
-
-bot.command("cancel", (ctx) => {
-  const text = ctx.message?.text || "";
-  const parts = text.trim().split(/\s+/);
-  const taskIdArg = parts[1];
-  if (!taskIdArg) {
-    ctx.reply("Usage: /cancel <taskId>", REPLY_OPTS);
-    return;
-  }
-  // Find by prefix (first 8 chars)
-  const tasks = getActiveTasks();
-  const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
-  if (!match) {
-    ctx.reply(`❌ Task not found: ${taskIdArg}`, REPLY_OPTS);
-    return;
-  }
-  if (cancelTask(match.taskId)) {
-    ctx.reply(`❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`, REPLY_OPTS);
-  } else {
-    ctx.reply(`⚠️ Task ${taskIdArg} is no longer running.`, REPLY_OPTS);
-  }
-});
-
-bot.command("mode", (ctx) => {
-  const text = ctx.message?.text || "";
-  const parts = text.trim().split(/\s+/);
-  const mode = parts[1];
-  if (mode === "chat") {
-    config.chatMode = true;
-    ctx.reply("✅ Chat mode enabled. No project context.", REPLY_OPTS);
-  } else if (mode === "project") {
-    config.chatMode = false;
-    ctx.reply("✅ Project mode enabled.", REPLY_OPTS);
-  } else {
-    ctx.reply(
-      `Current mode: <b>${config.chatMode ? "chat" : "project"}</b>\n\nUsage: /mode chat | /mode project`,
-      REPLY_OPTS
-    );
   }
 });
 

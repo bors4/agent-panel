@@ -561,14 +561,16 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
  */
 export async function executeTool(toolCall, config = {}) {
   const { name, args = {} } = toolCall;
-  // Resolve projectPath: server passes it via config (from .env or API /api/config).
-  const rawPath = config.projectPath || "";
   const account = config.account;
   const chatMode = config.chatMode || false;
 
-  let resolvedPath = rawPath;
-  if (!resolvedPath && chatMode && account?.include_paths?.length > 0) {
-    resolvedPath = account.include_paths[0];
+  // In chatMode: always ignore projectPath, use account.include_paths[0]
+  // Outside chatMode: use projectPath from config
+  let resolvedPath;
+  if (chatMode) {
+    resolvedPath = account?.include_paths?.[0] || "";
+  } else {
+    resolvedPath = config.projectPath || "";
   }
 
   if (!resolvedPath) {
