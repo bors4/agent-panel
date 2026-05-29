@@ -97,6 +97,12 @@ describe("API Routes", () => {
       expect(deps.config.modelName).toBe("x");
     });
 
+    it("handles chatMode field", async () => {
+      const res = await authPost("/api/config").send({ chatMode: true });
+      expect(res.status).toBe(200);
+      expect(deps.config.chatMode).toBe(true);
+    });
+
     it("rejects empty projectPath", async () => {
       await authPost("/api/config")
         .send({ projectPath: "" });

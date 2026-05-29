@@ -223,6 +223,18 @@
         </label>
       </div>
     </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>CHAT MODE</label>
+        <span class="hint">Простой чат без проектного контекста</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.chatMode" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
   </Card>
 
   <div class="settings-actions">
@@ -269,6 +281,7 @@ const configCopy = reactive({
   temperature: props.config.temperature ?? configDefaults.temperature,
   stream: props.config.stream ?? configDefaults.stream,
   insertUserAfterTool: props.config.insertUserAfterTool ?? configDefaults.insertUserAfterTool,
+  chatMode: props.config.chatMode ?? configDefaults.chatMode,
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
@@ -344,6 +357,7 @@ watch(
     configCopy.temperature = val.temperature ?? configDefaults.temperature;
     configCopy.stream = val.stream ?? configDefaults.stream;
     configCopy.insertUserAfterTool = val.insertUserAfterTool ?? configDefaults.insertUserAfterTool;
+    configCopy.chatMode = val.chatMode ?? configDefaults.chatMode;
     
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);

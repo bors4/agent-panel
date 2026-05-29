@@ -811,7 +811,7 @@ bot.command("start", (ctx) => {
 
 bot.command("help", (ctx) => {
   ctx.reply(
-    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel <id> - Cancel task",
+    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel <id> - Cancel task\n/mode <chat|project> - Switch mode",
     REPLY_OPTS
   );
 });
@@ -872,6 +872,24 @@ bot.command("cancel", (ctx) => {
     ctx.reply(`❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`, REPLY_OPTS);
   } else {
     ctx.reply(`⚠️ Task ${taskIdArg} is no longer running.`, REPLY_OPTS);
+  }
+});
+
+bot.command("mode", (ctx) => {
+  const text = ctx.message?.text || "";
+  const parts = text.trim().split(/\s+/);
+  const mode = parts[1];
+  if (mode === "chat") {
+    config.chatMode = true;
+    ctx.reply("✅ Chat mode enabled. No project context.", REPLY_OPTS);
+  } else if (mode === "project") {
+    config.chatMode = false;
+    ctx.reply("✅ Project mode enabled.", REPLY_OPTS);
+  } else {
+    ctx.reply(
+      `Current mode: <b>${config.chatMode ? "chat" : "project"}</b>\n\nUsage: /mode chat | /mode project`,
+      REPLY_OPTS
+    );
   }
 });
 

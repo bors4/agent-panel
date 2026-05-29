@@ -564,14 +564,20 @@ export async function executeTool(toolCall, config = {}) {
   // Resolve projectPath: server passes it via config (from .env or API /api/config).
   const rawPath = config.projectPath || "";
   const account = config.account;
-  // If no project path is configured at all, return a clear error
-  if (!rawPath) {
+  const chatMode = config.chatMode || false;
+
+  let resolvedPath = rawPath;
+  if (!resolvedPath && chatMode && account?.include_paths?.length > 0) {
+    resolvedPath = account.include_paths[0];
+  }
+
+  if (!resolvedPath) {
     return {
       success: false,
       error: "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
     };
   }
-  const projectPath = path.resolve(rawPath);
+  const projectPath = path.resolve(resolvedPath);
   const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
   const maxSearchFileSize = config.maxSearchFileSize ?? configDefaults.maxSearchFileSize;
   const maxFileChars = config.maxFileChars ?? configDefaults.maxFileChars;

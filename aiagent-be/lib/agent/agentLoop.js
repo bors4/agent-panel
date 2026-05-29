@@ -45,17 +45,36 @@ function buildToolsDescription(account, globalToolConfig) {
 
 /**
  * Собирает system message для AI модели на основе конфигурации и аккаунта.
- * Делегирует сборку InstructionLoader, который загружает инструкции из файлов.
+ * В режиме chatMode возвращает минимальный промпт без проектного контекста.
  * @param {string} projectPath - Путь к проекту
  * @param {string} systemPrompt - Кастомный system prompt
  * @param {boolean} useFunctionCalling - Использовать function calling (true) или XML-формат (false)
  * @param {Object|null} [account=null] - Аккаунт пользователя
+ * @param {boolean} [chatMode=false] - Режим простого чата
  * @returns {string} Полный system prompt
  */
-export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
-  const loader = getInstructionLoader();
+export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null, chatMode = false) {
   const toolConfig = getToolConfig();
+  const td = buildToolsDescription(account, toolConfig);
 
+  if (chatMode) {
+    const parts = [];
+    parts.push("You are a helpful AI assistant. Answer user questions directly without project context.");
+    if (account) {
+      let accountSection = "# Account\n\nRole: " + account.role;
+      if (account.include_paths?.length > 0) {
+        accountSection += "\nAllowed directories: " + account.include_paths.join(", ");
+      }
+      parts.push(accountSection);
+    }
+    if (systemPrompt) parts.push(systemPrompt);
+    if (useFunctionCalling) {
+      parts.push("Use function calling.");
+    }
+    return parts.join("\n\n") + "\n\n" + td;
+  }
+
+  const loader = getInstructionLoader();
   const basePrompt = loader.buildSystemPrompt({
     projectPath,
     systemPrompt,
@@ -64,7 +83,6 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
     toolConfig,
   });
 
-  const td = buildToolsDescription(account, toolConfig);
   return basePrompt + "\n\n" + td;
 }
 
@@ -191,6 +209,7 @@ function validateAndFixHistory(messages) {
 function buildToolExecConfig(account, cfg) {
   return {
     projectPath: cfg.projectPath,
+    chatMode: cfg.chatMode || false,
     account,
     maxFileChars: cfg.maxFileChars,
     maxSearchResults: cfg.maxSearchResults,
@@ -219,7 +238,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   let messages = [
     {
       role: "system",
-      content: buildSystemMessage(cfg.projectPath, cfg.systemPrompt, true, account),
+      content: buildSystemMessage(cfg.projectPath, cfg.systemPrompt, true, account, cfg.chatMode),
     },
     ...truncateHistory(history, cfg.maxHistoryPairs),
   ];
@@ -290,7 +309,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       if (!resp.ok && useFunctionCalling && resp.status === 400) {
         clearTimeout(timeoutId);
         useFunctionCalling = false;
-        messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account);
+        messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account, cfg.chatMode);
         continue;
       }
       if (!resp.ok) {

@@ -229,6 +229,7 @@ export function createApiRouter(deps) {
     if (body.maxSearchFileSize !== undefined) config.maxSearchFileSize = parseInt(body.maxSearchFileSize);
     if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.insertUserAfterTool !== undefined) config.insertUserAfterTool = !!body.insertUserAfterTool;
+    if (body.chatMode !== undefined) config.chatMode = !!body.chatMode;
     if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
       process.env.TELEGRAM_BOT_TOKEN = body.token;
       tokenChanged = true;
