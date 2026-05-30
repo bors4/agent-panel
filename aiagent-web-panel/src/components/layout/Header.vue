@@ -12,6 +12,7 @@
         <h1 class="header__title">AI Agent Control Panel</h1>
         <span class="header__subtitle">{{ subtitle }}</span>
       </div>
+      <span class="header__ship-designation" aria-hidden="true">NCC-AGNT</span>
     </div>
 
     <div class="header__right">
@@ -40,13 +41,13 @@ defineEmits(["navigate"]);
 
 const subtitle = computed(() => {
   const labels = {
-    running: "SYS://ONLINE · TELEMETRY ACTIVE",
-    stopped: "SYS://STANDBY · AWAITING COMMAND",
-    error: "SYS://ALERT · SYSTEM MALFUNCTION",
-    checking: "SYS://DIAGNOSTICS · INITIALIZING",
-    idle: "SYS://IDLE · MONITORING",
+    running: "SYS://ONLINE · GALAXY LINK ESTABLISHED · TELEMETRY ACTIVE",
+    stopped: "SYS://STANDBY · STARSHIP DOCKED · AWAITING COMMAND",
+    error: "SYS://ALERT · NAVIGATION MALFUNCTION · SHIELDS UP",
+    checking: "SYS://DIAGNOSTICS · SCANNING SECTOR · INITIALIZING",
+    idle: "SYS://IDLE · DRIFTING IN ORBIT · MONITORING",
   };
-  return labels[props.status] || "SYS://CONTROL PANEL";
+  return labels[props.status] || "SYS://MISSION CONTROL";
 });
 </script>
 
@@ -145,6 +146,18 @@ const subtitle = computed(() => {
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: var(--text-muted);
+}
+
+/* ─── Корабельное обозначение ─── */
+.header__ship-designation {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5rem;
+  color: var(--text-muted);
+  letter-spacing: 0.25em;
+  opacity: 0.4;
+  margin-left: 4px;
+  align-self: flex-end;
+  padding-bottom: 1px;
 }
 
 /* ─── Орбитальный декоративный элемент ─── */

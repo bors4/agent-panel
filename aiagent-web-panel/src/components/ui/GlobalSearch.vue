@@ -133,6 +133,8 @@ onUnmounted(() => {
   cursor: pointer;
   transition: var(--transition);
   font-size: 14px;
+  position: relative;
+  z-index: 100;
 }
 
 .search-trigger:hover {

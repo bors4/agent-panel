@@ -54,6 +54,7 @@ const filteredLogs = computed(() => {
 });
 
 const clearLogs = () => {
+  if (!confirm("Clear all logs?")) return;
   logHistory.value = [];
   searchQuery.value = "";
   emit("clear");
@@ -112,7 +113,7 @@ defineExpose({ clear: () => { logHistory.value = []; } });
 
 .logger__prompt {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   color: var(--accent);
   opacity: 0.6;
   flex-shrink: 0;
@@ -125,13 +126,13 @@ defineExpose({ clear: () => { logHistory.value = []; } });
   outline: none;
   color: var(--text-primary);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   min-width: 60px;
 }
 .logger__input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   letter-spacing: 0.1em;
 }
 
@@ -148,7 +149,7 @@ defineExpose({ clear: () => { logHistory.value = []; } });
 
 .logger__count {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
@@ -168,10 +169,11 @@ defineExpose({ clear: () => { logHistory.value = []; } });
 }
 
 .logger__empty {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   text-align: center;
   padding: 24px;
   letter-spacing: 0.1em;
+  font-size: 0.75rem;
 }
 
 .logger__line {
@@ -187,15 +189,15 @@ defineExpose({ clear: () => { logHistory.value = []; } });
 }
 
 .logger__time {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
 }
 
 .logger__msg {
   word-break: break-all;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
 }
 .logger__msg--info    { color: var(--text-secondary); }
 .logger__msg--success { color: var(--success); }

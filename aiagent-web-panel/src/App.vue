@@ -200,7 +200,7 @@ const tabs = [
   { id: "settings", label: "Параметры", symbol: "#" },
   { id: "quick", label: "Быстрые настройки", symbol: "$" },
   { id: "tools", label: "Инструменты", symbol: "~" },
-  { id: "chat", label: "Чат-тест", symbol: "@" },
+  { id: "chat", label: "Чат с агентом", symbol: "@" },
   { id: "logs", label: "Логи", symbol: "!" },
 ];
 

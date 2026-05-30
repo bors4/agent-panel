@@ -1,5 +1,5 @@
 <template>
-  <div class="settings-tab">
+<div class="settings-tab">
   <Card>
     <template #header>
       <div class="header-row">
@@ -234,7 +234,7 @@
   <Card>
     <template #header>
       <div class="header-row">
-        <h3 class="mono-label">CFG://STREAM</h3>
+        <h3 class="mono-label">CFG://BEHAVIOR</h3>
       </div>
     </template>
     <div class="form-group">
@@ -379,13 +379,13 @@ let ignoreNextWatch = false;
  */
 const debouncedSave = async () => {
   if (pendingSave || isSaving) return;
-  
+
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
       isSaving = true;
       pendingSave = true;
-      
+
       const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
       emit("save", {
         config: { ...configCopy },
@@ -419,7 +419,7 @@ watch(
       ignoreNextWatch = false;
       return;
     }
-    
+
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
     projectPathDraft.value = val.projectPath || "";
@@ -436,7 +436,7 @@ watch(
     configCopy.insertUserAfterTool = val.insertUserAfterTool ?? configDefaults.insertUserAfterTool;
     configCopy.chatMode = val.chatMode ?? configDefaults.chatMode;
     configCopy.openrouterApiKey = val.openrouterApiKey || "";
-    
+
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -496,7 +496,7 @@ const handleSave = async () => {
   configCopy.projectPath = projectPathDraft.value;
   await checkProjectPath();
   if (pathError.value) return;
-  
+
   loadingStates.value.save = true;
   try {
     const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
@@ -617,8 +617,9 @@ const adjustTokens = (delta) => {
 
 .settings-tab {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 14px;
+  align-items: start;
 }
 
 .api-base-table {
@@ -632,7 +633,7 @@ const adjustTokens = (delta) => {
   padding: 6px 8px;
   background: var(--bg-card);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   font-weight: 500;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -698,14 +699,14 @@ const adjustTokens = (delta) => {
   margin-bottom: 4px;
 }
 .form-label label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .form-label .hint {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 .form-input {
@@ -774,7 +775,7 @@ select.form-input {
   display: flex;
   justify-content: space-between;
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   margin-top: 2px;
 }
@@ -837,17 +838,14 @@ select.form-input {
 .settings-actions {
   display: flex;
   gap: 8px;
-  padding: 10px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  clip-path: polygon(0 4px, 4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px));
-  grid-column: 1 / -1;
+  padding: 8px 0;
+  justify-content: flex-start;
 }
 
 .model-error {
   color: var(--error);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   margin-top: 6px;
 }
 
@@ -863,21 +861,21 @@ select.form-input {
 .path-error {
   color: var(--error);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   margin-top: 4px;
 }
 
 .token-ok {
   color: var(--success);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   margin-top: 4px;
   display: block;
 }
 .token-missing {
   color: var(--text-muted);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   margin-top: 4px;
   display: block;
 }

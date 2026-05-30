@@ -220,7 +220,7 @@ function formatMs(ms) {
 
 .tlm__label {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-muted);
@@ -228,7 +228,7 @@ function formatMs(ms) {
 
 .tlm__value {
   font-family: "JetBrains Mono", monospace;
-  font-size: 1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -248,7 +248,7 @@ function formatMs(ms) {
 
 .tlm__section-label {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-muted);
@@ -271,7 +271,7 @@ function formatMs(ms) {
   justify-content: space-between;
   margin-top: 4px;
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
+  font-size: 0.7rem;
 }
 .tlm__bar-green { color: var(--success); }
 .tlm__bar-red { color: var(--error); }
@@ -297,7 +297,7 @@ function formatMs(ms) {
 }
 .tlm__bar-label {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
   min-width: 40px;
   text-transform: uppercase;
@@ -308,8 +308,8 @@ function formatMs(ms) {
 .tlm__bar-cyan { background: var(--accent); }
 .tlm__bar-purple { background: var(--accent-tertiary); }
 .tlm__bar-muted { background: var(--text-muted); opacity: 0.5; }
-.tlm__bar-na { font-size: 0.55rem; color: var(--text-tertiary); }
-.tlm__bar-val { font-family: "JetBrains Mono", monospace; font-size: 0.6rem; color: var(--text-secondary); min-width: 30px; text-align: right; }
+.tlm__bar-na { font-size: 0.65rem; color: var(--text-muted); }
+.tlm__bar-val { font-family: "JetBrains Mono", monospace; font-size: 0.65rem; color: var(--text-secondary); min-width: 30px; text-align: right; }
 
 .tlm__donut-footer {
   display: flex;
@@ -318,7 +318,7 @@ function formatMs(ms) {
   padding-top: 6px;
   border-top: 1px solid var(--border);
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
 }
 
@@ -338,9 +338,9 @@ function formatMs(ms) {
   flex-direction: column;
   gap: 2px;
 }
-.tlm__perf-label { font-family: "JetBrains Mono", monospace; font-size: 0.5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
-.tlm__perf-val { font-family: "JetBrains Mono", monospace; font-size: 0.8rem; font-weight: 600; color: var(--accent); }
-.tlm__perf-sub { font-family: "JetBrains Mono", monospace; font-size: 0.55rem; color: var(--text-tertiary); }
+.tlm__perf-label { font-family: "JetBrains Mono", monospace; font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.tlm__perf-val { font-family: "JetBrains Mono", monospace; font-size: 0.9rem; font-weight: 600; color: var(--accent); }
+.tlm__perf-sub { font-family: "JetBrains Mono", monospace; font-size: 0.65rem; color: var(--text-muted); }
 
 .tlm__perf-list {
   list-style: none;
@@ -350,14 +350,14 @@ function formatMs(ms) {
 }
 .tlm__perf-list li {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
+  font-size: 0.65rem;
   color: var(--text-muted);
 }
 
 .tlm__empty {
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
-  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  color: var(--text-muted);
   text-align: center;
   padding: 10px 0;
   letter-spacing: 0.1em;

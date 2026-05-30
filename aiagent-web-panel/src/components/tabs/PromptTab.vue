@@ -246,8 +246,8 @@ onMounted(() => {
 }
 
 .column-header .char-count {
-  font-size: 0.55rem;
-  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  color: var(--text-muted);
   font-family: "JetBrains Mono", monospace;
   text-transform: none;
   letter-spacing: 0;

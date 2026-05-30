@@ -42,7 +42,7 @@ defineProps({
   },
   hoverEffect: {
     type: Boolean,
-    default: true,
+    default: false,
   },
 });
 </script>
@@ -62,7 +62,7 @@ defineProps({
     100% calc(100% - 8px), calc(100% - 8px) 100%,
     8px 100%, 0 calc(100% - 8px)
   );
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Верхняя акцентная линия (как индикатор активной панели) */
@@ -82,7 +82,6 @@ defineProps({
 .card--hover:hover {
   border-color: var(--accent);
   box-shadow: 0 0 8px rgba(0, 212, 255, 0.08), 0 0 30px rgba(0, 212, 255, 0.04);
-  transform: translateY(-1px);
 }
 
 /* ═══════════════════════════════════════════
@@ -120,7 +119,7 @@ defineProps({
 .card__terminal-label {
   margin-left: auto;
   font-family: "JetBrains Mono", monospace;
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: var(--text-muted);
@@ -164,6 +163,7 @@ defineProps({
 .card--holographic.card--hover:hover {
   border-color: rgba(0, 212, 255, 0.35);
   box-shadow: 0 0 15px rgba(0, 212, 255, 0.1), 0 0 40px rgba(0, 212, 255, 0.05);
+  transform: none;
 }
 
 /* Corner accents для holographic */
