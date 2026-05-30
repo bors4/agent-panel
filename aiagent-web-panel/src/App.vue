@@ -33,7 +33,7 @@
           :aria-controls="`panel-${tab.id}`"
           @click="activeTab = tab.id"
         >
-          <span aria-hidden="true">{{ tab.icon }}</span>
+          <span class="tab__indicator" aria-hidden="true">{{ tab.symbol }}</span>
           {{ tab.label }}
         </button>
       </div>
@@ -196,12 +196,12 @@ const handleClearLogs = async () => {
 };
 
 const tabs = [
-  { id: "prompt", label: "Системный промпт", icon: "📝" },
-  { id: "settings", label: "Параметры", icon: "⚙️" },
-  { id: "quick", label: "Быстрые настройки", icon: "🔘" },
-  { id: "tools", label: "Инструменты", icon: "🔧" },
-  { id: "chat", label: "Чат-тест", icon: "💬" },
-  { id: "logs", label: "Логи", icon: "🖥️" },
+  { id: "prompt", label: "Системный промпт", symbol: ">" },
+  { id: "settings", label: "Параметры", symbol: "#" },
+  { id: "quick", label: "Быстрые настройки", symbol: "$" },
+  { id: "tools", label: "Инструменты", symbol: "~" },
+  { id: "chat", label: "Чат-тест", symbol: "@" },
+  { id: "logs", label: "Логи", symbol: "!" },
 ];
 
 // Initialize
@@ -652,25 +652,34 @@ const chatTabRef = ref(null);
 <style>
 @import "@/styles/main.css";
 
+/* ═══════════════════════════════════════════════
+   APP LAYOUT — Space Flight Mission Control v2.0
+   ═══════════════════════════════════════════════ */
+
 .app-container {
   position: relative;
-  padding: 24px;
+  padding: 16px 20px 20px;
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 280px 1fr;
   grid-template-rows: auto 1fr;
-  gap: 20px;
+  gap: 16px;
   min-height: 100vh;
-  background: var(--gradient-bg);
+  background: var(--bg-primary);
+  z-index: 1;
 }
+
+/* ═══════════════════════════════════════════════
+   SIDEBAR (Left Panel — Telemetry & Controls)
+   ═══════════════════════════════════════════════ */
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: 100%;
+  max-height: calc(100vh - 90px);
   scrollbar-width: thin;
 }
 
@@ -681,159 +690,118 @@ const chatTabRef = ref(null);
   right: -1px;
   width: 1px;
   height: 100%;
-  background: var(--gradient-accent);
-  opacity: 0.2;
+  background: linear-gradient(180deg, transparent, var(--accent), transparent);
+  opacity: 0.15;
 }
 
-.sidebar-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  transition: var(--transition);
-  backdrop-filter: blur(10px);
-}
-
-.sidebar-card:hover {
-  border-color: var(--border-hover);
-  transform: translateX(2px);
-}
+/* ═══════════════════════════════════════════════
+   MAIN CONTENT (Right Panel)
+   ═══════════════════════════════════════════════ */
 
 .main-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  min-height: 0;
 }
+
+/* ═══════════════════════════════════════════════
+   TAB BAR — Orbital Mode Selector
+   ═══════════════════════════════════════════════ */
 
 .tabs {
   display: flex;
-  gap: 3px;
+  gap: 2px;
   padding: 3px;
-  background: var(--bg-card);
-  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
+  clip-path: polygon(
+    0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    4px 100%, 0 calc(100% - 4px)
+  );
   flex-wrap: wrap;
-  backdrop-filter: blur(10px);
   position: relative;
 }
 
-.tabs::before {
+/* Акцентная нижняя черта */
+.tabs::after {
   content: "";
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: -1px;
+  left: 4px;
+  right: 4px;
   height: 1px;
-  background: var(--gradient-accent);
-  opacity: 0.3;
+  background: var(--accent);
+  opacity: 0.2;
 }
 
 .tab {
-  padding: 9px 16px;
+  padding: 7px 14px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: var(--transition);
-  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.tab::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 2px;
-  background: var(--accent-primary);
-  border-radius: 2px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0;
+  clip-path: polygon(
+    0 2px, 2px 0,
+    calc(100% - 2px) 0, 100% 2px,
+    100% calc(100% - 2px), calc(100% - 2px) 100%,
+    2px 100%, 0 calc(100% - 2px)
+  );
 }
 
 .tab:hover:not(.active) {
   color: var(--text-secondary);
-  background: var(--bg-hover);
-}
-
-.tab:hover:not(.active)::before {
-  width: 30%;
-  opacity: 0.5;
+  background: rgba(0, 212, 255, 0.05);
 }
 
 .tab.active {
-  background: var(--gradient-accent);
-  color: white;
-  box-shadow: 0 2px 12px var(--accent-glow);
-  position: relative;
-  overflow: hidden;
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.06);
 }
 
-.tab.active::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60%;
-  height: 2px;
-  background: var(--text-primary);
-  border-radius: 2px;
+/* Индикатор активного таба (символ в начале) */
+.tab__indicator {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.tab.active .tab__indicator {
   opacity: 1;
+  color: var(--accent);
 }
 
-.tab.active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
-  animation: shimmer 2s infinite;
-}
-
-.tab-icon {
-  font-size: 14px;
-}
-
-.tab-badge {
-  background: var(--error);
-  color: white;
-  font-size: 9px;
-  padding: 2px 5px;
-  border-radius: 10px;
-  min-width: 16px;
-  text-align: center;
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════ */
 
 @media (max-width: 1024px) {
   .app-container {
     grid-template-columns: 1fr;
-    padding: 16px;
+    padding: 14px;
   }
   .sidebar {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 14px;
+    gap: 12px;
+    max-height: none;
   }
   .sidebar::before {
     display: none;
@@ -841,16 +809,13 @@ const chatTabRef = ref(null);
 }
 
 @media (max-width: 640px) {
+  .app-container {
+    padding: 10px;
+    gap: 10px;
+  }
   .sidebar {
     grid-template-columns: 1fr;
-  }
-  .header {
-    flex-direction: column;
     gap: 10px;
-    text-align: center;
-  }
-  .header-left {
-    flex-direction: column;
   }
   .tabs {
     overflow-x: auto;
@@ -858,27 +823,9 @@ const chatTabRef = ref(null);
     -webkit-overflow-scrolling: touch;
   }
   .tab {
-    padding: 8px 12px;
-    font-size: 11px;
-  }
-}
-
-.btn-loading {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
+    padding: 6px 10px;
+    font-size: 0.6rem;
+    flex-shrink: 0;
   }
 }
 </style>

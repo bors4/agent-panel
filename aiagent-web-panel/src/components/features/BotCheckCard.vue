@@ -1,25 +1,42 @@
 <template>
   <Card>
     <template #header>
-      <h2>Проверка подключения к Telegram-боту</h2>
+      <h3 class="mono-label">COM://LINK</h3>
     </template>
-    <Button variant="success" full-width :disabled="checking || !hasToken" @click="checkBot">
-      <span v-if="checking" class="btn-loading" />
-      <span v-else>Проверить</span>
-    </Button>
 
-    <div v-if="!hasToken" class="status-text status-warning">
-      Для подключения к боту нужно в настройках указать токен
+    <div class="comm">
+      <Button
+        variant="primary"
+        full-width
+        :disabled="checking || !hasToken"
+        :loading="checking"
+        @click="checkBot"
+      >
+        {{ checking ? 'SCANNING' : hasToken ? 'TEST SIGNAL' : 'NO TOKEN' }}
+      </Button>
+
+      <div v-if="!hasToken" class="comm__msg comm__msg--warn">
+        NO TOKEN — SET IN CONFIG
+      </div>
+
+      <div v-else-if="checkState === 'error'" class="comm__msg comm__msg--err">
+        ! CONNECTION FAILED
+      </div>
+
+      <template v-else-if="checkState === 'success' && botInfo">
+        <div class="comm__success">
+          <span class="comm__status">
+            <span class="comm__dot" />
+            ONLINE
+          </span>
+          <span class="comm__name">{{ botInfo.first_name }}</span>
+          <span class="comm__id">ID: {{ botInfo.id }}</span>
+        </div>
+        <a :href="botUrl" target="_blank" rel="noopener noreferrer" class="comm__link">
+          [ OPEN CHANNEL ]
+        </a>
+      </template>
     </div>
-
-    <div v-else-if="checkState === 'error'" class="status-text status-error">
-      Не удалось подключиться. Проверь токен бота
-    </div>
-
-    <template v-else-if="checkState === 'success' && botInfo">
-      <a :href="botUrl" target="_blank" rel="noopener noreferrer" class="btn-open-bot"> Открыть бота </a>
-      <div class="status-text status-success">{{ botInfo.first_name }} ({{ botInfo.id }})</div>
-    </template>
   </Card>
 </template>
 
@@ -30,27 +47,17 @@ import Button from "../ui/Button.vue";
 import { useToast } from "@/composables/useToast";
 import { getConfig } from "@/api/client";
 
-const props = defineProps({
-  token: { type: String, default: "" },
-});
+const props = defineProps({ token: { type: String, default: "" } });
 
 const { success, error: showError } = useToast();
 const checking = ref(false);
 const checkState = ref("idle");
 const botInfo = ref(null);
-const effectiveToken = computed(() => {
-  return props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : "";
-});
 const envToken = ref("");
 
-const hasToken = computed(() => {
-  return !!(effectiveToken.value || envToken.value);
-});
-
-const botUrl = computed(() => {
-  if (!botInfo.value?.username) return "#";
-  return `https://t.me/${botInfo.value.username}`;
-});
+const effectiveToken = computed(() => props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : "");
+const hasToken = computed(() => !!(effectiveToken.value || envToken.value));
+const botUrl = computed(() => botInfo.value?.username ? `https://t.me/${botInfo.value.username}` : "#");
 
 onMounted(async () => {
   try {
@@ -61,40 +68,33 @@ onMounted(async () => {
 
 async function checkBot() {
   try {
-    let token = effectiveToken.value || envToken.value;
-
+    const token = effectiveToken.value || envToken.value;
     if (!token) {
-      showError("Укажите токен в настройках");
+      showError("Set token in Settings");
       checkState.value = "error";
       botInfo.value = null;
       return;
     }
-
     checking.value = true;
     checkState.value = "loading";
     botInfo.value = null;
 
-    const telegramResp = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+    const resp = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
       signal: AbortSignal.timeout(10000),
     });
-
-    const data = await telegramResp.json();
+    const data = await resp.json();
 
     if (data.ok) {
-      botInfo.value = {
-        id: data.result.id,
-        first_name: data.result.first_name,
-        username: data.result.username,
-      };
+      botInfo.value = { id: data.result.id, first_name: data.result.first_name, username: data.result.username };
       checkState.value = "success";
-      success("Бот подключён");
+      success("Channel open");
     } else {
       throw new Error(data.description);
     }
   } catch (e) {
     checkState.value = "error";
     botInfo.value = null;
-    showError(e.message || "Неизвестная ошибка");
+    showError(e.message || "Unknown error");
   } finally {
     checking.value = false;
   }
@@ -102,60 +102,98 @@ async function checkBot() {
 </script>
 
 <style scoped>
-:deep(.card-header h2) {
-  font-size: 11px;
-}
-
-.status-text {
-  margin-top: 10px;
-  font-size: 11px;
-  text-align: center;
-}
-
-.status-success {
-  color: var(--success);
-}
-
-.status-error {
-  color: var(--error);
-}
-
-.status-warning {
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
 }
 
-.btn-open-bot {
-  display: block;
-  margin-top: 10px;
-  padding: 8px 16px;
-  background: var(--accent-primary);
-  color: #ffffff;
+.comm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.comm__msg {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   text-align: center;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
+  padding: 6px;
+}
+.comm__msg--warn { color: var(--text-muted); }
+.comm__msg--err { color: var(--error); }
+
+.comm__success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+}
+
+.comm__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--success);
+}
+
+.comm__dot {
+  width: 6px;
+  height: 6px;
+  background: var(--success);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  animation: commPulse 2s ease-in-out infinite;
+}
+
+.comm__name {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.8rem;
   font-weight: 600;
+  color: var(--text-primary);
+}
+
+.comm__id {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  color: var(--text-muted);
+}
+
+.comm__link {
+  display: block;
+  text-align: center;
+  padding: 7px 14px;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   text-decoration: none;
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
   transition: var(--transition);
 }
-
-.btn-open-bot:hover {
-  background: var(--accent-hover);
-  box-shadow: 0 0 12px var(--accent-glow);
+.comm__link:hover {
+  background: var(--accent);
+  color: var(--space-black);
+  box-shadow: var(--glow-accent-sm);
 }
 
-.btn-loading {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+@keyframes commPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 </style>

@@ -1,162 +1,115 @@
 <template>
   <Card>
     <template #header>
-      <h2>📊 Статистика</h2>
-      <button v-if="!loading" class="refresh-btn" title="Обновить" @click="$emit('refresh')">🔄</button>
+      <h3 class="mono-label">TLM://TELEMETRY</h3>
+      <button class="refresh-btn" title="REFRESH" :aria-label="'REFRESH'" @click="$emit('refresh')">↻</button>
     </template>
-    <div v-if="loading" class="stats-grid">
-      <div class="stat-item skeleton-item">
-        <div class="stat-label-skeleton" />
-        <div class="stat-value-skeleton" />
-      </div>
-      <div class="stat-item skeleton-item">
-        <div class="stat-label-skeleton" />
-        <div class="stat-value-skeleton" />
-      </div>
-      <div class="stat-item skeleton-item">
-        <div class="stat-label-skeleton" />
-        <div class="stat-value-skeleton" />
-      </div>
-      <div class="stat-item skeleton-item">
-        <div class="stat-label-skeleton" />
-        <div class="stat-value-skeleton" />
-      </div>
+    <div v-if="loading" class="skeleton-grid">
+      <div class="skeleton-block" />
+      <div class="skeleton-block" />
+      <div class="skeleton-block" />
+      <div class="skeleton-block" />
     </div>
-    <div v-else class="stats-content">
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-label">Uptime</div>
-          <div class="stat-value green">
-            {{ formattedUptime }}
-          </div>
+    <div v-else class="tlm">
+      <div class="tlm__grid">
+        <div class="tlm__item">
+          <span class="tlm__label">UPTIME</span>
+          <span class="tlm__value tlm__value--green">{{ formattedUptime }}</span>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">Запросов</div>
-          <div class="stat-value blue">
-            {{ stats.requests || 0 }}
-          </div>
+        <div class="tlm__item">
+          <span class="tlm__label">REQUESTS</span>
+          <span class="tlm__value tlm__value--cyan">{{ stats.requests || 0 }}</span>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">Инструментов</div>
-          <div class="stat-value yellow">
-            {{ stats.tools || 0 }}
-          </div>
+        <div class="tlm__item">
+          <span class="tlm__label">TOOLS</span>
+          <span class="tlm__value tlm__value--orange">{{ stats.tools || 0 }}</span>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">Ошибок</div>
-          <div class="stat-value red">
-            {{ stats.errors || 0 }}
-          </div>
-        </div>
-      </div>
-      <div v-if="totalRequests > 0" class="stats-visualization">
-        <div class="viz-label">Успешность</div>
-        <div class="progress-bar">
-          <div class="progress-fill success" :style="{ width: successRate + '%' }" />
-          <div class="progress-fill error" :style="{ width: errorRate + '%' }" />
-        </div>
-        <div class="viz-stats">
-          <span class="viz-success">{{ successRate.toFixed(0) }}%</span>
-          <span class="viz-error">{{ errorRate.toFixed(0) }}%</span>
+        <div class="tlm__item">
+          <span class="tlm__label">ERRORS</span>
+          <span class="tlm__value tlm__value--red">{{ stats.errors || 0 }}</span>
         </div>
       </div>
 
-      <div v-if="showTokens && tokenUsage" class="token-section">
-        <div class="token-header">
-          <span class="token-icon">⚡</span>
-          <span class="token-title">Контекст модели</span>
+      <!-- Success Rate -->
+      <div v-if="totalRequests > 0" class="tlm__section">
+        <div class="tlm__section-label">SUCCESS RATE</div>
+        <div class="tlm__bar">
+          <div class="tlm__bar-fill tlm__bar-success" :style="{ width: successRate + '%' }" />
+          <div class="tlm__bar-fill tlm__bar-error" :style="{ width: errorRate + '%' }" />
         </div>
-        <div class="token-chart-row">
-          <div class="token-donut">
-            <svg viewBox="0 0 100 100" class="donut-svg">
-              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--border)" stroke-width="8" />
-              <circle
-                cx="50"
-                cy="50"
-                r="40"
-                fill="none"
-                :stroke="
-                  contextPercent > 90
-                    ? 'var(--error)'
-                    : contextPercent > 70
-                      ? 'var(--warning)'
-                      : 'var(--accent-primary)'
-                "
-                stroke-width="8"
-                :stroke-dasharray="circumference"
-                :stroke-dashoffset="circumference - (circumference * contextPercent) / 100"
-                transform="rotate(-90 50 50)"
-                class="donut-ring"
-              />
-              <text x="50" y="44" text-anchor="middle" class="donut-value">
-                {{ formatNumber(tokenUsage.total) }}
-              </text>
-              <text x="50" y="57" text-anchor="middle" class="donut-max">/ {{ formatNumber(maxTokens) }}</text>
-            </svg>
-          </div>
-          <div class="token-bars">
-            <div class="mini-bar">
-              <span class="bar-label">Prompt</span>
-              <div class="bar-track">
-                <div class="bar-fill bar-prompt" :style="{ width: barPercent(tokenUsage.prompt) + '%' }" />
-              </div>
-              <span class="bar-value">{{ formatNumber(tokenUsage.prompt) }}</span>
-            </div>
-            <div class="mini-bar">
-              <span class="bar-label">Completion</span>
-              <div class="bar-track">
-                <div class="bar-fill bar-completion" :style="{ width: barPercent(tokenUsage.completion) + '%' }" />
-              </div>
-              <span class="bar-value">{{ formatNumber(tokenUsage.completion) }}</span>
-            </div>
-            <div class="mini-bar">
-              <span class="bar-label">Cached</span>
-              <div class="bar-track">
-                <div
-                  v-if="cachedDisplay > 0"
-                  class="bar-fill bar-cached"
-                  :style="{ width: barPercent(cachedDisplay) + '%' }"
-                />
-                <span v-else class="bar-na">—</span>
-              </div>
-              <span class="bar-value">{{ cachedText }}</span>
-            </div>
-          </div>
-        </div>
-        <div class="token-total">
-          <span>Занято: {{ contextPercent.toFixed(1) }}%</span>
-          <span>Доступно: {{ formatNumber(Math.max(0, maxTokens - tokenUsage.total)) }}</span>
+        <div class="tlm__bar-stats">
+          <span class="tlm__bar-green">{{ successRate.toFixed(0) }}%</span>
+          <span class="tlm__bar-red">{{ errorRate.toFixed(0) }}%</span>
         </div>
       </div>
 
-      <div v-if="true" class="perf-section">
-        <div class="perf-header">
-          <span class="perf-icon">⚡</span>
-          <span class="perf-title">Производительность</span>
+      <!-- Token Usage -->
+      <div v-if="showTokens && tokenUsage" class="tlm__section">
+        <div class="tlm__section-label">CONTEXT</div>
+        <div class="tlm__donut-row">
+          <svg viewBox="0 0 100 100" class="tlm__donut">
+            <circle cx="50" cy="50" r="40" fill="none" stroke="var(--space-border)" stroke-width="8" />
+            <circle
+              cx="50" cy="50" r="40"
+              fill="none"
+              :stroke="contextPercent > 90 ? 'var(--error)' : contextPercent > 70 ? 'var(--warning)' : 'var(--accent)'"
+              stroke-width="8"
+              :stroke-dasharray="circumference"
+              :stroke-dashoffset="circumference - (circumference * contextPercent) / 100"
+              transform="rotate(-90 50 50)"
+              class="tlm__donut-ring"
+            />
+            <text x="50" y="44" text-anchor="middle" class="tlm__donut-val">{{ formatNumber(tokenUsage.total) }}</text>
+            <text x="50" y="57" text-anchor="middle" class="tlm__donut-max">/{{ formatNumber(maxTokens) }}</text>
+          </svg>
+          <div class="tlm__bars">
+            <div class="tlm__bar-row">
+              <span class="tlm__bar-label">PRMPT</span>
+              <div class="tlm__bar-track"><div class="tlm__bar-fill tlm__bar-cyan" :style="{ width: barPercent(tokenUsage.prompt) + '%' }" /></div>
+              <span class="tlm__bar-val">{{ formatNumber(tokenUsage.prompt) }}</span>
+            </div>
+            <div class="tlm__bar-row">
+              <span class="tlm__bar-label">CMPLT</span>
+              <div class="tlm__bar-track"><div class="tlm__bar-fill tlm__bar-purple" :style="{ width: barPercent(tokenUsage.completion) + '%' }" /></div>
+              <span class="tlm__bar-val">{{ formatNumber(tokenUsage.completion) }}</span>
+            </div>
+            <div class="tlm__bar-row">
+              <span class="tlm__bar-label">CACHE</span>
+              <div class="tlm__bar-track"><div v-if="cachedDisplay > 0" class="tlm__bar-fill tlm__bar-muted" :style="{ width: barPercent(cachedDisplay) + '%' }" /><span v-else class="tlm__bar-na">—</span></div>
+              <span class="tlm__bar-val">{{ cachedText }}</span>
+            </div>
+          </div>
         </div>
+        <div class="tlm__donut-footer">
+          <span>USED: {{ contextPercent.toFixed(1) }}%</span>
+          <span>FREE: {{ formatNumber(Math.max(0, maxTokens - tokenUsage.total)) }}</span>
+        </div>
+      </div>
+
+      <!-- Performance -->
+      <div class="tlm__section">
+        <div class="tlm__section-label">PERFORMANCE</div>
         <template v-if="perfStats && (perfStats.prompt_n > 0 || perfStats.predicted_n > 0)">
-          <div class="perf-grid">
-            <div class="perf-item">
-              <span class="perf-metric">Prompt</span>
-              <span class="perf-value">{{ perfStats.prompt_n }} токенов</span>
-              <span class="perf-sub">{{ perfStats.prompt_per_second.toFixed(2) }} т/с</span>
+          <div class="tlm__perf-grid">
+            <div class="tlm__perf-item">
+              <span class="tlm__perf-label">PROMPT</span>
+              <span class="tlm__perf-val">{{ perfStats.prompt_n }}t</span>
+              <span class="tlm__perf-sub">{{ perfStats.prompt_per_second.toFixed(2) }} t/s</span>
             </div>
-            <div class="perf-item">
-              <span class="perf-metric">Generation</span>
-              <span class="perf-value">{{ perfStats.predicted_n }} токенов</span>
-              <span class="perf-sub">{{ perfStats.predicted_per_second.toFixed(2) }} т/с</span>
+            <div class="tlm__perf-item">
+              <span class="tlm__perf-label">GEN</span>
+              <span class="tlm__perf-val">{{ perfStats.predicted_n }}t</span>
+              <span class="tlm__perf-sub">{{ perfStats.predicted_per_second.toFixed(2) }} t/s</span>
             </div>
           </div>
-          <ul class="perf-list">
-            <li>Время: {{ formatMs(perfStats.prompt_ms) }} + {{ formatMs(perfStats.predicted_ms) }}</li>
-            <li>Всего: {{ perfStats.prompt_n + perfStats.predicted_n }} токенов</li>
-            <li>Кэш: {{ perfStats.tokens_cached }} токенов</li>
-            <li v-if="perfStats.draft_n > 0">
-              Speculative: {{ perfStats.draft_n_accepted }}/{{ perfStats.draft_n }} ({{ (perfStats.draft_acceptance_rate * 100).toFixed(1) }}%)
-            </li>
+          <ul class="tlm__perf-list">
+            <li>TIME: {{ formatMs(perfStats.prompt_ms) }} + {{ formatMs(perfStats.predicted_ms) }}</li>
+            <li>TOTAL: {{ perfStats.prompt_n + perfStats.predicted_n }} tokens</li>
+            <li>CACHE: {{ perfStats.tokens_cached }} tokens</li>
+            <li v-if="perfStats.draft_n > 0">SPEC: {{ perfStats.draft_n_accepted }}/{{ perfStats.draft_n }} ({{ (perfStats.draft_acceptance_rate * 100).toFixed(1) }}%)</li>
           </ul>
         </template>
-        <div v-else class="perf-empty">Ожидание данных...</div>
+        <div v-else class="tlm__empty">AWAITING DATA...</div>
       </div>
     </div>
   </Card>
@@ -188,472 +141,253 @@ const formattedUptime = computed(() => {
   return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
 });
 
-const totalRequests = computed(() => {
-  return (props.stats.requests || 0) + (props.stats.errors || 0);
-});
+const totalRequests = computed(() => (props.stats.requests || 0) + (props.stats.errors || 0));
+const successRate = computed(() => totalRequests.value === 0 ? 100 : ((props.stats.requests || 0) / totalRequests.value) * 100);
+const errorRate = computed(() => totalRequests.value === 0 ? 0 : ((props.stats.errors || 0) / totalRequests.value) * 100);
+const contextPercent = computed(() => (!props.tokenUsage || props.maxTokens <= 0) ? 0 : Math.min(100, (props.tokenUsage.total / props.maxTokens) * 100));
 
-const successRate = computed(() => {
-  if (totalRequests.value === 0) return 100;
-  return ((props.stats.requests || 0) / totalRequests.value) * 100;
-});
-
-const errorRate = computed(() => {
-  if (totalRequests.value === 0) return 0;
-  return ((props.stats.errors || 0) / totalRequests.value) * 100;
-});
-
-const contextPercent = computed(() => {
-  if (!props.tokenUsage || props.maxTokens <= 0) return 0;
-  return Math.min(100, (props.tokenUsage.total / props.maxTokens) * 100);
-});
-
-const hasAnyCache = computed(() => {
-  return props.tokenUsage?.tokensCached !== undefined || props.tokenUsage?.cached !== undefined;
-});
-
-const cachedDisplay = computed(() => {
-  if (!props.tokenUsage) return 0;
-  return props.tokenUsage.tokensCached ?? props.tokenUsage.cached ?? 0;
-});
-
-const cachedText = computed(() => {
-  if (!hasAnyCache.value) return "N/A";
-  return formatNumber(cachedDisplay.value);
-});
+const cachedDisplay = computed(() => props.tokenUsage?.tokensCached ?? props.tokenUsage?.cached ?? 0);
+const hasAnyCache = computed(() => props.tokenUsage?.tokensCached !== undefined || props.tokenUsage?.cached !== undefined);
+const cachedText = computed(() => hasAnyCache.value ? formatNumber(cachedDisplay.value) : "N/A");
 
 function barPercent(value) {
   if (!value || props.maxTokens <= 0) return 0;
   return Math.min(100, (value / props.maxTokens) * 100);
 }
-
 function formatNumber(n) {
   if (n === undefined || n === null) return "0";
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
 }
-
 function formatMs(ms) {
   if (!ms) return "0ms";
   if (ms < 1000) return ms + "ms";
-  return (ms / 1000).toFixed(1) + "с";
+  return (ms / 1000).toFixed(1) + "s";
 }
 </script>
 
 <style scoped>
-h2 {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
   font-weight: 500;
-  background: none;
-  background-clip: unset;
-  -webkit-background-clip: unset;
-  -webkit-text-fill-color: unset;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
 }
 
 .refresh-btn {
   background: transparent;
-  border: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
   cursor: pointer;
-  font-size: 14px;
-  padding: 4px;
-  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   transition: var(--transition);
-  color: var(--text-muted);
 }
-
 .refresh-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
-.stats-grid {
+/* ═══════════════════════════════════
+   TELEMETRY
+   ═══════════════════════════════════ */
+
+.tlm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tlm__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.stat-item {
-  padding: 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  position: relative;
-  overflow: hidden;
-  transition: var(--transition);
-  backdrop-filter: blur(10px);
-}
-
-.stat-item::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--gradient-accent);
-  opacity: 0.6;
-}
-
-.stat-item:hover {
-  box-shadow: var(--shadow-sm);
-  border-color: var(--border-hover);
-}
-
-.stat-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 5px;
-  position: relative;
-  z-index: 1;
-}
-
-.stat-value {
-  font-size: 16px;
-  font-weight: 700;
-  font-family: "JetBrains Mono", monospace;
-  position: relative;
-  z-index: 1;
-}
-
-.stat-value.green {
-  color: var(--success);
-  text-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
-}
-.stat-value.blue {
-  color: var(--accent-primary);
-  text-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
-}
-.stat-value.yellow {
-  color: var(--warning);
-  text-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
-}
-.stat-value.red {
-  color: var(--error);
-  text-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
-}
-
-.stat-item::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--gradient-accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.3s ease;
-}
-
-.stat-item:hover::after {
-  transform: scaleX(1);
-}
-
-.skeleton-item {
-  min-height: 60px;
-  background: var(--bg-tertiary);
-}
-
-.stat-label-skeleton,
-.stat-value-skeleton {
-  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: var(--radius-sm);
-}
-
-.stat-label-skeleton {
-  height: 10px;
-  width: 40%;
-  margin-bottom: 8px;
-}
-
-.stat-value-skeleton {
-  height: 20px;
-  width: 60%;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-.stats-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.stats-visualization {
-  padding: 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-}
-
-.viz-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 8px;
-}
-
-.progress-bar {
-  display: flex;
-  height: 8px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--bg-card);
-}
-
-.progress-fill {
-  transition: width 0.5s ease;
-}
-
-.progress-fill.success {
-  background: var(--success);
-}
-
-.progress-fill.error {
-  background: var(--error);
-}
-
-.viz-stats {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.viz-success {
-  color: var(--success);
-}
-
-.viz-error {
-  color: var(--error);
-}
-
-.token-section {
-  padding: 14px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-}
-
-.token-header {
-  display: flex;
-  align-items: center;
   gap: 6px;
-  margin-bottom: 12px;
 }
 
-.token-icon {
-  font-size: 14px;
-}
-
-.token-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.token-chart-row {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.token-donut {
-  flex-shrink: 0;
-  width: 100px;
-  height: 100px;
-}
-
-.donut-svg {
-  width: 100%;
-  height: 100%;
-}
-
-.donut-ring {
-  transition:
-    stroke-dashoffset 0.6s ease,
-    stroke 0.3s ease;
-}
-
-.donut-value {
-  font-size: 14px;
-  font-weight: 700;
-  fill: var(--text-primary);
-  font-family: "JetBrains Mono", monospace;
-}
-
-.donut-max {
-  font-size: 8px;
-  fill: var(--text-muted);
-  font-family: "JetBrains Mono", monospace;
-}
-
-.token-bars {
-  width: 100%;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mini-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.bar-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  min-width: 65px;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.bar-track {
-  flex: 1;
-  height: 6px;
-  background: var(--bg-card);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.5s ease;
-}
-
-.bar-prompt {
-  background: var(--accent-primary);
-}
-
-.bar-completion {
-  background: var(--accent-secondary);
-}
-
-.bar-cached {
-  background: var(--text-muted);
-  opacity: 0.6;
-}
-
-.bar-na {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  font-family: "JetBrains Mono", monospace;
-}
-
-.bar-value {
-  font-size: 10px;
-  color: var(--text-secondary);
-  min-width: 35px;
-  text-align: right;
-  font-family: "JetBrains Mono", monospace;
-}
-
-.token-total {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-  font-size: 10px;
-  color: var(--text-muted);
-  font-family: "JetBrains Mono", monospace;
-}
-
-.perf-section {
-  padding: 14px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
+.tlm__item {
+  background: rgba(0, 0, 0, 0.15);
   border: 1px solid var(--border);
-}
-
-.perf-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.perf-icon {
-  font-size: 14px;
-}
-
-.perf-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.perf-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.perf-item {
-  padding: 10px;
-  background: var(--bg-card);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.perf-metric {
-  font-size: 9px;
-  color: var(--text-muted);
+.tlm__label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
 }
 
-.perf-value {
-  font-size: 13px;
+.tlm__value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 1rem;
   font-weight: 700;
-  color: var(--accent-primary);
-  font-family: "JetBrains Mono", monospace;
+  line-height: 1;
 }
 
-.perf-sub {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  font-family: "JetBrains Mono", monospace;
+.tlm__value--green { color: var(--success); text-shadow: 0 0 8px rgba(16,185,129,0.3); }
+.tlm__value--cyan { color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); }
+.tlm__value--orange { color: var(--accent-secondary); text-shadow: 0 0 8px var(--accent-secondary-glow); }
+.tlm__value--red { color: var(--error); text-shadow: 0 0 8px rgba(239,68,68,0.3); }
+
+/* Sections */
+.tlm__section {
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
 }
 
-.perf-list {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0 0;
+.tlm__section-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* Progress Bar */
+.tlm__bar {
+  display: flex;
+  height: 6px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.tlm__bar-fill { transition: width 0.5s ease; }
+.tlm__bar-success { background: var(--success); }
+.tlm__bar-error { background: var(--error); }
+
+.tlm__bar-stats {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+}
+.tlm__bar-green { color: var(--success); }
+.tlm__bar-red { color: var(--error); }
+
+/* Donut */
+.tlm__donut-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
+}
+.tlm__donut { width: 90px; height: 90px; flex-shrink: 0; }
+.tlm__donut-ring { transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease; }
+.tlm__donut-val { font-size: 13px; font-weight: 700; fill: var(--text-primary); font-family: "JetBrains Mono", monospace; }
+.tlm__donut-max { font-size: 7px; fill: var(--text-muted); font-family: "JetBrains Mono", monospace; }
+
+.tlm__bars { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+
+.tlm__bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tlm__bar-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.tlm__bar-track { flex: 1; height: 5px; background: var(--bg-primary); overflow: hidden; }
+.tlm__bar-fill { height: 100%; transition: width 0.5s ease; }
+.tlm__bar-cyan { background: var(--accent); }
+.tlm__bar-purple { background: var(--accent-tertiary); }
+.tlm__bar-muted { background: var(--text-muted); opacity: 0.5; }
+.tlm__bar-na { font-size: 0.55rem; color: var(--text-tertiary); }
+.tlm__bar-val { font-family: "JetBrains Mono", monospace; font-size: 0.6rem; color: var(--text-secondary); min-width: 30px; text-align: right; }
+
+.tlm__donut-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  color: var(--text-muted);
 }
 
-.perf-list li {
-  font-size: 10px;
-  color: var(--text-muted);
+/* Performance */
+.tlm__perf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tlm__perf-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tlm__perf-label { font-family: "JetBrains Mono", monospace; font-size: 0.5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.tlm__perf-val { font-family: "JetBrains Mono", monospace; font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+.tlm__perf-sub { font-family: "JetBrains Mono", monospace; font-size: 0.55rem; color: var(--text-tertiary); }
+
+.tlm__perf-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tlm__perf-list li {
   font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  color: var(--text-muted);
+}
+
+.tlm__empty {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 10px 0;
+  letter-spacing: 0.1em;
+}
+
+/* Skeleton */
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.skeleton-block {
+  height: 50px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border);
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+  position: relative;
+  overflow: hidden;
+}
+.skeleton-block::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0,212,255,0.06), transparent);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 </style>

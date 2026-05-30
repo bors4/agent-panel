@@ -1,151 +1,258 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+/* ============================================================
+   SPACE FLIGHT MISSION CONTROL — Design System v2.0
+   AI Agent Control Panel
+   ============================================================ */
 
 :root {
-  /* Улучшенная цветовая палитра */
-  --bg-primary: #0a0e17;
-  --bg-secondary: #0f1729;
-  --bg-tertiary: #1a1f35;
-  --bg-card: #141928;
-  --bg-hover: #1e2642;
-  --bg-selected: #252d4a;
+  /* ─── Космическая палитра ─── */
+  --space-black: #070b14;
+  --space-deep: #0a1020;
+  --space-mid: #0d1525;
+  --space-surface: #141e33;
+  --space-elevated: #1a2740;
+  --space-border: #1e2a45;
+  --space-border-light: #2a3a5a;
 
-  /* Градиенты */
-  --gradient-bg: linear-gradient(135deg, #1a1f35 0%, #0f1729 100%);
-  --gradient-accent: linear-gradient(135deg, #6366f1, #8b5cf6);
+  /* ─── Фоны ─── */
+  --bg-primary: var(--space-black);
+  --bg-secondary: var(--space-deep);
+  --bg-tertiary: var(--space-mid);
+  --bg-card: var(--space-surface);
+  --bg-hover: var(--space-elevated);
+  --bg-selected: #1f3060;
 
-  /* Glass эффект */
-  --glass-bg: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  /* ─── Текст ─── */
+  --text-primary: #e8edf5;
+  --text-secondary: #b0c4de;
+  --text-muted: #6b7d9e;
+  --text-tertiary: #4a5a7a;
 
-  /* Улучшенная типографика */
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-tertiary: #64748b;
+  /* ─── Акценты (Space Edition) ─── */
+  --accent: #00d4ff;
+  --accent-hover: #33ddff;
+  --accent-glow: rgba(0, 212, 255, 0.35);
+  --accent-secondary: #ff6b35;
+  --accent-secondary-hover: #ff8555;
+  --accent-secondary-glow: rgba(255, 107, 53, 0.35);
+  --accent-tertiary: #7c3aed;
+  --accent-tertiary-glow: rgba(124, 58, 237, 0.35);
 
-  /* Новая акцентная палитра */
-  --accent-primary: #6366f1;
-  --accent-secondary: #8b5cf6;
-  --accent-hover: #4f46e5;
-  --accent-glow: rgba(99, 102, 241, 0.4);
+  /* ─── Градиенты ─── */
+  --gradient-accent: linear-gradient(135deg, #00d4ff, #7c3aed);
+  --gradient-warm: linear-gradient(135deg, #ff6b35, #f59e0b);
+  --gradient-bg: linear-gradient(180deg, var(--space-black) 0%, var(--space-deep) 100%);
 
-  /* Границы */
-  --border: #334155;
-  --border-focus: var(--accent-primary);
-  --border-hover: #475569;
+  /* ─── Glass-эффект ─── */
+  --glass-bg: rgba(0, 212, 255, 0.04);
+  --glass-border: rgba(0, 212, 255, 0.1);
 
-  /* Статус цвета */
+  /* ─── Границы ─── */
+  --border: var(--space-border);
+  --border-focus: var(--accent);
+  --border-hover: var(--space-border-light);
+
+  /* ─── Статусы ─── */
   --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.1);
-  --success-border: rgba(16, 185, 129, 0.2);
+  --success-bg: rgba(16, 185, 129, 0.12);
+  --success-border: rgba(16, 185, 129, 0.25);
   --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.1);
-  --warning-border: rgba(245, 158, 11, 0.2);
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --warning-border: rgba(245, 158, 11, 0.25);
   --error: #ef4444;
-  --error-bg: rgba(239, 68, 68, 0.1);
+  --error-bg: rgba(239, 68, 68, 0.12);
   --error-border: rgba(239, 68, 68, 0.3);
 
-  /* Скругления */
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  /* ─── Скругления (используем clip-path, не border-radius) ─── */
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
 
-  /* Тени */
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+  /* ─── Тени и Glow ─── */
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
+  --glow-accent: 0 0 6px var(--accent-glow), 0 0 20px var(--accent-glow);
+  --glow-accent-sm: 0 0 4px var(--accent-glow), 0 0 10px var(--accent-glow);
+  --glow-accent-lg: 0 0 10px var(--accent-glow), 0 0 30px var(--accent-glow), 0 0 60px var(--accent-glow);
+  --glow-orange: 0 0 6px var(--accent-secondary-glow), 0 0 20px var(--accent-secondary-glow);
 
-  /* Анимации */
-  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-fast: all 0.15s ease-out;
+  /* ─── Переходы ─── */
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-digital: all 0.15s steps(3);
 }
 
-/* Светлая тема */
-[data-theme="light"] {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --bg-tertiary: #e2e8f0;
-  --bg-card: #ffffff;
-  --bg-hover: #f1f5f9;
-  --bg-selected: #e2e8f0;
+/* ============================================================
+   БАЗОВЫЙ СБРОС
+   ============================================================ */
 
-  --gradient-bg: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-  --gradient-accent: linear-gradient(135deg, #6366f1, #8b5cf6);
-
-  --glass-bg: rgba(0, 0, 0, 0.03);
-  --glass-border: rgba(0, 0, 0, 0.1);
-
-  --text-primary: #1e293b;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --text-tertiary: #94a3b8;
-
-  --border: #cbd5e1;
-  --border-hover: #94a3b8;
-
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.15);
-}
-
-[data-theme="light"] body::before {
-  background:
-    linear-gradient(rgba(99, 102, 241, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
-}
-
-* {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+/* ============================================================
+   HTML / BODY
+   ============================================================ */
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
-  font-family:
-    "Inter",
-    -apple-system,
-    sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.6;
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
+  position: relative;
 }
 
-/* Градиентный фон */
+/* ─── Звёздное поле (через псевдоэлемент) ─── */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background:
-    linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
-  background-size: 50px 50px;
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 30% 60%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 50% 10%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 70% 40%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 90% 80%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 15% 85%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 45% 45%, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(1px 1px at 80% 15%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 25% 35%, rgba(255, 255, 255, 0.6), transparent);
+  pointer-events: none;
+  z-index: 0;
+  animation: starTwinkle 4s ease-in-out infinite alternate;
+}
+
+/* ─── Сетка координат (навигационная сетка) ─── */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
   pointer-events: none;
   z-index: 0;
 }
 
-/* Glass эффект */
-.glass-effect {
-  background: var(--glass-bg);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--glass-border);
+/* ============================================================
+   ТИПОГРАФИКА
+   ============================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Orbitron", "Space Grotesk", monospace;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  line-height: 1.2;
 }
 
-/* Градиентные фоны */
-.gradient-bg {
-  background: var(--gradient-bg);
+h1 { font-size: 2.5rem; letter-spacing: 0.08em; }
+h2 { font-size: 1.75rem; letter-spacing: 0.06em; }
+h3 { font-size: 1.25rem; letter-spacing: 0.04em; }
+h4 { font-size: 1rem; letter-spacing: 0.03em; }
+
+code, pre, .mono {
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
 }
 
-.gradient-accent-bg {
-  background: var(--gradient-accent);
+.orbitron {
+  font-family: "Orbitron", "Space Grotesk", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-/* Анимации */
-@keyframes slideIn {
+.telemetry {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   СКОЛЛБАР
+   ============================================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--space-border);
+  border-radius: 3px;
+  transition: var(--transition);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--space-border) transparent;
+}
+
+/* ============================================================
+   ВЫДЕЛЕНИЕ ТЕКСТА
+   ============================================================ */
+
+::selection {
+  background: var(--accent);
+  color: var(--space-black);
+}
+
+/* ============================================================
+   АНИМАЦИИ
+   ============================================================ */
+
+/* Мерцание звёзд */
+@keyframes starTwinkle {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Пульс маячка */
+@keyframes beaconPulse {
+  0%, 100% {
+    box-shadow: 0 0 4px var(--glow-accent);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 8px var(--glow-accent), 0 0 20px var(--glow-accent);
+    opacity: 0.8;
+  }
+}
+
+/* Появление сдвигом вверх */
+@keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -153,73 +260,128 @@ body::before {
   }
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(0.95);
-  }
-}
-
+/* Плавное появление */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
+/* Вращение орбиты */
+@keyframes orbitSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Шиммер загрузки */
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-/* Утилиты */
-.animate-slide-in {
-  animation: slideIn 0.3s ease-out;
+/* Сканирующая линия (радар) */
+@keyframes radarSweep {
+  0% { transform: translateY(-10%); opacity: 0; }
+  10% { opacity: 0.4; }
+  90% { opacity: 0.4; }
+  100% { transform: translateY(110%); opacity: 0; }
 }
 
-.animate-pulse {
-  animation: pulse 2s infinite;
+/* Пульс текста телеметрии */
+@keyframes telemetryPulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
+/* Мигание курсора */
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
-/* Hover эффекты */
+/* ============================================================
+   УТИЛИТЫ
+   ============================================================ */
+
+/* Chamfered corners (срезанные углы) — основной стиль карточек */
+.chamfer {
+  clip-path: polygon(
+    0 8px, 8px 0,
+    calc(100% - 8px) 0, 100% 8px,
+    100% calc(100% - 8px), calc(100% - 8px) 100%,
+    8px 100%, 0 calc(100% - 8px)
+  );
+}
+
+/* Малый срез (для кнопок, инпутов) */
+.chamfer-sm {
+  clip-path: polygon(
+    0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    4px 100%, 0 calc(100% - 4px)
+  );
+}
+
+/* Отсутствие сколруглений — дополнительные */
+.no-radius {
+  border-radius: 0 !important;
+}
+
+/* Glow-эффекты */
+.glow-accent {
+  box-shadow: var(--glow-accent);
+}
+
+.glow-accent-sm {
+  box-shadow: var(--glow-accent-sm);
+}
+
+.glow-accent-lg {
+  box-shadow: var(--glow-accent-lg);
+}
+
+.glow-orange {
+  box-shadow: var(--glow-orange);
+}
+
+/* Переходы */
+.hover-glow {
+  transition: var(--transition);
+}
+.hover-glow:hover {
+  box-shadow: var(--glow-accent);
+}
+
 .hover-lift {
   transition: var(--transition);
 }
-
 .hover-lift:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
 }
 
-.hover-glow {
-  transition: var(--transition);
+/* Анимации-утилиты */
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
 }
 
-.hover-glow:hover {
-  box-shadow: 0 0 24px var(--accent-glow);
+.animate-slide-up {
+  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Loading states */
+.animate-beacon {
+  animation: beaconPulse 2s ease-in-out infinite;
+}
+
+.animate-telemetry {
+  animation: telemetryPulse 3s ease-in-out infinite;
+}
+
+/* Загрузка (шиммер) */
 .loading {
   position: relative;
   overflow: hidden;
 }
-
 .loading::after {
   content: "";
   position: absolute;
@@ -227,27 +389,80 @@ body::before {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.08), transparent);
   animation: shimmer 1.5s infinite;
 }
 
-/* Scrollbar стили */
-::-webkit-scrollbar {
+/* Стекло (glass-эффект) */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+}
+
+/* Обводка текста (glow) */
+.text-glow {
+  text-shadow: 0 0 10px var(--accent-glow), 0 0 30px var(--accent-glow);
+}
+
+.text-glow-orange {
+  text-shadow: 0 0 10px var(--accent-secondary-glow), 0 0 30px var(--accent-secondary-glow);
+}
+
+/* Курсор-печатная машинка */
+.cursor-blink::after {
+  content: "▊";
+  color: var(--accent);
+  animation: cursorBlink 1s step-end infinite;
+  margin-left: 2px;
+}
+
+/* Статусные точки */
+.status-dot {
+  display: inline-block;
   width: 8px;
   height: 8px;
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  flex-shrink: 0;
+}
+.status-dot.running {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success), 0 0 12px rgba(16, 185, 129, 0.4);
+}
+.status-dot.stopped {
+  background: var(--error);
+}
+.status-dot.checking {
+  background: var(--warning);
+  animation: telemetryPulse 1s ease-in-out infinite;
+}
+.status-dot.idle {
+  background: var(--text-muted);
 }
 
-::-webkit-scrollbar-track {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
+/* ============================================================
+   РЕСПОНСИВ
+   ============================================================ */
+
+@media (max-width: 640px) {
+  html { font-size: 14px; }
+  h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.35rem; }
+  h3 { font-size: 1.1rem; }
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--accent-primary);
-  border-radius: var(--radius-sm);
-  transition: var(--transition);
-}
+/* ============================================================
+   PREFERS REDUCED MOTION
+   ============================================================ */
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-secondary);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

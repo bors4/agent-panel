@@ -137,7 +137,7 @@ onUnmounted(() => {
 
 .search-trigger:hover {
   background: var(--bg-hover);
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
 }
 
 .search-dropdown {

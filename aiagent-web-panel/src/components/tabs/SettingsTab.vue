@@ -3,7 +3,7 @@
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Основные параметры</h2>
+        <h3 class="mono-label">CFG://CONFIG</h3>
       </div>
     </template>
     <div class="form-group">
@@ -19,11 +19,11 @@
           placeholder="123456789:AAH..."
         />
         <button class="token-toggle" @click="tokenVisible = !tokenVisible">
-          {{ tokenVisible ? "🔒" : "👁️" }}
+          {{ tokenVisible ? "HIDE" : "SHOW" }}
         </button>
       </div>
-      <span v-if="hasToken" class="token-ok">✅ Токен задан</span>
-      <span v-else class="token-missing">❌ Токен не задан</span>
+      <span v-if="hasToken" class="token-ok">[TOKEN SET]</span>
+      <span v-else class="token-missing">[NO TOKEN]</span>
     </div>
     <div class="form-group">
       <div class="form-label">
@@ -32,7 +32,7 @@
       </div>
       <div class="project-path-row">
         <input v-model="projectPathDraft" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
-        <Button @click="handleSaveProjectPath">💾 Сохранить путь</Button>
+        <Button @click="handleSaveProjectPath">SAVE PATH</Button>
       </div>
       <p v-if="pathError" class="path-error">{{ pathError }}</p>
     </div>
@@ -84,10 +84,10 @@
         <Button
           class="btn-refresh-models"
           :disabled="loadingStates.models"
+          :loading="loadingStates.models"
           @click="handleRefreshModels"
         >
-          <span v-if="loadingStates.models" class="btn-loading" />
-          <span v-else>🔄 Обновить список</span>
+          REFRESH
         </Button>
       </div>
       <p v-if="availableModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
@@ -105,7 +105,7 @@
           placeholder="sk-or-v1-..."
         />
         <button class="token-toggle" @click="orKeyVisible = !orKeyVisible">
-          {{ orKeyVisible ? "🔒" : "👁️" }}
+          {{ orKeyVisible ? "HIDE" : "SHOW" }}
         </button>
       </div>
     </div>
@@ -117,10 +117,10 @@
       <Button
         class="btn-refresh-models"
         :disabled="loadingStates.openrouterModels"
+        :loading="loadingStates.openrouterModels"
         @click="handleLoadOpenRouterModels"
       >
-        <span v-if="loadingStates.openrouterModels" class="btn-loading" />
-        <span v-else>🌐 Загрузить модели OpenRouter</span>
+        LOAD OPENROUTER
       </Button>
     </div>
   </Card>
@@ -128,7 +128,7 @@
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Лимиты и производительность</h2>
+        <h3 class="mono-label">CFG://LIMITS</h3>
       </div>
     </template>
     <div class="form-group">
@@ -234,7 +234,7 @@
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Потоковый вывод</h2>
+        <h3 class="mono-label">CFG://STREAM</h3>
       </div>
     </template>
     <div class="form-group">
@@ -277,12 +277,10 @@
 
   <div class="settings-actions">
     <Button variant="primary" :disabled="loadingStates.save" style="flex: 1" @click="handleSave">
-      <span v-if="loadingStates.save" class="btn-loading" />
-      <span v-else>💾 Сохранить настройки</span>
+      SAVE ALL
     </Button>
     <Button :disabled="loadingStates.reset" @click="handleReset">
-      <span v-if="loadingStates.reset" class="btn-loading" />
-      <span v-else>↩️ Сброс</span>
+      RESET
     </Button>
   </div>
   </div>
@@ -608,27 +606,24 @@ const adjustTokens = (delta) => {
 </script>
 
 <style scoped>
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
 .settings-tab {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.header-row h2 {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  font-weight: 500;
-  background: none;
-  background-clip: unset;
-  -webkit-background-clip: unset;
-  -webkit-text-fill-color: unset;
+  gap: 14px;
 }
 
 .api-base-table {
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
   overflow: hidden;
 }
 .table-header {
@@ -636,9 +631,12 @@ const adjustTokens = (delta) => {
   align-items: center;
   padding: 6px 8px;
   background: var(--bg-card);
-  font-size: 10px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  font-weight: 500;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   gap: 6px;
 }
 .table-row {
@@ -662,7 +660,7 @@ const adjustTokens = (delta) => {
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   cursor: pointer;
   font-size: 14px;
   display: flex;
@@ -672,9 +670,9 @@ const adjustTokens = (delta) => {
 }
 .btn-add:hover,
 .btn-remove:hover {
-  background: var(--accent-primary);
-  color: white;
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  color: var(--space-black);
+  border-color: var(--accent);
 }
 .form-group {
   margin-bottom: 10px;
@@ -715,16 +713,16 @@ const adjustTokens = (delta) => {
   padding: 6px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-family: "JetBrains Mono", monospace;
   transition: var(--transition);
 }
 .form-input:focus {
   outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent-sm);
 }
 .form-input::placeholder {
   color: var(--text-muted);
@@ -742,6 +740,9 @@ select.form-input {
   display: flex;
   align-items: center;
 }
+.form-number-wrapper :deep(.btn) {
+  clip-path: none !important;
+}
 .token-input-wrapper {
   position: relative;
 }
@@ -750,32 +751,35 @@ select.form-input {
 }
 .token-toggle {
   position: absolute;
-  right: 6px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-muted);
   cursor: pointer;
-  padding: 2px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   transition: var(--transition);
 }
 .range-input {
   width: 100%;
-  accent-color: var(--accent-primary);
+  accent-color: var(--accent);
   background: var(--bg-card);
 }
 .range-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 9px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
   color: var(--text-muted);
   margin-top: 2px;
 }
 .range-value {
-  color: var(--accent-primary);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -821,8 +825,8 @@ select.form-input {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
@@ -836,23 +840,14 @@ select.form-input {
   padding: 10px 14px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  clip-path: polygon(0 4px, 4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px));
   grid-column: 1 / -1;
 }
 
-.btn-loading {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
 .model-error {
-  color: #e74c3c;
-  font-size: 11px;
+  color: var(--error);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
   margin-top: 6px;
 }
 
@@ -866,26 +861,24 @@ select.form-input {
 }
 
 .path-error {
-  color: #e74c3c;
-  font-size: 12px;
+  color: var(--error);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
   margin-top: 4px;
 }
 
 .token-ok {
   color: var(--success);
-  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
   margin-top: 4px;
   display: block;
 }
 .token-missing {
   color: var(--text-muted);
-  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
   margin-top: 4px;
   display: block;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 </style>

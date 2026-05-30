@@ -3,15 +3,15 @@
     <template #header>
       <div class="chat-header">
         <div class="chat-header-left">
-          <h2>💬 Чат с агентом</h2>
-          <span class="status-badge" :class="{ active: isActive }">
-            <span class="status-dot" />
-            {{ isActive ? "Агент запущен" : "Агент не запущен" }}
+          <h3 class="mono-label">COM://CHAT</h3>
+          <span class="chat-status" :class="{ active: isActive }">
+            <span class="chat-dot" />
+            {{ isActive ? "ONLINE" : "OFFLINE" }}
           </span>
         </div>
         <div class="chat-header-right">
-          <label class="agent-toggle" title="Использовать agent loop с инструментами">
-            <span class="toggle-label">Agent</span>
+          <label class="agent-toggle" title="Toggle agent loop with tools">
+            <span class="toggle-label">AGENT</span>
             <input v-model="agentMode" type="checkbox" @change="onAgentModeChange" />
             <span class="toggle-slider" />
           </label>
@@ -761,6 +761,15 @@ defineExpose({ clearChatHistory });
   height: 480px;
 }
 
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
 .chat-header {
   display: flex;
   justify-content: space-between;
@@ -773,6 +782,7 @@ defineExpose({ clearChatHistory });
 .chat-header-left {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .chat-header-right {
@@ -782,48 +792,45 @@ defineExpose({ clearChatHistory });
   flex-wrap: wrap;
 }
 
-.status-badge {
+.chat-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   padding: 3px 8px;
-  border-radius: 10px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
   border: 1px solid var(--border);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   transition: var(--transition);
 }
 
-.status-badge.active {
+.chat-status.active {
   background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  color: var(--success);
   border-color: rgba(16, 185, 129, 0.3);
 }
 
-.status-dot {
+.chat-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
   background: var(--text-muted);
-  transition: var(--transition);
+  flex-shrink: 0;
 }
 
-.status-badge.active .status-dot {
-  background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
-  animation: pulse 2s infinite;
+.chat-status.active .chat-dot {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: chatPulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+@keyframes chatPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* Chat clear button */
@@ -891,7 +898,7 @@ defineExpose({ clearChatHistory });
 
 .context-menu-item:hover {
   background: var(--bg-hover);
-  color: var(--accent-primary);
+  color: var(--accent);
 }
 
 /* Confirm dialog */
@@ -1055,9 +1062,9 @@ defineExpose({ clearChatHistory });
 }
 
 .chat-msg.user .chat-bubble {
-  background: var(--accent-primary);
+  background: var(--accent);
   color: white;
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
   border-bottom-right-radius: 4px;
 }
 
@@ -1068,7 +1075,7 @@ defineExpose({ clearChatHistory });
 }
 
 .chat-msg.bot .chat-bubble.streaming {
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
   box-shadow: 0 0 8px var(--accent-glow);
 }
 
@@ -1076,7 +1083,7 @@ defineExpose({ clearChatHistory });
   display: inline-block;
   width: 2px;
   height: 16px;
-  background: var(--accent-primary);
+  background: var(--accent);
   margin-left: 2px;
   vertical-align: middle;
   animation: blink 0.8s step-end infinite;
@@ -1239,8 +1246,8 @@ defineExpose({ clearChatHistory });
 }
 
 .agent-toggle input:checked + .toggle-slider {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .agent-toggle input:checked + .toggle-slider::before {
@@ -1279,7 +1286,7 @@ defineExpose({ clearChatHistory });
   flex: 1;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  color: var(--accent-primary);
+  color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

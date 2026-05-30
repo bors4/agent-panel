@@ -18,11 +18,11 @@ describe("StatsCard", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("Uptime");
+    expect(wrapper.text()).toContain("UPTIME");
     expect(wrapper.text()).toContain("10");
     expect(wrapper.text()).toContain("5");
     expect(wrapper.text()).toContain("1");
-    expect(wrapper.find(".token-section").exists()).toBe(false);
+    expect(wrapper.find(".tlm__donut").exists()).toBe(false);
   });
 
   it("renders token section when showTokens is true and tokenUsage exists", () => {
@@ -36,8 +36,8 @@ describe("StatsCard", () => {
       },
     });
 
-    expect(wrapper.find(".token-section").exists()).toBe(true);
-    expect(wrapper.text()).toContain("Контекст модели");
+    expect(wrapper.find(".tlm__donut").exists()).toBe(true);
+    expect(wrapper.text()).toContain("CONTEXT");
     expect(wrapper.text()).toContain("1.5k");
     expect(wrapper.text()).toContain("8.2k");
   });
@@ -54,7 +54,7 @@ describe("StatsCard", () => {
     });
 
     expect(wrapper.text()).toContain("N/A");
-    expect(wrapper.find(".bar-na").exists()).toBe(true);
+    expect(wrapper.find(".tlm__bar-na").exists()).toBe(true);
   });
 
   it("calculates context percentage correctly", () => {
@@ -82,6 +82,6 @@ describe("StatsCard", () => {
       },
     });
 
-    expect(wrapper.find(".token-section").exists()).toBe(false);
+    expect(wrapper.find(".tlm__donut").exists()).toBe(false);
   });
 });
