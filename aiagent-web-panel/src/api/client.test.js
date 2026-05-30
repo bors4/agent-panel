@@ -80,6 +80,20 @@ describe("api/client models", () => {
     );
     expect(result.models).toEqual([]);
   });
+
+  it("getModels sends x-openrouter-key header when apiKey provided", async () => {
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ models: [] }) });
+    await getModels("https://openrouter.ai/api/v1", "sk-or-v1-test-key");
+    const callArgs = globalThis.fetch.mock.calls[0];
+    expect(callArgs[1].headers["x-openrouter-key"]).toBe("sk-or-v1-test-key");
+  });
+
+  it("getModels does not send x-openrouter-key when apiKey omitted", async () => {
+    globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ models: [] }) });
+    await getModels("http://localhost:8080/v1");
+    const callArgs = globalThis.fetch.mock.calls[0];
+    expect(callArgs[1].headers["x-openrouter-key"]).toBeUndefined();
+  });
 });
 
 // Проверяем, что базовая функциональность работает с новым API_KEY поведением

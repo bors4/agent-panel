@@ -25,6 +25,9 @@ import { parseStreamedResponse } from "../lib/parseSSE.js";
  * @param {Function} deps.resetStats - Сброс статистики
  * @param {Function} deps.resetTokenUsage - Сброс счётчика токенов
  * @param {Function} deps.wsBroadcast - WebSocket рассылка событий
+ * @param {Function} deps.initBot - Фабрика создания GrammY Bot с хендлерами (token => Bot|null)
+ * @param {Object} deps.bot - Геттер/сеттер для экземпляра GrammY Bot (может быть null)
+ * @param {Function} deps.updateStatus - Обновление статуса бота (status, message)
  * @returns {Router} Express Router
  */
 export function createApiRouter(deps) {
@@ -155,11 +158,17 @@ export function createApiRouter(deps) {
 
   /**
    * GET /api/config — Получить текущую конфигурацию.
+   * Секретные поля (apiKey, openrouterApiKey, telegramToken) удаляются из ответа.
+   * Вместо них возвращается поле token (из config.telegramToken или process.env.TELEGRAM_BOT_TOKEN)
+   * и hasToken: boolean.
    */
   router.get("/config", (req, res) => {
+    const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    // eslint-disable-next-line no-unused-vars
+    const { apiKey, openrouterApiKey, telegramToken, ...safeConfig } = config;
     res.json({
       success: true,
-      config: { ...config, hasToken: !!process.env.TELEGRAM_BOT_TOKEN },
+      config: { ...safeConfig, token, hasToken: !!token },
     });
   });
 
@@ -180,9 +189,14 @@ export function createApiRouter(deps) {
 
   /**
    * POST /api/config — Обновить конфигурацию.
-   * Body: { serverUrl?, modelName?, projectPath?, systemPrompt?, maxTokens?, temperature?, timeout?, token? }
+   * Body: { serverUrl?, modelName?, projectPath?, systemPrompt?, maxTokens?, temperature?,
+   *         timeout?, token?, openrouterApiKey?, stream?, insertUserAfterTool?, chatMode?,
+   *         maxFileChars?, maxHistoryPairs?, maxSearchResults?, maxFilesInPrompt?, maxSearchFileSize? }
+   * Если token изменён — старый бот останавливается, создаётся новый через deps.initBot(token).
+   * Валидирует projectPath (существование, директория, права r/w).
+   * Защита от prototype pollution.
    */
-  router.post("/config", (req, res) => {
+  router.post("/config", async (req, res) => {
     const body = req.body || {};
     const blockedKeys = ["__proto__", "constructor", "prototype"];
     const hasPrototypePollution = Object.keys(body).some((k) => blockedKeys.includes(k));
@@ -230,10 +244,19 @@ export function createApiRouter(deps) {
     if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.insertUserAfterTool !== undefined) config.insertUserAfterTool = !!body.insertUserAfterTool;
     if (body.chatMode !== undefined) config.chatMode = !!body.chatMode;
-    if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
+    if (body.openrouterApiKey !== undefined) config.openrouterApiKey = body.openrouterApiKey;
+    if (body.token !== undefined && body.token !== (config.telegramToken || "")) {
+      config.telegramToken = body.token;
       process.env.TELEGRAM_BOT_TOKEN = body.token;
+      if (deps.bot) {
+        try { await deps.bot.stop(); } catch {}
+        deps.bot = null;
+      }
+      if (body.token) {
+        deps.bot = deps.initBot(body.token);
+        addLog("Telegram bot reinitialized with new token", "success");
+      }
       tokenChanged = true;
-      addLog("Token changed — restart bot to apply", "warning");
     }
     addLog(`Config updated: ${config.modelName}, projectPath=${config.projectPath}`, "info");
     res.json({ success: true, config, tokenChanged });
@@ -244,14 +267,29 @@ export function createApiRouter(deps) {
   /**
    * GET /api/models — Получить доступные модели с AI сервера.
    * Query: ?serverUrl=... (опционально, для прокси с фронтенда)
+   * Header: x-openrouter-key (опционально, для OpenRouter; fallback config.openrouterApiKey)
+   * Для OpenRouter: автодетект по наличию "openrouter.ai" в URL, добавляет HTTP-Referer и X-OpenRouter-Title.
+   * Таймаут: 10с. Ответ: { models: [{ id, name, object, owned_by, max_context_length, pricing }], source: "openrouter"|"local" }
    */
   router.get("/models", async (req, res) => {
     try {
       const serverUrl = req.query.serverUrl || config.serverUrl;
+      const isOpenRouter = serverUrl.includes("openrouter.ai");
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      const headers = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        const apiKey = req.headers["x-openrouter-key"] || config.openrouterApiKey;
+        headers["Authorization"] = `Bearer ${apiKey}`;
+        headers["HTTP-Referer"] = "https://agent-panel.local";
+        headers["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        headers["Authorization"] = `Bearer ${config.apiKey}`;
+      }
+
       const response = await fetch(`${serverUrl}/models`, {
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+        headers,
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -259,11 +297,13 @@ export function createApiRouter(deps) {
       const data = await response.json();
       const models = (data.data || []).map((m) => ({
         id: m.id,
-        object: m.object,
-        owned_by: m.owned_by,
-        max_context_length: m.max_context_length || null,
+        name: m.name || m.id,
+        object: m.object || "model",
+        owned_by: m.owned_by || "",
+        max_context_length: m.max_context_length || m.context_length || null,
+        pricing: m.pricing || null,
       }));
-      res.json({ success: true, models });
+      res.json({ success: true, models, source: isOpenRouter ? "openrouter" : "local" });
     } catch (error) {
       addLog(`Failed to fetch models: ${error.message}`, "error");
       res.status(500).json({ error: "Failed to fetch models" });
@@ -323,12 +363,20 @@ export function createApiRouter(deps) {
 
   /**
    * POST /api/start — Запустить Telegram бота.
+   * Проверяет наличие токена (config.telegramToken или TELEGRAM_BOT_TOKEN env).
+   * Если deps.bot === null — создаёт новый экземпляр через deps.initBot(token).
+   * Ждёт deps.bot.start() перед установкой статуса "running".
    */
   router.post("/start", async (req, res) => {
     try {
       if (deps.state.botStatus === "running") return res.json({ success: true, message: "Bot already running" });
+      const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) return res.status(400).json({ error: "Telegram token not configured. Set it in Settings or TELEGRAM_BOT_TOKEN env var." });
+      if (!deps.bot) {
+        deps.bot = deps.initBot(token);
+      }
+      await deps.bot.start();
       deps.updateStatus("running", "Работает");
-      deps.bot.start();
       addLog("Telegram connected", "success");
       res.json({ success: true, message: "Starting..." });
     } catch (error) {
@@ -362,9 +410,16 @@ export function createApiRouter(deps) {
 
   /**
    * POST /api/restart — Перезапустить Telegram бота.
+   * Аналогично /start: проверяет токен, лениво инициализирует bot если null.
+   * Останавливает бота (если running), перезагружает аккаунты, запускает заново.
    */
   router.post("/restart", async (req, res) => {
     try {
+      const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) return res.status(400).json({ error: "Telegram token not configured" });
+      if (!deps.bot) {
+        deps.bot = deps.initBot(token);
+      }
       if (deps.state.botStatus === "running") {
         await deps.bot.stop();
         await new Promise((r) => setTimeout(r, 1000));
@@ -384,8 +439,11 @@ export function createApiRouter(deps) {
   // ─── Direct Chat ─────────────────────────────────────────────────────────
 
   /**
-   * POST /api/chat — Прямой чат с AI (без agent loop).
-   * Body: { message, modelName?, serverUrl?, projectPath?, systemPrompt? }
+   * POST /api/chat — Прямой чат с AI (без agent loop) или с agent loop (useAgentLoop).
+   * Body: { message, modelName?, serverUrl?, projectPath?, systemPrompt?, stream?, useAgentLoop?, accountName?, messages? }
+   * Для OpenRouter: автодетект по URL, использует config.openrouterApiKey с кастомными заголовками.
+   * Поддерживает SSE потоковый режим и JSON-режим.
+   * В режиме agent loop возвращает toolCalls, toolResults, requiresApproval.
    */
   router.post("/chat", async (req, res) => {
     try {
@@ -489,14 +547,20 @@ export function createApiRouter(deps) {
       const controller = new AbortController();
       const timeout = config.timeout ?? configDefaults.timeout;
       const timeoutId = setTimeout(() => controller.abort(), timeout);
+      const isOpenRouter = actualServerUrl.includes("openrouter.ai");
+      const chatHeaders = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        chatHeaders["Authorization"] = `Bearer ${config.openrouterApiKey}`;
+        chatHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        chatHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        chatHeaders["Authorization"] = `Bearer ${config.apiKey}`;
+      }
       let response;
       try {
         response = await fetch(`${actualServerUrl}/chat/completions`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.apiKey}`,
-          },
+          headers: chatHeaders,
           body: JSON.stringify({
             model: model,
             messages: [
@@ -702,7 +766,10 @@ export function createApiRouter(deps) {
 
   /**
    * POST /api/chat/continue — Продолжить agent loop после одобрения/отклонения инструмента.
-   * Body: { messages, approvalDecision: { approved, toolName, args, toolCallId } }
+   * Body: { messages, approvalDecision: { approved, toolName, args, toolCallId }, accountName? }
+   * При approved: выполняет инструмент и добавляет результат в историю.
+   * При отклонении: добавляет сообщение об отказе.
+   * Вызывает agentLoopStep для следующего шага.
    */
   router.post("/chat/continue", async (req, res) => {
     try {
@@ -802,6 +869,8 @@ export function createApiRouter(deps) {
   /**
    * GET /api/health — Health check endpoint for monitoring.
    * Returns bot status and AI server reachability.
+   * Для OpenRouter: автодетект по URL, использует config.openrouterApiKey с кастомными заголовками.
+   * Ответ: { status: "healthy"|"degraded"|"unhealthy", bot: {...}, aiServer: { reachable }, timestamp }
    */
   router.get("/health", async (req, res) => {
     const uptimeMs = deps.state.startTime ? Date.now() - deps.state.startTime : 0;
@@ -811,9 +880,18 @@ export function createApiRouter(deps) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const isOpenRouter = config.serverUrl.includes("openrouter.ai");
+      const healthHeaders = {};
+      if (isOpenRouter) {
+        healthHeaders["Authorization"] = `Bearer ${config.openrouterApiKey}`;
+        healthHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        healthHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        healthHeaders["Authorization"] = `Bearer ${config.apiKey}`;
+      }
       const aiResp = await fetch(`${config.serverUrl}/models`, {
         signal: controller.signal,
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+        headers: healthHeaders,
       });
       clearTimeout(timeoutId);
       aiReachable = aiResp.ok;

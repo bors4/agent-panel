@@ -77,6 +77,17 @@ function resetReconnectState() {
 // ─────────────────────────────────────────────────────
 // 🔌 Основная функция запроса с повторными попытками
 // ─────────────────────────────────────────────────────
+/**
+ * Базовый HTTP-запрос к API с экспоненциальной задержкой при потере соединения.
+ * Автоматически добавляет Content-Type: application/json и x-api-key.
+ * При ошибке ответа пытается извлечь тело ошибки JSON (body.error) для лучшего сообщения.
+ * При потере соединения включает повторные попытки с экспоненциальной задержкой (до 5с).
+ * @param {string} endpoint - Путь API (например, "/status")
+ * @param {Object} [options] - Опции fetch (method, body, headers)
+ * @param {boolean} [retry=true] - Включить автоматические повторные попытки
+ * @returns {Promise<Response>} Ответ fetch
+ * @throws {Error} С сообщением из body.error или статусом HTTP
+ */
 async function apiFetch(endpoint, options = {}, retry = true) {
   const url = `${BASE_URL}${endpoint}`;
   const headers = {
@@ -100,7 +111,12 @@ async function apiFetch(endpoint, options = {}, retry = true) {
     }
 
     if (!response.ok) {
-      throw new Error(`API error ${response.status}: ${response.statusText}`);
+      let errorMsg = `API error ${response.status}: ${response.statusText}`;
+      try {
+        const body = await response.json();
+        if (body.error) errorMsg = body.error;
+      } catch {}
+      throw new Error(errorMsg);
     }
 
     return response;
@@ -388,8 +404,19 @@ export async function postImportAccounts(payload) {
   return response.json();
 }
 
-export async function getModels(serverUrl) {
-  const response = await apiFetch(`/models?serverUrl=${encodeURIComponent(serverUrl)}`);
+/**
+ * Получить список доступных моделей с AI сервера.
+ * Для OpenRouter опционально передаётся apiKey, который отправляется
+ * как заголовок x-openrouter-key (не query-параметр).
+ * @param {string} serverUrl - URL AI сервера (например, "http://192.168.1.101:8080/v1")
+ * @param {string} [apiKey] - API ключ для OpenRouter (отправляется в заголовке x-openrouter-key)
+ * @returns {Promise<{success: boolean, models: Array, source: "openrouter"|"local"}>}
+ */
+export async function getModels(serverUrl, apiKey) {
+  const url = `/models?serverUrl=${encodeURIComponent(serverUrl)}`;
+  const options = {};
+  if (apiKey) options.headers = { "x-openrouter-key": apiKey };
+  const response = await apiFetch(url, options);
   return response.json();
 }
 

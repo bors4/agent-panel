@@ -224,14 +224,29 @@ function buildToolExecConfig(account, cfg) {
 /**
  * Один шаг агентного цикла: отправляет запрос к AI модели и обрабатывает ответ.
  * Поддерживает до maxIterations итераций с tool calls.
+ * Для OpenRouter: автодетект по cfg.serverUrl (содержит "openrouter.ai"),
+ * использует cfg.openrouterApiKey с кастомными заголовками (HTTP-Referer, X-OpenRouter-Title);
+ * иначе использует cfg.apiKey.
  * @param {string} message - Сообщение пользователя
  * @param {string} chatId - ID чата Telegram
  * @param {Array} history - История сообщений
  * @param {Object} cfg - Конфигурация агента (из server.js)
+ * @param {string} cfg.serverUrl - URL AI сервера
+ * @param {string} cfg.modelName - Имя модели
+ * @param {string} cfg.apiKey - API ключ (для локального сервера)
+ * @param {string} cfg.openrouterApiKey - API ключ OpenRouter (опционально)
+ * @param {number} cfg.maxTokens - Макс. токенов ответа
+ * @param {number} cfg.temperature - Температура генерации
+ * @param {number} cfg.timeout - Таймаут запроса (мс)
+ * @param {boolean} cfg.stream - Использовать SSE
+ * @param {boolean} cfg.insertUserAfterTool - Вставлять "Continue" после tool
+ * @param {string} cfg.projectPath - Путь к проекту
+ * @param {string} cfg.systemPrompt - Системный промпт
+ * @param {boolean} cfg.chatMode - Режим простого чата
  * @param {number} maxIterations - Максимальное число итераций (default: 5)
  * @param {Object|null} account - Аккаунт пользователя
  * @param {Function} [onProgress] - Колбэк прогресса: ({ type: 'content'|'tool'|'response'|'error', ... })
- * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
+ * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages?, tokenUsage?, timings? }
  */
 export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null) {
   const toolConfig = getToolConfig();
@@ -288,14 +303,20 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const controller = new AbortController();
       const timeout = cfg.timeout ?? configDefaults.timeout;
       let timeoutId = setTimeout(() => controller.abort(), timeout);
+      const isOpenRouter = cfg.serverUrl.includes("openrouter.ai");
+      const loopHeaders = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        loopHeaders["Authorization"] = "Bearer " + (cfg.openrouterApiKey || "");
+        loopHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        loopHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        loopHeaders["Authorization"] = "Bearer " + cfg.apiKey;
+      }
       let resp;
       try {
         resp = await fetch(cfg.serverUrl + "/chat/completions", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + cfg.apiKey,
-          },
+          headers: loopHeaders,
           body: JSON.stringify(body),
           signal: controller.signal,
         });

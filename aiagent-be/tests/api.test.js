@@ -18,6 +18,7 @@ function createMockDeps() {
     maxHistoryPairs: 5,
     maxSearchResults: 15,
     maxFilesInPrompt: 2,
+    telegramToken: "test-token",
   };
   const stats = { requests: 0, tools: 0, errors: 0 };
   return {
@@ -29,6 +30,7 @@ function createMockDeps() {
     tokenUsage: { prompt: 0, completion: 0, total: 0, cached: 0 },
     state: { botStatus: "idle", botStatusMessage: "", startTime: Date.now() },
     bot: { start: vi.fn(), stop: vi.fn() },
+    initBot: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), use: vi.fn(), api: { config: { use: vi.fn() } } })),
     addLog: vi.fn(),
     updateAgentConfig: vi.fn(),
     updateStatus: vi.fn(),
@@ -69,10 +71,30 @@ describe("API Routes", () => {
       expect(res.body.config.modelName).toBe("test-model");
     });
 
-    it("includes hasToken flag (not raw token)", async () => {
+    it("includes hasToken flag and token field", async () => {
       const res = await authGet("/api/config");
       expect(res.body.config).toHaveProperty("hasToken");
-      expect(res.body.config).not.toHaveProperty("token");
+      expect(res.body.config).toHaveProperty("token");
+    });
+
+    it("strips secret fields from response", async () => {
+      const res = await authGet("/api/config");
+      expect(res.body.config.apiKey).toBeUndefined();
+      expect(res.body.config.openrouterApiKey).toBeUndefined();
+      expect(res.body.config.telegramToken).toBeUndefined();
+    });
+
+    it("hasToken true when telegramToken exists", async () => {
+      const res = await authGet("/api/config");
+      expect(res.body.config.hasToken).toBe(true);
+      expect(res.body.config.token).toBe("test-token");
+    });
+
+    it("hasToken false when no telegramToken", async () => {
+      deps.config.telegramToken = "";
+      const res = await authGet("/api/config");
+      expect(res.body.config.hasToken).toBe(false);
+      expect(res.body.config.token).toBe("");
     });
   });
 
@@ -103,10 +125,64 @@ describe("API Routes", () => {
       expect(deps.config.chatMode).toBe(true);
     });
 
+    it("handles openrouterApiKey field", async () => {
+      const res = await authPost("/api/config").send({ openrouterApiKey: "sk-or-v1-test" });
+      expect(res.status).toBe(200);
+      expect(deps.config.openrouterApiKey).toBe("sk-or-v1-test");
+    });
+
     it("rejects empty projectPath", async () => {
       await authPost("/api/config")
         .send({ projectPath: "" });
       expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("skipped"), "warning");
+    });
+
+    it("blocks prototype pollution via constructor key", async () => {
+      const res = await authPost("/api/config")
+        .send({ constructor: { pollute: true } });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid config keys");
+    });
+
+    it("blocks prototype pollution via prototype key", async () => {
+      const res = await authPost("/api/config")
+        .send({ prototype: { pollute: true } });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid config keys");
+    });
+
+    it("reinitializes bot when token changes", async () => {
+      const oldBot = { start: vi.fn(), stop: vi.fn(), use: vi.fn(), api: { config: { use: vi.fn() } } };
+      deps.bot = oldBot;
+      const res = await authPost("/api/config")
+        .send({ token: "new-token" });
+      expect(res.status).toBe(200);
+      expect(res.body.tokenChanged).toBe(true);
+      expect(oldBot.stop).toHaveBeenCalled();
+      expect(deps.initBot).toHaveBeenCalledWith("new-token");
+      expect(deps.config.telegramToken).toBe("new-token");
+      expect(process.env.TELEGRAM_BOT_TOKEN).toBe("new-token");
+    });
+
+    it("clears bot when token set to empty", async () => {
+      const oldBot = { start: vi.fn(), stop: vi.fn(), use: vi.fn(), api: { config: { use: vi.fn() } } };
+      deps.bot = oldBot;
+      const res = await authPost("/api/config")
+        .send({ token: "" });
+      expect(res.status).toBe(200);
+      expect(oldBot.stop).toHaveBeenCalled();
+      expect(deps.bot).toBeNull();
+    });
+
+    it("does not reinit bot when token unchanged", async () => {
+      const oldBot = { start: vi.fn(), stop: vi.fn() };
+      deps.bot = oldBot;
+      const res = await authPost("/api/config")
+        .send({ token: "test-token" });
+      expect(res.status).toBe(200);
+      expect(res.body.tokenChanged).toBe(false);
+      expect(oldBot.stop).not.toHaveBeenCalled();
+      expect(deps.initBot).not.toHaveBeenCalled();
     });
   });
 
@@ -166,6 +242,29 @@ describe("API Routes", () => {
       const res = await authPost("/api/start");
       expect(res.status).toBe(200);
     });
+
+    it("returns error when token not configured", async () => {
+      deps.config.telegramToken = "";
+      const res = await authPost("/api/start");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Telegram token not configured");
+    });
+
+    it("returns early when bot already running", async () => {
+      deps.state.botStatus = "running";
+      const res = await authPost("/api/start");
+      expect(res.status).toBe(200);
+      expect(res.body.message).toContain("already running");
+    });
+
+    it("lazy-initializes bot when null", async () => {
+      deps.bot = null;
+      deps.state.botStatus = "idle";
+      const res = await authPost("/api/start");
+      expect(res.status).toBe(200);
+      expect(deps.initBot).toHaveBeenCalled();
+      expect(deps.updateStatus).toHaveBeenCalledWith("running", "Работает");
+    });
   });
 
   describe("POST /api/stop", () => {
@@ -180,6 +279,20 @@ describe("API Routes", () => {
     it("restarts the bot", async () => {
       const res = await authPost("/api/restart");
       expect(res.status).toBe(200);
+    });
+
+    it("returns error when token not configured", async () => {
+      deps.config.telegramToken = "";
+      const res = await authPost("/api/restart");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Telegram token not configured");
+    });
+
+    it("lazy-initializes bot when null", async () => {
+      deps.bot = null;
+      const res = await authPost("/api/restart");
+      expect(res.status).toBe(200);
+      expect(deps.initBot).toHaveBeenCalled();
     });
   });
 
@@ -259,6 +372,136 @@ describe("API Routes", () => {
       expect(res.status).toBe(500);
       expect(res.body.error).not.toContain("undefined");
       expect(res.body.error).not.toContain("TypeError");
+    });
+  });
+
+  describe("GET /api/models", () => {
+    let fetchMock;
+
+    beforeEach(() => {
+      fetchMock = vi.spyOn(global, "fetch");
+    });
+
+    afterEach(() => {
+      fetchMock.mockRestore();
+    });
+
+    it("returns models from local server with Authorization header", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ id: "model-1", name: "Model 1", object: "model", owned_by: "test" }],
+        }),
+      });
+      const res = await authGet("/api/models");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.models).toHaveLength(1);
+      expect(res.body.models[0].id).toBe("model-1");
+      expect(res.body.source).toBe("local");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/models"),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-key",
+          }),
+        }),
+      );
+    });
+
+    it("uses serverUrl query param to override config", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+      await authGet("/api/models?serverUrl=http://custom:8080/v1");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://custom:8080/v1/models",
+        expect.any(Object),
+      );
+    });
+
+    it("sends OpenRouter headers when URL contains openrouter.ai", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+      deps.config.serverUrl = "https://openrouter.ai/api/v1";
+      deps.config.openrouterApiKey = "sk-or-v1-test";
+      const res = await authGet("/api/models");
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe("openrouter");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("openrouter.ai"),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer sk-or-v1-test",
+            "HTTP-Referer": "https://agent-panel.local",
+            "X-OpenRouter-Title": "AI Agent Panel",
+          }),
+        }),
+      );
+    });
+
+    it("uses x-openrouter-key header over config.openrouterApiKey", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+      deps.config.serverUrl = "https://openrouter.ai/api/v1";
+      deps.config.openrouterApiKey = "config-key";
+      const res = await authGet("/api/models")
+        .set("x-openrouter-key", "header-key");
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer header-key",
+          }),
+        }),
+      );
+    });
+
+    it("maps model fields including max_context_length and pricing", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: "gpt-4",
+              name: "GPT-4",
+              object: "model",
+              owned_by: "openai",
+              max_context_length: 8192,
+              pricing: { prompt: 0.01, completion: 0.03 },
+            },
+          ],
+        }),
+      });
+      const res = await authGet("/api/models");
+      expect(res.body.models[0]).toEqual({
+        id: "gpt-4",
+        name: "GPT-4",
+        object: "model",
+        owned_by: "openai",
+        max_context_length: 8192,
+        pricing: { prompt: 0.01, completion: 0.03 },
+      });
+    });
+
+    it("handles non-ok response from AI server", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500 });
+      const res = await authGet("/api/models");
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to fetch models");
+    });
+
+    it("handles fetch rejection (timeout / network error)", async () => {
+      fetchMock.mockRejectedValue(new Error("Network error"));
+      const res = await authGet("/api/models");
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to fetch models");
     });
   });
 

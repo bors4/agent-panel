@@ -67,10 +67,17 @@
         <label>MODEL_NAME</label>
         <span class="hint">Выберите модель</span>
       </div>
+      <input
+        v-model="modelFilter"
+        type="text"
+        class="form-input"
+        placeholder="Фильтр моделей..."
+        style="margin-bottom: 6px"
+      />
       <div class="model-name-row">
         <select v-model="modelNameCopy" class="form-input">
           <option value="" disabled>Выберите модель</option>
-          <option v-for="model in availableModels" :key="model.id" :value="model.id">
+          <option v-for="model in filteredModels" :key="model.id" :value="model.id">
             {{ model.id }} ({{ model.source }})
           </option>
         </select>
@@ -84,6 +91,37 @@
         </Button>
       </div>
       <p v-if="availableModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>OPENROUTER_API_KEY</label>
+        <span class="hint">Ключ API OpenRouter (опционально)</span>
+      </div>
+      <div class="token-input-wrapper">
+        <input
+          v-model="configCopy.openrouterApiKey"
+          :type="orKeyVisible ? 'text' : 'password'"
+          class="form-input"
+          placeholder="sk-or-v1-..."
+        />
+        <button class="token-toggle" @click="orKeyVisible = !orKeyVisible">
+          {{ orKeyVisible ? "🔒" : "👁️" }}
+        </button>
+      </div>
+    </div>
+    <div v-if="configCopy.openrouterApiKey" class="form-group">
+      <div class="form-label">
+        <label>OpenRouter модели</label>
+        <span class="hint">Загрузить модели из OpenRouter</span>
+      </div>
+      <Button
+        class="btn-refresh-models"
+        :disabled="loadingStates.openrouterModels"
+        @click="handleLoadOpenRouterModels"
+      >
+        <span v-if="loadingStates.openrouterModels" class="btn-loading" />
+        <span v-else>🌐 Загрузить модели OpenRouter</span>
+      </Button>
     </div>
   </Card>
 
@@ -257,6 +295,16 @@ import Button from "../ui/Button.vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
 import { checkPath } from "@/api/client";
 
+/**
+ * @typedef {Object} SettingsTabProps
+ * @property {Object} config - Текущая конфигурация (token, projectPath, maxTokens, и т.д.)
+ * @property {Array} apiBases - Список API-баз [{ url, connected }]
+ * @property {Array} availableModels - Доступные модели [{ id, source, maxContextLength }]
+ * @property {string} modelName - Выбранная модель
+ * @property {string} serverUrl - URL текущего сервера
+ */
+
+/** @type {SettingsTabProps} */
 const props = defineProps({
   config: { type: Object, default: () => ({}) },
   apiBases: { type: Array, default: () => [] },
@@ -265,6 +313,13 @@ const props = defineProps({
   serverUrl: { type: String, default: "" },
 });
 
+/**
+ * События компонента SettingsTab:
+ * @event save - Сохранить настройки. Payload: { config, apiBases, modelName, serverUrl }
+ * @event reset - Сбросить настройки
+ * @event models-updated - Обновить список моделей. Payload: (openrouterUrl?, openrouterApiKey?)
+ * @event save-path - Сохранить путь проекта. Payload: { projectPath }
+ */
 const emit = defineEmits(["save", "reset", "models-updated", "save-path"]);
 
 // Копии для редактирования
@@ -282,11 +337,27 @@ const configCopy = reactive({
   stream: props.config.stream ?? configDefaults.stream,
   insertUserAfterTool: props.config.insertUserAfterTool ?? configDefaults.insertUserAfterTool,
   chatMode: props.config.chatMode ?? configDefaults.chatMode,
+  openrouterApiKey: props.config.openrouterApiKey || "",
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
+const modelFilter = ref("");
+
+/**
+ * Отфильтрованные модели по тексту в modelFilter.
+ * Фильтрация по id модели или source (URL сервера), регистронезависимая.
+ * @type {import('vue').ComputedRef<Array>}
+ */
+const filteredModels = computed(() => {
+  if (!modelFilter.value) return props.availableModels;
+  const q = modelFilter.value.toLowerCase();
+  return props.availableModels.filter(
+    (m) => m.id.toLowerCase().includes(q) || (m.source || "").toLowerCase().includes(q)
+  );
+});
 // Состояния
 const tokenVisible = ref(false);
+const orKeyVisible = ref(false);
 const pathError = ref("");
 const hasToken = computed(() => !!(configCopy.token || configBackendHasToken.value));
 const configBackendHasToken = ref(false);
@@ -295,6 +366,7 @@ const loadingStates = ref({
   save: false,
   reset: false,
   models: false,
+  openrouterModels: false,
 });
 
 // Debounce and save state management
@@ -303,6 +375,10 @@ let pendingSave = false;
 let isSaving = false;
 let ignoreNextWatch = false;
 
+/**
+ * Сохранение с debounce (300 мс). Предотвращает множественные одновременные сохранения.
+ * Использует флаги pendingSave / isSaving для защиты от гонок.
+ */
 const debouncedSave = async () => {
   if (pendingSave || isSaving) return;
   
@@ -330,6 +406,9 @@ const debouncedSave = async () => {
   }, 300);
 };
 
+/**
+ * Автосохранение при изменении полей. Вызывает debouncedSave.
+ */
 const autoSave = () => {
   debouncedSave();
 };
@@ -358,6 +437,7 @@ watch(
     configCopy.stream = val.stream ?? configDefaults.stream;
     configCopy.insertUserAfterTool = val.insertUserAfterTool ?? configDefaults.insertUserAfterTool;
     configCopy.chatMode = val.chatMode ?? configDefaults.chatMode;
+    configCopy.openrouterApiKey = val.openrouterApiKey || "";
     
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
@@ -390,7 +470,10 @@ watch(() => configCopy.projectPath, () => {
   pathError.value = "";
 });
 
-// Обработчики с loading states
+/**
+ * Проверить существование директории через API /api/validate-path.
+ * Устанавливает pathError при ошибке.
+ */
 async function checkProjectPath() {
   const p = projectPathDraft.value;
   if (!p) { pathError.value = ""; return; }
@@ -405,6 +488,11 @@ async function checkProjectPath() {
   }
 }
 
+/**
+ * Сохранить настройки вручную (кнопка "Сохранить настройки").
+ * Перед сохранением проверяет путь проекта.
+ * Эмитит событие "save" с полной конфигурацией.
+ */
 const handleSave = async () => {
   if (isSaving) return;
   configCopy.projectPath = projectPathDraft.value;
@@ -432,6 +520,11 @@ const handleSave = async () => {
   }
 };
 
+/**
+ * Сохранить путь к проекту (кнопка "Сохранить путь").
+ * Проверяет существование директории перед сохранением.
+ * Эмитит событие "save-path" с { projectPath }.
+ */
 async function handleSaveProjectPath() {
   await checkProjectPath();
   if (pathError.value) return;
@@ -439,6 +532,9 @@ async function handleSaveProjectPath() {
   emit("save-path", { projectPath: projectPathDraft.value });
 }
 
+/**
+ * Сбросить настройки (кнопка "Сброс"). Эмитит событие "reset".
+ */
 const handleReset = () => {
   loadingStates.value.reset = true;
   emit("reset");
@@ -447,6 +543,10 @@ const handleReset = () => {
   }, 500);
 };
 
+/**
+ * Обновить список моделей (кнопка "Обновить список").
+ * Эмитит событие "models-updated" без параметров — для локальных API баз.
+ */
 const handleRefreshModels = async () => {
   loadingStates.value.models = true;
   try {
@@ -458,21 +558,50 @@ const handleRefreshModels = async () => {
   }
 };
 
+/**
+ * Загрузить модели из OpenRouter (кнопка "Загрузить модели OpenRouter").
+ * Эмитит событие "models-updated" с URL OpenRouter и API-ключом.
+ */
+const handleLoadOpenRouterModels = async () => {
+  loadingStates.value.openrouterModels = true;
+  try {
+    emit("models-updated", "https://openrouter.ai/api/v1", configCopy.openrouterApiKey);
+  } finally {
+    setTimeout(() => {
+      loadingStates.value.openrouterModels = false;
+    }, 1000);
+  }
+};
+
+/**
+ * Добавить новую пустую API-базу в список.
+ */
 const addApiBase = () => {
   apiBasesCopy.value.push({ url: "", connected: false });
   autoSave();
 };
 
+/**
+ * Удалить API-базу по индексу.
+ * @param {number} index - Индекс элемента в apiBasesCopy
+ */
 const removeApiBase = (index) => {
   apiBasesCopy.value.splice(index, 1);
   autoSave();
 };
 
+/**
+ * Синхронизировать API-базы: автосохранение + обновление моделей.
+ */
 const syncApiBases = () => {
   autoSave();
   emit("models-updated");
 };
 
+/**
+ * Скорректировать maxTokens на указанную дельту (с ограничением 256–65536).
+ * @param {number} delta - Изменение (положительное или отрицательное, кратно 4096 в UI)
+ */
 const adjustTokens = (delta) => {
   configCopy.maxTokens = Math.max(256, Math.min(65536, configCopy.maxTokens + delta));
 };

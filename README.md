@@ -74,22 +74,18 @@ cp .env.example .env
 
 | Variable             | Default                        | Description                                                                     |
 | -------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN` | (required)                     | Telegram bot token                                                              |
+| `TELEGRAM_BOT_TOKEN` | (optional)                     | Telegram bot token (can also be set via web UI)                                 |
 | `API_KEY`            | `agent-secret-key`             | API key for AI server authentication                                            |
 | `VITE_API_KEY`       | (required)                     | Frontend API key for authorizing requests to backend                            |
+| `OPENROUTER_API_KEY` | (optional)                     | API key for OpenRouter (falls back to `openrouterApiKey` config field)          |
 
 **Non-secret config** (safe to keep in `.env`):
 
 | Variable         | Default                        | Description                                                                     |
 | ---------------- | ------------------------------ | ------------------------------------------------------------------------------- |
-| `PROJECT_PATH`   | (optional)                     | Project context path. If not set, must be configured via UI before starting bot |
-| `SERVER_URL`     | `http://192.168.1.101:1234/v1` | AI model server URL                                                             |
-| `MODEL_NAME`     | `qwen3.5-2b`                   | Model identifier                                                                |
-| `SYSTEM_PROMPT`  | (empty)                        | Custom system prompt                                                            |
 | `API_PORT`       | `3000`                         | Backend API port                                                                |
-| `MAX_TOKENS`     | `8192`                         | Max tokens per AI response                                                      |
-| `TEMPERATURE`    | `0.1`                          | AI response temperature                                                         |
-| `TIMEOUT`        | `120000`                       | Request timeout (ms)                                                            |
+
+All other settings (`SERVER_URL`, `MODEL_NAME`, `SYSTEM_PROMPT`, `MAX_TOKENS`, `TEMPERATURE`, `TIMEOUT`, `PROJECT_PATH`, etc.) have built-in defaults from `configDefaults.js` and are configured via the web UI (Settings tab).
 
 ## Development
 
@@ -110,8 +106,8 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 114 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, logger, and API
-- **Frontend**: 27 tests covering composables, stores, API client, ControlsCard, ChatTab, SettingsTab, and StatsCard
+- **Backend**: 165 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, logger, and API
+- **Frontend**: 32 tests covering composables, stores, API client, ControlsCard, ChatTab, SettingsTab, and StatsCard
 
 ## Documentation
 
@@ -150,10 +146,20 @@ Most endpoints require `x-api-key` header with the value set in `VITE_API_KEY`. 
 | POST   | `/api/chat`            | Direct chat with AI                         |
 | GET    | `/api/tools`           | List tools with config                      |
 | POST   | `/api/tools`           | Update tool config                          |
+| POST   | `/api/validate-path`   | Validate a file system path (used by frontend) |
 | GET    | `/api/accounts`        | List user accounts                          |
 | POST   | `/api/accounts`        | Save user accounts                          |
 | POST   | `/api/accounts/import` | Import accounts from JSON                   |
 | POST   | `/api/agent/tool`      | Direct tool call by agent                   |
+| POST   | `/api/chat/continue`   | Continue agent loop after tool approval/denial |
+
+## Runtime Details
+
+- **WebSocket**: Real‑time updates (status, stats, logs, token usage) via `/ws`.
+- **OpenRouter support**: Automatic OpenRouter headers (`Authorization: Bearer`, `HTTP-Referer`, `X-OpenRouter-Title`) when `SERVER_URL` contains `openrouter.ai`. API key configurable via UI (`openrouterApiKey`). The `/api/models` endpoint can use an `x-openrouter-key` header override for model discovery.
+- **Chat mode**: When `chatMode` is true the system prompt is minimal and the agent ignores `projectPath`; enables pure conversation.
+- **Auth middleware**: All API routes (except `/health`) require `x‑api‑key` header matching `VITE_API_KEY`.
+- **`include_paths`**: No special root‑drive handling – paths are resolved relative to `projectPath` and must stay within that directory.
 
 ## Account System
 
@@ -182,8 +188,6 @@ Users are authenticated by Telegram username via `accounts.json` in the project 
 
 - `permissions` — per-tool enable/disable
 - `include_paths` — restrict file operations to specific directories
-  - Root drive paths (e.g., `E:\`) allow access to all directories on that drive
-  - Subdirectory paths (e.g., `E:\Git`) restrict to that directory and children only
 
 ## Statistics
 
@@ -193,7 +197,7 @@ Stats are tracked and displayed in the dashboard:
 - **Requests**: Number of AI requests made
 - **Tools**: Tool executions
 - **Errors**: Failed requests
-- **Token Usage**: Accumulated prompt, completion, total, and cached tokens across all AI requests
+- **Token Usage**: Accumulated prompt, completion, total, cached, and tokensCached across all AI requests
 
 Stats reset when bot is stopped.
 

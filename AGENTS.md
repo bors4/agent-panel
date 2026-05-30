@@ -17,10 +17,10 @@
 | `npm run dev` | Both frontend + backend (concurrently) |
 | `npm run backend:dev` | Backend only (port 3000) |
 | `npm run frontend:dev` | Frontend only (port 5173, `/api` → `127.0.0.1:3000`) |
-| `npm run test:all` | All tests (114 backend + 27 frontend = 141 total) |
-| `npm run backend:test` | Backend tests (Vitest, 5 files) |
+| `npm run test:all` | All tests (165 backend + 32 frontend = 197 total) |
+| `npm run backend:test` | Backend tests (Vitest, 6 files) |
 | `npm run frontend:test` | Frontend tests (Vitest, 6 files) |
-| `npm run lint` | ESLint flat config (0 errors, ~35 warnings) |
+| `npm run lint` | ESLint flat config (0 errors, 0 warnings) |
 | `npm run lint:fix` | Auto-fix |
 | `npm run format` | Prettier (js, vue, css, html only) |
 
@@ -30,10 +30,12 @@
 - **Backend has no `package.json`**: All Express/GrammY deps live in root `package.json`.
 - **ESM only**: `"type": "module"` everywhere — use `import`/`export`, never `require()`.
 - **API URL**: Use `http://127.0.0.1:3000/api` (not `localhost`). Frontend proxy targets `127.0.0.1`.
-- **No auth middleware**: `x-api-key` header is sent by frontend but **never validated** on backend.
+- **Auth middleware added**: `x-api-key` header is sent by frontend and **required** on backend (except `/health`).
 - **ESLint + Prettier**: Flat config in `eslint.config.js`, `.prettierrc` (printWidth 120, singleQuote false). `.prettierignore` excludes `*.md`, `*.json`. `no-empty` is `off`, `no-console` is `off`.
-- **Node**: `^20.19.0 \|\| >=22.12.0` (Node 20+ global fetch & AbortController).
+- **Node**: `^20.19.0 || >=22.12.0` (Node 20+ global fetch & AbortController).
 - **postinstall**: Auto-runs `cd aiagent-web-panel && npm install`.
+- **OpenRouter support**: Detected by URL containing `"openrouter.ai"` — auto-switches to `Authorization: Bearer`, `HTTP-Referer`, `X-OpenRouter-Title` headers. API key configurable via UI (`openrouterApiKey`).
+- **Chat mode**: `chatMode: false` by default. When enabled, system prompt is minimal and `projectPath` is ignored; uses `include_paths[0]` for file context.
 
 ## Config Flow (CRITICAL)
 
@@ -44,11 +46,11 @@
 **Sync**: `server.js` calls `updateAgentConfig(config)` at startup and after `POST /api/config`. Uses `Object.assign`.
 
 **`projectPath` priority** (App.vue onMounted):
-1. `localStorage` `agent-config` → `POST /api/config` (overrides `.env`)
-2. If none → `GET /api/config` (falls back to `.env`)
+1. `localStorage` `agent-config` → `POST /api/config` (overrides defaults)
+2. If none → `GET /api/config` (returns current server config, from `configDefaults.js` or previous API update)
 3. If still none → show warning, block bot start
 
-**`.env`**: `PROJECT_PATH` is initial default only. Once saved via UI, it overrides `.env`. Empty `PROJECT_PATH` → `projectPath = ""` (explicitly, not cwd).
+**`.env`**: `PROJECT_PATH` is NOT read from `.env` by the backend. The initial value is `""` from `configDefaults.js`. Set `projectPath` via the web UI Settings tab. Once saved, it persists in the server runtime config.
 
 ## WebSocket
 
@@ -78,7 +80,7 @@
 - **No `chcp 65001`**: Removed (crashes some Windows systems)
 - **Exit codes**: `success: false` when `exitCode !== 0`
 - **Default timeout**: 30s (no async execution yet — see TODO #14)
-- **Timeout=0** bug: `args.timeout \|\| 30` treats `0` as 30 (see TODO P2-#8)
+- **Timeout=0** bug: `args.timeout || 30` treats `0` as 30 (see TODO P2-#8)
 
 ## Account System
 
@@ -86,21 +88,25 @@ Storage: `accounts.json` at project root. Auth by Telegram username.
 
 Roles: `system` (all), `user` (read/write/search/list_dir/create_dir), `guest` (read only).
 
-Per-tool overrides via `permissions` object. `include_paths` restricts file operations; root drive paths (e.g. `E:\`) allow all directories on that drive.
+Per-tool overrides via `permissions` object. `include_paths` restricts file operations.
 
 **Known bug**: `execute` tool ignores `include_paths` for non-system roles (see TODO P2-#18).
 
 ## Config Defaults
 
 | Field | Default | Note |
-|---|---|---|
-| maxTokens | 8192 | `parseInt() \|\|` — NaN/0 falls to default |
-| temperature | 0.1 | `\|\|` operator — **cannot set 0** (see TODO P1-#10) |
-| timeout | 120000ms | |
+|---|---|---|---|
+| maxTokens | 1024 | `parseInt() ||` — NaN/0 falls to default |
+| temperature | 0.1 | `||` operator — can set 0 (fixed) |
+| timeout | 300000ms | |
 | maxFileChars | 2000 | |
 | maxHistoryPairs | 5 | |
 | maxSearchResults | 15 | |
 | maxFilesInPrompt | 2 | |
+| maxSearchFileSize | 1048576 (1 MB) | |
+| stream | true | SSE streaming enabled by default |
+| insertUserAfterTool | true | Inserts "Continue" after tool messages |
+| chatMode | false | Minimal system prompt, no projectPath |
 
 ## Vue Component Patterns
 
@@ -118,14 +124,16 @@ All under `/api` (public: `/health`):
 |---|---|---|
 | GET | `/health` | Bot status + AI server reachability, no auth |
 | GET | `/status` | botStatus, stats, uptime, tokenUsage |
-| GET | `/config` | Current config (includes token — see TODO P1-#2) |
+| GET | `/config` | Current config (secrets stripped; returns `hasToken: boolean`) |
 | POST | `/config` | Update config fields |
 | GET | `/models` | Fetch models from AI server |
 | POST | `/chat` | Direct AI chat (no agent loop) |
+| POST | `/chat/continue` | Continue agent loop after tool approval/denial |
 | GET/POST | `/tools` | List/update tool config |
 | GET/POST | `/accounts` | List/save accounts |
 | POST | `/accounts/import` | Import accounts from JSON |
 | POST | `/agent/tool` | Direct tool execution |
+| POST | `/validate-path` | Validate file system path |
 | GET | `/logs` | Recent logs (`?limit=N`) |
 | DELETE | `/logs` | Clear logs |
 | POST | `/start` | Start Telegram bot |

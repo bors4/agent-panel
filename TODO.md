@@ -4,13 +4,13 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 53 / 57** | `P0: 3/4` · `P1: 12/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 57 / 57** | `P0: 4/4` · `P1: 13/13` · `P2: 22/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
 ## 🔴 High Priority (P0)
 
-- [ ] #1 `[bug][backend]` Ошибка `AI API error: 400` в `continueAfterApproval` после нескольких запросов к модели
+- [x] #1 `[bug][backend]` Ошибка `AI API error: 400` в `continueAfterApproval` после нескольких запросов к модели
   - **Симптом:** После выполнения инструмента `execute` и отправки результата обратно в AI, сервер возвращает 400
   - **Лог:** `finishReason: 'tool_calls', hasToolCalls: true, contentLen: 91` — модель возвращает одновременно `tool_calls` и `content`
   - **Возможные причины:**
@@ -86,7 +86,7 @@
   - `executeTool.js:446`: `console.log(\`[executeTool] name=${name}, args=${JSON.stringify(args)}...\`)` — args могут содержать секреты
   - **Фикс:** заменить на `logInfo()`, маскировать `args`
 
-- [ ] #12 `[feature][backend][frontend]` **Поддержка моделей через OpenRouter**
+- [x] #12 `[feature][backend][frontend]` **Поддержка моделей через OpenRouter**
   - OpenRouter предоставляет единый API к 300+ моделям (Claude, Gemini, GPT, DeepSeek, Mistral и др.)
   - **Бэкенд:** добавить в `config` поле `openrouterApiKey`; в `agentLoop.js` определить провайдера по URL (если `serverUrl` содержит `openrouter` → использовать OpenRouter-формат запроса)
   - **Фронтенд:** добавить кнопку "Загрузить модели из OpenRouter" рядом с полем Model_Name (аналогично кнопке обновления моделей для LM Studio)

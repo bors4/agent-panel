@@ -124,6 +124,7 @@ const defaultConfig = {
   temperature: configDefaults.temperature,
   stream: configDefaults.stream,
   insertUserAfterTool: configDefaults.insertUserAfterTool,
+  openrouterApiKey: "",
 };
 
 const localConfig = ref({ ...defaultConfig });
@@ -171,6 +172,11 @@ const modelContextLength = computed(() =>
   selectedModel.value?.maxContextLength || localConfig.value.maxTokens || configDefaults.maxTokens
 );
 
+/**
+ * Добавить запись в локальный лог (на стороне фронтенда).
+ * @param {string} message - Текст сообщения
+ * @param {"info"|"error"|"warning"|"success"|"system"} [type="info"] - Тип записи
+ */
 const addLog = (message, type = "info") => {
   logs.value.push({
     time: new Date().toLocaleTimeString(),
@@ -233,10 +239,39 @@ const loadApiBases = async () => {
   }
 };
 
-const updateModels = async () => {
-  availableModels.value = [];
-  await loadApiBases();
-  success("Модели обновлены");
+/**
+ * Обновить список моделей. Если передан openrouterUrl — загружает модели из OpenRouter
+ * с использованием openrouterApiKey. Иначе загружает модели из локальных API баз.
+ * Вызывается из SettingsTab через событие @models-updated.
+ * @param {string} [openrouterUrl] - URL OpenRouter API (например, "https://openrouter.ai/api/v1")
+ * @param {string} [openrouterApiKey] - Ключ API OpenRouter
+ */
+const updateModels = async (openrouterUrl, openrouterApiKey) => {
+  if (openrouterUrl) {
+    try {
+      const data = await getModels(openrouterUrl, openrouterApiKey);
+      if (data.models) {
+        const models = data.models || [];
+        models.forEach((m) => {
+          if (!availableModels.value.find((x) => x.id === m.id)) {
+            availableModels.value.push({
+              id: m.id,
+              source: openrouterUrl,
+              maxContextLength: m.max_context_length || null,
+            });
+          }
+        });
+        addLog(`Connected to OpenRouter - ${models.length} models`, "success");
+      }
+    } catch (e) {
+      addLog(`Failed to connect OpenRouter: ${e.message}`, "error");
+    }
+    success("Модели OpenRouter загружены");
+  } else {
+    availableModels.value = [];
+    await loadApiBases();
+    success("Модели обновлены");
+  }
   addLog("Models refreshed", "success");
 };
 
@@ -282,6 +317,10 @@ onMounted(async () => {
         hasProjectPath = true;
         addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
       }
+      if (backendConfig?.config?.token && !localConfig.value.token) {
+        localConfig.value.token = backendConfig.config.token;
+        addLog("Loaded Telegram token from backend", "info");
+      }
     } catch (e) {
       addLog(`Failed to load backend config: ${e.message}`, "warning");
     }
@@ -309,6 +348,7 @@ onMounted(async () => {
         maxSearchResults: localConfig.value.maxSearchResults,
         maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
         stream: localConfig.value.stream,
+        token: localConfig.value.token || "",
       });
       addLog(`Synced config to backend (projectPath: ${localConfig.value.projectPath})`, "info");
     } catch (e) {
@@ -321,7 +361,9 @@ onMounted(async () => {
   }
 });
 
-// Handlers
+/**
+ * Запустить Telegram бота через API.
+ */
 const handleStart = async () => {
   try {
     await startAgent();
@@ -331,6 +373,9 @@ const handleStart = async () => {
   }
 };
 
+/**
+ * Остановить Telegram бота через API.
+ */
 const handleStop = async () => {
   try {
     await stopAgent();
@@ -340,6 +385,9 @@ const handleStop = async () => {
   }
 };
 
+/**
+ * Перезапустить Telegram бота через API.
+ */
 const handleRestart = async () => {
   try {
     await restartAgent();
@@ -376,6 +424,9 @@ const handleNavigate = (action) => {
   }
 };
 
+/**
+ * Сохранить системный промпт в localStorage.
+ */
 const savePrompt = async () => {
   try {
     localStorage.setItem(
@@ -404,18 +455,27 @@ const resetPrompt = () => {
   }
 };
 
+/**
+ * Отформатировать промпт: удалить лишние пробелы и пустые строки.
+ */
 const formatPrompt = () => {
   systemPrompt.value = systemPrompt.value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   success("Отформатировано");
   addLog("Prompt formatted", "info");
 };
 
+/**
+ * Скопировать системный промпт в буфер обмена.
+ */
 const copyPrompt = () => {
   navigator.clipboard.writeText(systemPrompt.value);
   success("Скопировано");
   addLog("Prompt copied to clipboard", "info");
 };
 
+/**
+ * Экспортировать конфигурацию в JSON-файл и скачать.
+ */
 const exportConfig = () => {
   const data = { ...localConfig.value, systemPrompt: systemPrompt.value };
   const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -431,6 +491,9 @@ const exportConfig = () => {
   addLog("Config exported", "success");
 };
 
+/**
+ * Импортировать конфигурацию из JSON-файла (через диалог выбора файла).
+ */
 const importConfig = () => {
   const input = document.createElement("input");
   input.type = "file";
@@ -456,6 +519,12 @@ const importConfig = () => {
   input.click();
 };
 
+/**
+ * Обработать сохранение настроек из SettingsTab.
+ * Обновляет локальное состояние (localConfig, apiBases, modelName, serverUrl)
+ * и сохраняет в localStorage + backend.
+ * @param {{ config?: Object, apiBases?: Array, modelName?: string, serverUrl?: string }} data
+ */
 const handleSettingsSave = (data) => {
   if (data.config) {
     Object.assign(localConfig.value, data.config);
@@ -472,6 +541,10 @@ const handleSettingsSave = (data) => {
   saveSettings();
 };
 
+/**
+ * Обработать сохранение пути к проекту из SettingsTab.
+ * @param {{ projectPath: string }} data
+ */
 const handleSaveProjectPath = (data) => {
   if (data.projectPath) {
     localConfig.value.projectPath = data.projectPath;
@@ -488,6 +561,11 @@ const resetSettings = () => {
   }
 };
 
+/**
+ * Сохранить настройки: записывает в localStorage ("agent-config") и
+ * отправляет на backend через POST /api/config.
+ * Включает все поля конфигурации, включая openrouterApiKey и token.
+ */
 const saveSettings = async () => {
   try {
     localStorage.setItem(
@@ -515,6 +593,8 @@ const saveSettings = async () => {
       temperature: localConfig.value.temperature,
       stream: localConfig.value.stream,
       insertUserAfterTool: localConfig.value.insertUserAfterTool,
+      openrouterApiKey: localConfig.value.openrouterApiKey || "",
+      token: localConfig.value.token || "",
     };
     try {
       await updateConfig(payload);
@@ -551,6 +631,11 @@ const handleQuickSettingsSave = (newSettings) => {
   saveQuickSettings(newSettings);
 };
 
+/**
+ * Обработать обновление статистики токенов из ChatTab.
+ * Аккумулирует usage в реактивный tokenUsage.
+ * @param {{ prompt_tokens?: number, completion_tokens?: number, total_tokens?: number, prompt_tokens_details?: { cached_tokens?: number } }} usage
+ */
 const handleTokenUsage = (usage) => {
   if (!usage) return;
   tokenUsage.value.prompt += usage.prompt_tokens || 0;
