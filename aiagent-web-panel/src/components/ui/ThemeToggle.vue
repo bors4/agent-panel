@@ -1,9 +1,9 @@
 <template>
   <div class="theme-toggle" :title="isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'" @click="toggleTheme">
     <span class="theme-toggle__indicator" :class="{ 'theme-toggle__indicator--light': !isDark }">
-      {{ isDark ? "🌌" : "☀️" }}
+      {{ isDark ? "☀️" : "🌌" }}
     </span>
-    <span class="theme-toggle__label">{{ isDark ? "NIGHT" : "DAY" }}</span>
+    <span class="theme-toggle__label">{{ isDark ? "DAY" : "NIGHT" }}</span>
   </div>
 </template>
 
@@ -40,7 +40,7 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background: rgba(0, 212, 255, 0.04);
+  background: var(--glass-bg);
   border: 1px solid var(--border);
   clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   cursor: pointer;

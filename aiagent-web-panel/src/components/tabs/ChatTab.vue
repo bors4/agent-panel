@@ -10,6 +10,7 @@
           </span>
         </div>
         <div class="chat-header-right">
+          <span v-if="verbose" class="verbose-badge">VERBOSE</span>
           <label class="agent-toggle" title="Toggle agent loop with tools">
             <span class="toggle-label">AGENT</span>
             <input v-model="agentMode" type="checkbox" @change="onAgentModeChange" />
@@ -141,6 +142,7 @@
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
 import { directChat, directChatStream, agentChat, agentChatContinue } from "@/api/client";
+import { useSound } from "@/composables/useSound";
 
 const props = defineProps({
   isActive: Boolean,
@@ -150,6 +152,8 @@ const props = defineProps({
   systemPrompt: { type: String, default: "" },
   verbose: { type: Boolean, default: false },
   showTokens: { type: Boolean, default: true },
+  soundEnabled: { type: Boolean, default: true },
+  soundVolume: { type: Number, default: 50 },
   streamEnabled: { type: Boolean, default: false },
 });
 
@@ -161,6 +165,10 @@ const isTyping = ref(false);
 const isStreaming = ref(false);
 const streamingContent = ref("");
 const chatContainer = ref(null);
+
+const { send: playSend, receive: playReceive, setVolume } = useSound({ volume: props.soundVolume });
+
+watch(() => props.soundVolume, (v) => setVolume(v));
 
 // Agent mode state
 const AGENT_MODE_KEY = "agent-chat-mode";
@@ -392,6 +400,7 @@ async function sendAgentMessage(text) {
   });
 
   isTyping.value = false;
+  if (props.soundEnabled) playReceive();
 
   if (!result.success) {
     throw new Error(result.error || "Agent loop failed");
@@ -546,6 +555,7 @@ const sendMessage = async () => {
   inputMessage.value = "";
 
   messages.value.push({ role: "user", content: text });
+  if (props.soundEnabled) playSend();
   isTyping.value = true;
 
   await nextTick();
@@ -639,6 +649,7 @@ const sendMessage = async () => {
 
       const latency = Date.now() - startTime;
       isStreaming.value = false;
+      if (props.soundEnabled) playReceive();
 
       if (props.verbose) {
         emit("log", {
@@ -700,8 +711,9 @@ const sendMessage = async () => {
       }
     }
   } catch (error) {
-    const latency = Date.now() - startTime;
-    isTyping.value = false;
+      const latency = Date.now() - startTime;
+      isTyping.value = false;
+      if (props.soundEnabled) playReceive();
     isStreaming.value = false;
     messages.value.push({
       role: "bot",
@@ -790,6 +802,19 @@ defineExpose({ clearChatHistory });
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.verbose-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+  background: rgba(212, 135, 74, 0.15);
+  color: var(--accent-secondary);
+  border: 1px solid rgba(212, 135, 74, 0.3);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
 }
 
 .chat-status {

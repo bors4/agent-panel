@@ -240,7 +240,7 @@
     <div class="form-group">
       <div class="form-label">
         <label>Потоковый вывод (SSE)</label>
-        <span class="hint">Реального времени ответ модели</span>
+        <span class="hint">Token-by-token вывод ответа</span>
       </div>
       <div class="toggle-control">
         <label class="toggle-switch">
@@ -252,7 +252,7 @@
     <div class="form-group">
       <div class="form-label">
         <label>insertUserAfterTool</label>
-        <span class="hint">Для Jinja-шаблонов qwen (user после tool)</span>
+        <span class="hint">В Jinja-шаблонах user после tool</span>
       </div>
       <div class="toggle-control">
         <label class="toggle-switch">
@@ -264,7 +264,7 @@
     <div class="form-group">
       <div class="form-label">
         <label>CHAT MODE</label>
-        <span class="hint">Простой чат без проектного контекста</span>
+        <span class="hint">Отключить проектный контекст</span>
       </div>
       <div class="toggle-control">
         <label class="toggle-switch">
@@ -273,13 +273,93 @@
         </label>
       </div>
     </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>AUTO SAVE</label>
+        <span class="hint">Автосохранение изменений</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.autoSave" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>VERBOSE</label>
+        <span class="hint">Детализация логов</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.verbose" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>AUTO START</label>
+        <span class="hint">Автозапуск бота при загрузке</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.autoStart" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+  </Card>
+
+  <Card>
+    <template #header>
+      <div class="header-row">
+        <h3 class="mono-label">CFG://DISPLAY</h3>
+      </div>
+    </template>
+    <div class="form-group">
+      <div class="form-label">
+        <label>SHOW TOKENS</label>
+        <span class="hint">Показывать счётчик токенов</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.showTokens" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>SOUND</label>
+        <span class="hint">Звуковые уведомления</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.soundEnabled" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div v-if="configCopy.soundEnabled" class="form-group">
+      <div class="form-label">
+        <label>VOLUME</label>
+        <span class="hint">{{ configCopy.soundVolume }}%</span>
+      </div>
+      <input v-model.number="configCopy.soundVolume" type="range" min="0" max="100" step="5" class="range-input" />
+      <div class="range-labels">
+        <span>0</span>
+        <span class="range-value">{{ configCopy.soundVolume }}%</span>
+        <span>100</span>
+      </div>
+    </div>
   </Card>
 
   <div class="settings-actions">
-    <Button variant="primary" :disabled="loadingStates.save" style="flex: 1" @click="handleSave">
+    <Button variant="primary" :disabled="loadingStates.save" @click="handleSave">
       SAVE ALL
     </Button>
-    <Button :disabled="loadingStates.reset" @click="handleReset">
+    <Button variant="ghost" :disabled="loadingStates.reset" @click="handleReset">
       RESET
     </Button>
   </div>
@@ -336,6 +416,12 @@ const configCopy = reactive({
   insertUserAfterTool: props.config.insertUserAfterTool ?? configDefaults.insertUserAfterTool,
   chatMode: props.config.chatMode ?? configDefaults.chatMode,
   openrouterApiKey: props.config.openrouterApiKey || "",
+  autoSave: props.config.autoSave !== false,
+  verbose: props.config.verbose === true,
+  autoStart: props.config.autoStart === true,
+  showTokens: props.config.showTokens !== false,
+  soundEnabled: props.config.soundEnabled !== false,
+  soundVolume: props.config.soundVolume ?? 50,
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
@@ -436,6 +522,12 @@ watch(
     configCopy.insertUserAfterTool = val.insertUserAfterTool ?? configDefaults.insertUserAfterTool;
     configCopy.chatMode = val.chatMode ?? configDefaults.chatMode;
     configCopy.openrouterApiKey = val.openrouterApiKey || "";
+    configCopy.autoSave = val.autoSave !== false;
+    configCopy.verbose = val.verbose === true;
+    configCopy.autoStart = val.autoStart === true;
+    configCopy.showTokens = val.showTokens !== false;
+    configCopy.soundEnabled = val.soundEnabled !== false;
+    configCopy.soundVolume = val.soundVolume ?? 50;
 
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
@@ -497,6 +589,7 @@ const handleSave = async () => {
   await checkProjectPath();
   if (pathError.value) return;
 
+  pendingSave = true;
   loadingStates.value.save = true;
   try {
     const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
@@ -617,9 +710,27 @@ const adjustTokens = (delta) => {
 
 .settings-tab {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 14px;
   align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .settings-tab {
+    grid-template-columns: 1fr 1fr;
+  }
+  .settings-actions {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .settings-tab {
+    grid-template-columns: 1fr;
+  }
+  .settings-actions {
+    grid-column: 1;
+  }
 }
 
 .api-base-table {
@@ -837,9 +948,11 @@ select.form-input {
 
 .settings-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   padding: 8px 0;
-  justify-content: flex-start;
+  justify-content: center;
+  grid-column: 4;
+  align-self: end;
 }
 
 .model-error {

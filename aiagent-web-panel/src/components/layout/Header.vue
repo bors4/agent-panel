@@ -102,8 +102,8 @@ const subtitle = computed(() => {
 .header__logo {
   width: 36px;
   height: 36px;
-  background: rgba(0, 212, 255, 0.1);
-  border: 1px solid rgba(0, 212, 255, 0.25);
+  background: var(--glass-bg);
+  border: 1px solid rgba(42, 127, 255, 0.25);
   clip-path: polygon(
     0 3px, 3px 0,
     calc(100% - 3px) 0, 100% 3px,
@@ -167,7 +167,7 @@ const subtitle = computed(() => {
   top: 50%;
   width: 120px;
   height: 120px;
-  border: 1px solid rgba(0, 212, 255, 0.05);
+  border: 1px solid rgba(42, 127, 255, 0.05);
   border-radius: 50%;
   transform: translateY(-50%);
   pointer-events: none;

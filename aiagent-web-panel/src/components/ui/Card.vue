@@ -81,7 +81,7 @@ defineProps({
 /* ─── HOVER ─── */
 .card--hover:hover {
   border-color: var(--accent);
-  box-shadow: 0 0 8px rgba(0, 212, 255, 0.08), 0 0 30px rgba(0, 212, 255, 0.04);
+  box-shadow: 0 0 8px rgba(42, 127, 255, 0.08), 0 0 30px rgba(42, 127, 255, 0.04);
 }
 
 /* ═══════════════════════════════════════════
@@ -152,8 +152,8 @@ defineProps({
   background: rgba(20, 30, 51, 0.6);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-color: rgba(0, 212, 255, 0.15);
-  box-shadow: 0 0 20px rgba(0, 212, 255, 0.04);
+  border-color: rgba(42, 127, 255, 0.15);
+  box-shadow: 0 0 20px rgba(42, 127, 255, 0.04);
 }
 
 .card--holographic::before {
@@ -161,8 +161,8 @@ defineProps({
 }
 
 .card--holographic.card--hover:hover {
-  border-color: rgba(0, 212, 255, 0.35);
-  box-shadow: 0 0 15px rgba(0, 212, 255, 0.1), 0 0 40px rgba(0, 212, 255, 0.05);
+  border-color: rgba(42, 127, 255, 0.35);
+  box-shadow: 0 0 15px rgba(42, 127, 255, 0.1), 0 0 40px rgba(42, 127, 255, 0.05);
   transform: none;
 }
 

@@ -175,7 +175,7 @@ async function checkBot() {
   display: block;
   text-align: center;
   padding: 7px 14px;
-  background: rgba(0, 212, 255, 0.06);
+  background: rgba(42, 127, 255, 0.06);
   border: 1px solid var(--accent);
   color: var(--accent);
   font-family: "JetBrains Mono", monospace;

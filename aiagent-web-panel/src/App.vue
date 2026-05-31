@@ -16,7 +16,7 @@
         :token-usage="tokenUsage"
         :perf-stats="perfStats"
         :max-tokens="modelContextLength"
-        :show-tokens="quickSettings.showTokens"
+        :show-tokens="localConfig.showTokens"
         @refresh="refreshStatus"
       />
       <BotCheckCard :token="localConfig.token" />
@@ -64,8 +64,6 @@
         @save-path="handleSaveProjectPath"
       />
 
-      <QuickSettingsTab v-if="activeTab === 'quick'" :settings="quickSettings" @save="handleQuickSettingsSave" />
-
       <ChatTab
         v-show="activeTab === 'chat'"
         ref="chatTabRef"
@@ -74,8 +72,10 @@
         :server-url="serverUrl"
         :project-path="localConfig.projectPath"
         :system-prompt="systemPrompt"
-        :verbose="quickSettings.verbose"
-        :show-tokens="quickSettings.showTokens"
+        :verbose="localConfig.verbose"
+        :show-tokens="localConfig.showTokens"
+        :sound-enabled="localConfig.soundEnabled"
+        :sound-volume="localConfig.soundVolume"
         :stream-enabled="localConfig.stream === true"
         @log="addLog"
         @token-usage="handleTokenUsage"
@@ -103,7 +103,6 @@ import StatsCard from "@/components/features/StatsCard.vue";
 import BotCheckCard from "@/components/features/BotCheckCard.vue";
 import PromptTab from "@/components/tabs/PromptTab.vue";
 import SettingsTab from "@/components/tabs/SettingsTab.vue";
-import QuickSettingsTab from "@/components/tabs/QuickSettingsTab.vue";
 import ChatTab from "@/components/tabs/ChatTab.vue";
 import LogsTab from "@/components/tabs/LogsTab.vue";
 import ToolsTab from "@/components/tabs/ToolsTab.vue";
@@ -125,6 +124,12 @@ const defaultConfig = {
   stream: configDefaults.stream,
   insertUserAfterTool: configDefaults.insertUserAfterTool,
   openrouterApiKey: "",
+  autoSave: true,
+  verbose: false,
+  autoStart: false,
+  showTokens: true,
+  soundEnabled: true,
+  soundVolume: 50,
 };
 
 const localConfig = ref({ ...defaultConfig });
@@ -149,12 +154,6 @@ const { success, error, warning } = useToast();
 // State
 const activeTab = ref("prompt");
 const systemPrompt = ref("");
-const quickSettings = ref({
-  autoSave: true,
-  verbose: false,
-  autoStart: false,
-  showTokens: true,
-});
 
 const apiBases = ref([
   { url: "http://192.168.1.101:8080/v1", connected: true },
@@ -198,7 +197,6 @@ const handleClearLogs = async () => {
 const tabs = [
   { id: "prompt", label: "Системный промпт", symbol: ">" },
   { id: "settings", label: "Параметры", symbol: "#" },
-  { id: "quick", label: "Быстрые настройки", symbol: "$" },
   { id: "tools", label: "Инструменты", symbol: "~" },
   { id: "chat", label: "Чат с агентом", symbol: "@" },
   { id: "logs", label: "Логи", symbol: "!" },
@@ -293,13 +291,6 @@ onMounted(async () => {
         }
       });
 
-      quickSettings.value = {
-        autoSave: parsed.autoSave !== false,
-        verbose: parsed.verbose === true,
-        autoStart: parsed.autoStart === true,
-        showTokens: parsed.showTokens !== false,
-      };
-
       if (parsed.apiBases) apiBases.value = parsed.apiBases;
       if (parsed.modelName) modelName.value = parsed.modelName;
       if (parsed.serverUrl) serverUrl.value = parsed.serverUrl;
@@ -356,8 +347,20 @@ onMounted(async () => {
     }
   }
 
-  if (quickSettings.value.autoStart && localConfig.value.token && localConfig.value.projectPath) {
+  // AUTO START
+  const autoStartEnabled = localConfig.value.autoStart;
+  const hasToken = !!localConfig.value.token;
+  const hasPath = !!localConfig.value.projectPath;
+  addLog(`AUTO START check: enabled=${autoStartEnabled}, token=${hasToken}, projectPath=${hasPath}`, "system");
+  if (autoStartEnabled && hasToken && hasPath) {
+    addLog("AUTO START triggered — starting bot...", "system");
     await handleStart();
+    await refreshStatus();
+  } else if (autoStartEnabled) {
+    const missing = [];
+    if (!hasToken) missing.push("token");
+    if (!hasPath) missing.push("projectPath");
+    addLog(`AUTO START skipped — missing: ${missing.join(", ")}`, "warning");
   }
 });
 
@@ -434,13 +437,12 @@ const savePrompt = async () => {
       JSON.stringify({
         ...localConfig.value,
         systemPrompt: systemPrompt.value,
-        ...quickSettings.value,
         apiBases: apiBases.value,
         modelName: modelName.value,
         serverUrl: serverUrl.value,
       })
     );
-    if (quickSettings.value.autoSave) success("Промпт сохранён");
+    if (localConfig.value.autoSave) success("Промпт сохранён");
     addLog("Prompt saved", "success");
   } catch (e) {
     error(e.message);
@@ -538,7 +540,7 @@ const handleSettingsSave = (data) => {
   if (data.serverUrl) {
     serverUrl.value = data.serverUrl;
   }
-  saveSettings();
+  saveSettings(true);
 };
 
 /**
@@ -565,15 +567,15 @@ const resetSettings = () => {
  * Сохранить настройки: записывает в localStorage ("agent-config") и
  * отправляет на backend через POST /api/config.
  * Включает все поля конфигурации, включая openrouterApiKey и token.
+ * @param {boolean|null} [showToast=null] - true=всегда показывать, false=никогда, null=по autoSave
  */
-const saveSettings = async () => {
+const saveSettings = async (showToast = null) => {
   try {
     localStorage.setItem(
       "agent-config",
       JSON.stringify({
         ...localConfig.value,
         systemPrompt: systemPrompt.value,
-        ...quickSettings.value,
         apiBases: apiBases.value,
         modelName: modelName.value,
         serverUrl: serverUrl.value,
@@ -602,34 +604,14 @@ const saveSettings = async () => {
     } catch (e) {
       error(`Failed to update backend config: ${e.message}`);
     }
-    if (quickSettings.value.autoSave) success("Настройки сохранены");
+    const shouldShowToast = showToast !== null ? showToast : localConfig.value.autoSave;
+    if (shouldShowToast) success("Настройки сохранены");
   } catch (e) {
     error(e.message);
   }
 };
 
-const saveQuickSettings = (newSettings) => {
-  if (newSettings) {
-    quickSettings.value = newSettings;
-  }
-  localStorage.setItem(
-    "agent-config",
-    JSON.stringify({
-      ...localConfig.value,
-      systemPrompt: systemPrompt.value,
-      ...quickSettings.value,
-      apiBases: apiBases.value,
-      modelName: modelName.value,
-      serverUrl: serverUrl.value,
-    })
-  );
-  if (quickSettings.value.autoSave) success("Сохранено");
-};
 
-const handleQuickSettingsSave = (newSettings) => {
-  quickSettings.value = newSettings;
-  saveQuickSettings(newSettings);
-};
 
 /**
  * Обработать обновление статистики токенов из ChatTab.
@@ -764,14 +746,14 @@ const chatTabRef = ref(null);
 
 .tab:hover:not(.active) {
   color: var(--text-secondary);
-  background: rgba(0, 212, 255, 0.05);
+  background: rgba(42, 127, 255, 0.05);
 }
 
 .tab.active {
-  background: rgba(0, 212, 255, 0.1);
+  background: rgba(42, 127, 255, 0.1);
   color: var(--accent);
-  border: 1px solid rgba(0, 212, 255, 0.2);
-  box-shadow: 0 0 6px rgba(0, 212, 255, 0.06);
+  border: 1px solid rgba(42, 127, 255, 0.2);
+  box-shadow: 0 0 6px rgba(42, 127, 255, 0.06);
 }
 
 /* Индикатор активного таба (символ в начале) */

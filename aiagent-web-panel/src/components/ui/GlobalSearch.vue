@@ -1,38 +1,40 @@
 <template>
   <div ref="searchRef" class="global-search">
     <button class="search-trigger" title="Поиск (Ctrl+K)" @click="toggleSearch">🔍</button>
-    <div v-if="isOpen" class="search-dropdown">
-      <input
-        ref="inputRef"
-        v-model="query"
-        type="text"
-        placeholder="Поиск по приложению..."
-        class="search-input"
-        @keydown.escape="closeSearch"
-        @keydown.enter="executeAction"
-      />
-      <div v-if="query" class="search-results">
-        <div
-          v-for="(result, index) in filteredResults"
-          :key="index"
-          class="search-result-item"
-          @click="navigateTo(result.action)"
-        >
-          <span class="result-icon">{{ result.icon }}</span>
-          <span class="result-label">{{ result.label }}</span>
-          <span class="result-category">{{ result.category }}</span>
+    <Teleport to="body">
+      <div v-if="isOpen" class="search-dropdown" data-search-dropdown :style="dropdownStyle">
+        <input
+          ref="inputRef"
+          v-model="query"
+          type="text"
+          placeholder="Поиск по приложению..."
+          class="search-input"
+          @keydown.escape="closeSearch"
+          @keydown.enter="executeAction"
+        />
+        <div v-if="query" class="search-results">
+          <div
+            v-for="(result, index) in filteredResults"
+            :key="index"
+            class="search-result-item"
+            @click="navigateTo(result.action)"
+          >
+            <span class="result-icon">{{ result.icon }}</span>
+            <span class="result-label">{{ result.label }}</span>
+            <span class="result-category">{{ result.category }}</span>
+          </div>
+          <div v-if="filteredResults.length === 0" class="no-results">Ничего не найдено</div>
         </div>
-        <div v-if="filteredResults.length === 0" class="no-results">Ничего не найдено</div>
-      </div>
-      <div v-else class="search-hints">
-        <div class="hint-title">Быстрый переход:</div>
-        <div v-for="item in quickLinks" :key="item.action" class="search-result-item" @click="navigateTo(item.action)">
-          <span class="result-icon">{{ item.icon }}</span>
-          <span class="result-label">{{ item.label }}</span>
-          <span class="result-category">{{ item.category }}</span>
+        <div v-else class="search-hints">
+          <div class="hint-title">Быстрый переход:</div>
+          <div v-for="item in quickLinks" :key="item.action" class="search-result-item" @click="navigateTo(item.action)">
+            <span class="result-icon">{{ item.icon }}</span>
+            <span class="result-label">{{ item.label }}</span>
+            <span class="result-category">{{ item.category }}</span>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -49,6 +51,7 @@ const isOpen = ref(false);
 const query = ref("");
 const searchRef = ref(null);
 const inputRef = ref(null);
+const dropdownStyle = ref({});
 
 const searchItems = [
   { icon: "📝", label: "Системный промпт", category: "Настройки", action: "prompt" },
@@ -76,6 +79,16 @@ const filteredResults = computed(() => {
 const toggleSearch = () => {
   isOpen.value = !isOpen.value;
   if (isOpen.value) {
+    const trigger = searchRef.value?.querySelector(".search-trigger");
+    if (trigger) {
+      const rect = trigger.getBoundingClientRect();
+      dropdownStyle.value = {
+        position: "fixed",
+        top: (rect.bottom + 8) + "px",
+        right: (window.innerWidth - rect.right) + "px",
+        zIndex: 10000,
+      };
+    }
     nextTick(() => inputRef.value?.focus());
   }
 };
@@ -104,7 +117,10 @@ const handleKeydown = (e) => {
 };
 
 const handleClickOutside = (e) => {
-  if (searchRef.value && !searchRef.value.contains(e.target)) {
+  const dropdown = document.querySelector("[data-search-dropdown]");
+  const isOutsideTrigger = searchRef.value && !searchRef.value.contains(e.target);
+  const isOutsideDropdown = !dropdown || !dropdown.contains(e.target);
+  if (isOutsideTrigger && isOutsideDropdown) {
     closeSearch();
   }
 };
@@ -143,32 +159,23 @@ onUnmounted(() => {
 }
 
 .search-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 8px;
+  /* Styles moved to global <style> block for Teleport support */
+}
+</style>
+
+<!-- Global styles for teleported search dropdown -->
+<style>
+.search-dropdown {
   width: 320px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
-  z-index: 10000;
   animation: slideDown 0.2s ease;
+  clip-path: polygon(0 4px, 4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px));
 }
 
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.search-input {
+.search-dropdown .search-input {
   width: 100%;
   padding: 12px 16px;
   background: var(--bg-tertiary);
@@ -177,24 +184,21 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-size: 14px;
   font-family: inherit;
-}
-
-.search-input:focus {
   outline: none;
 }
 
-.search-input::placeholder {
+.search-dropdown .search-input::placeholder {
   color: var(--text-muted);
 }
 
-.search-results,
-.search-hints {
+.search-dropdown .search-results,
+.search-dropdown .search-hints {
   max-height: 300px;
   overflow-y: auto;
   padding: 8px;
 }
 
-.hint-title {
+.search-dropdown .hint-title {
   font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -202,42 +206,45 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
 }
 
-.search-result-item {
+.search-dropdown .search-result-item {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: var(--transition);
+  transition: background 0.15s;
 }
 
-.search-result-item:hover {
+.search-dropdown .search-result-item:hover {
   background: var(--bg-hover);
 }
 
-.result-icon {
+.search-dropdown .result-icon {
   font-size: 16px;
 }
 
-.result-label {
+.search-dropdown .result-label {
   flex: 1;
   color: var(--text-primary);
   font-size: 13px;
 }
 
-.result-category {
+.search-dropdown .result-category {
   font-size: 10px;
   color: var(--text-muted);
   background: var(--bg-tertiary);
   padding: 2px 8px;
-  border-radius: 10px;
 }
 
-.no-results {
+.search-dropdown .no-results {
   text-align: center;
   padding: 20px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

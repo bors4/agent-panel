@@ -73,7 +73,7 @@ defineEmits(["click"]);
 .btn--primary {
   border-color: var(--accent);
   color: var(--accent);
-  background: rgba(0, 212, 255, 0.06);
+  background: rgba(42, 127, 255, 0.06);
 }
 
 .btn--primary:hover:not(.btn--disabled) {
@@ -91,7 +91,7 @@ defineEmits(["click"]);
 .btn--secondary {
   border-color: var(--accent-secondary);
   color: var(--accent-secondary);
-  background: rgba(255, 107, 53, 0.06);
+  background: rgba(212, 135, 74, 0.06);
 }
 
 .btn--secondary:hover:not(.btn--disabled) {
@@ -114,13 +114,13 @@ defineEmits(["click"]);
 
 .btn--ghost:hover:not(.btn--disabled) {
   color: var(--accent);
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(42, 127, 255, 0.08);
   border-color: transparent;
   box-shadow: none;
 }
 
 .btn--ghost:active:not(.btn--disabled) {
-  background: rgba(0, 212, 255, 0.14);
+  background: rgba(42, 127, 255, 0.14);
 }
 
 /* ─── DANGER (Red — DESTRUCT/ABORT) ─── */
