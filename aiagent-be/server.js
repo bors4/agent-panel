@@ -106,25 +106,50 @@ function initBot(token) {
     ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
   });
 
-  b.command("cancel", (ctx) => {
+  b.command("cancel", async (ctx) => {
+    const chatId = ctx.chat.id.toString();
     const text = ctx.message?.text || "";
     const parts = text.trim().split(/\s+/);
     const taskIdArg = parts[1];
-    if (!taskIdArg) {
-      ctx.reply("Usage: /cancel &lt;taskId&gt;", REPLY_OPTS);
+
+    // Если есть активный agent loop для этого чата — отменяем его
+    const agentController = activeAgentControllers.get(chatId);
+    if (agentController && !agentController.signal.aborted) {
+      agentController.abort();
+      // Identity check: удаляем только если это всё ещё тот же контроллер
+      if (activeAgentControllers.get(chatId) === agentController) {
+        activeAgentControllers.delete(chatId);
+      }
+      await replyMsg(ctx, "❌ Cancelled.");
       return;
     }
-    const tasks = getActiveTasks();
-    const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
-    if (!match) {
-      ctx.reply(`❌ Task not found: ${taskIdArg}`, REPLY_OPTS);
+
+    // Отменяем ожидающее подтверждение инструмента
+    const pending = pendingApprovals.get(chatId);
+    if (pending) {
+      pendingApprovals.delete(chatId);
+      await replyMsg(ctx, `❌ Cancelled pending approval for ${pending.toolName}.`);
       return;
     }
-    if (cancelTask(match.taskId)) {
-      ctx.reply(`❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`, REPLY_OPTS);
-    } else {
-      ctx.reply(`⚠️ Task ${taskIdArg} is no longer running.`, REPLY_OPTS);
+
+    // Если передан taskId — отменяем execute-таск (старое поведение)
+    if (taskIdArg) {
+      const tasks = getActiveTasks();
+      const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
+      if (!match) {
+        await replyMsg(ctx, `❌ Task not found: ${taskIdArg}`);
+        return;
+      }
+      if (cancelTask(match.taskId)) {
+        await replyMsg(ctx, `❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`);
+      } else {
+        await replyMsg(ctx, `⚠️ Task ${taskIdArg} is no longer running.`);
+      }
+      return;
     }
+
+    // Нет ни активного agent loop, ни taskId
+    await replyMsg(ctx, "No active request to cancel.");
   });
 
   b.command("mode", (ctx) => {
@@ -176,6 +201,8 @@ function initBot(token) {
     wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
 
     let draftMsgId;
+    let safeCleanup;
+    let abortController;
     try {
       await sendTyping(ctx);
       draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
@@ -185,7 +212,23 @@ function initBot(token) {
       let lastEditTime = 0;
       const MIN_EDIT_INTERVAL = 1000;
 
-      const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
+      // Если был предыдущий активный запрос для этого чата — отменяем его
+      const prevController = activeAgentControllers.get(chatId);
+      if (prevController && !prevController.signal.aborted) prevController.abort();
+
+      // Функция безопасного удаления контроллера из мапы (должна быть объявлена до set)
+      safeCleanup = (ctrl) => {
+        if (activeAgentControllers.get(chatId) === ctrl) {
+          activeAgentControllers.delete(chatId);
+        }
+      };
+
+      // Регистрируем AbortController для /cancel
+      abortController = new AbortController();
+      activeAgentControllers.set(chatId, abortController);
+
+      // НЕ await — запускаем в фоне, чтобы GrammY мог обработать /cancel
+      agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
         if (progress.type === "content") {
           accumulatedContent = progress.accumulated;
           const now = Date.now();
@@ -201,26 +244,44 @@ function initBot(token) {
         } else if (progress.type === "response") {
           await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
         }
-      });
-      if (result.tokenUsage) {
-        tokenUsage.prompt += result.tokenUsage.prompt;
-        tokenUsage.completion += result.tokenUsage.completion;
-        tokenUsage.total += result.tokenUsage.total;
-        tokenUsage.cached += result.tokenUsage.cached;
-        if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
-        wsBroadcast("tokenUsage", { ...tokenUsage });
-      }
-      if (result.timings) {
-        wsBroadcast("perfStats", buildPerfStats(result.timings));
-      }
-      addLog(
-        `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
-        "info"
-      );
+      }, abortController.signal)
+        .then((result) => {
+          safeCleanup(abortController);
+          if (result.tokenUsage) {
+            tokenUsage.prompt += result.tokenUsage.prompt || 0;
+            tokenUsage.completion += result.tokenUsage.completion || 0;
+            tokenUsage.total += result.tokenUsage.total || 0;
+            tokenUsage.cached += result.tokenUsage.cached || 0;
+            if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
+            wsBroadcast("tokenUsage", { ...tokenUsage });
+          }
+          if (result.timings) {
+            wsBroadcast("perfStats", buildPerfStats(result.timings));
+          }
+          // Если отменено через /cancel — не шлём ответ (cancel handler уже ответил)
+          if (result.cancelled) {
+            addLog("Agent loop cancelled by user", "warning");
+            return;
+          }
+          addLog(
+            `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
+            "info"
+          );
+          handleAgentResult(ctx, chatId, result, account, draftMsgId, abortController.signal).catch((err) => {
+            addLog(`handleAgentResult error: ${err.message}`, "error");
+          });
+        })
+        .catch((error) => {
+          safeCleanup(abortController);
+          addLog(`Bot error: ${error.message}`, "error");
+          if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+          replyMsg(ctx, `❌ Error: ${error.message}`).catch(() => {});
+        });
 
-      await handleAgentResult(ctx, chatId, result, account, draftMsgId);
+      // Возвращаемся — GrammY может обработать следующий апдейт (например, /cancel)
     } catch (error) {
       if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+      safeCleanup?.(abortController);
       await replyMsg(ctx, `❌ Error: ${error.message}`);
       addLog(`Bot error: ${error.message}`, "error");
     }
@@ -247,9 +308,22 @@ function initBot(token) {
       await clearButtons(ctx);
       pendingApprovals.delete(chatId);
       await sendTyping(ctx);
-      continueAfterApproval(ctx, pending).catch((err) => {
-        addLog(`continueAfterApproval (async) error: ${err.message}`, "error");
-      });
+
+      // Регистрируем AbortController, чтобы /cancel мог прервать продолжение
+      const prevController = activeAgentControllers.get(chatId);
+      if (prevController && !prevController.signal.aborted) prevController.abort();
+      const approvalAbortController = new AbortController();
+      activeAgentControllers.set(chatId, approvalAbortController);
+
+      continueAfterApproval(ctx, pending, 0, approvalAbortController.signal)
+        .catch((err) => {
+          addLog(`continueAfterApproval (async) error: ${err.message}`, "error");
+        })
+        .finally(() => {
+          if (activeAgentControllers.get(chatId) === approvalAbortController) {
+            activeAgentControllers.delete(chatId);
+          }
+        });
     } else if (callbackData.startsWith("deny_")) {
       const toolName = callbackData.replace("deny_", "");
       const pending = pendingApprovals.get(chatId);
@@ -430,6 +504,9 @@ const chatHistories = new Map();
 
 /** @type {Map.<string, Object>} */
 const pendingApprovals = new Map();
+
+/** @type {Map<string, AbortController>} — реестр agent loop запросов для Telegram /cancel */
+const activeAgentControllers = new Map();
 
 /** @type {Object | null} */
 let wss = null;
@@ -791,7 +868,14 @@ async function editDraftMessage(ctx, messageId, text) {
  * @param {number} [draftMsgId] - ID черновика для обновления (streaming mode)
  * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен пользователю)
  */
-async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
+async function handleAgentResult(ctx, chatId, result, account, draftMsgId, abortSignal) {
+  // Отменено пользователем
+  if (result.cancelled) {
+    addLog("Agent loop cancelled during continuation", "warning");
+    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+    return true;
+  }
+
   // Требуется подтверждение
   if (result.requiresApproval) {
     pendingApprovals.set(chatId, {
@@ -856,9 +940,9 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   // Продолжение (нужен ещё один шаг)
   if (result.response === "continue") {
     const history = result.messages || chatHistories.get(chatId) || [];
-    const retryResult = await agentLoopStep("", chatId, history, config, MAX_AGENT_ITERATIONS, account);
+    const retryResult = await agentLoopStep("", chatId, history, config, MAX_AGENT_ITERATIONS, account, null, abortSignal);
     addLog(`agentLoopStep (retry): requiresApproval=${retryResult.requiresApproval}`, "info");
-    return await handleAgentResult(ctx, chatId, retryResult, account);
+    return await handleAgentResult(ctx, chatId, retryResult, account, undefined, abortSignal);
   }
 
   // Лимит итераций
@@ -912,7 +996,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
  */
 const MAX_APPROVAL_DEPTH = 10;
 
-async function continueAfterApproval(ctx, pending, depth = 0) {
+async function continueAfterApproval(ctx, pending, depth = 0, abortSignal) {
   if (depth >= MAX_APPROVAL_DEPTH) {
     addLog(`continueAfterApproval: depth limit (${MAX_APPROVAL_DEPTH}) reached`, "warning");
     await replyMsg(ctx, `⚠️ Reached tool call chain limit (${MAX_APPROVAL_DEPTH}).`);
@@ -1016,7 +1100,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
     chatHistories.set(chatId, newHistory);
 
-    const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account);
+    const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account, null, abortSignal);
     if (retryResult.tokenUsage) {
       tokenUsage.prompt += retryResult.tokenUsage.prompt || 0;
       tokenUsage.completion += retryResult.tokenUsage.completion || 0;
@@ -1027,7 +1111,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     if (retryResult.timings) {
       wsBroadcast("perfStats", buildPerfStats(retryResult.timings));
     }
-    return await handleAgentResult(ctx, chatId, retryResult, account);
+    return await handleAgentResult(ctx, chatId, retryResult, account, undefined, abortSignal);
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
     console.error("[continueAfterApproval] Full error:", error);

@@ -98,7 +98,8 @@
           :placeholder="isActive ? 'Введите сообщение...' : 'Сначала запустите агента'"
           @keypress="handleKeypress"
         />
-        <button class="chat-send" :disabled="!isActive || !inputMessage.trim()" @click="sendMessage">➤</button>
+        <button class="chat-send" :disabled="!isActive || !inputMessage.trim() || isCancelling || isTyping" @click="sendMessage">➤</button>
+        <button v-if="isTyping || isStreaming" class="chat-stop" title="Отменить запрос" @click="handleStop">■</button>
         <button
           class="chat-clear"
           :disabled="messages.length === 0"
@@ -141,7 +142,7 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
-import { directChat, directChatStream, agentChat, agentChatContinue } from "@/api/client";
+import { directChat, directChatStream, agentChat, agentChatContinue, cancelChat } from "@/api/client";
 import { useSound } from "@/composables/useSound";
 
 const props = defineProps({
@@ -168,6 +169,11 @@ const chatContainer = ref(null);
 
 const { send: playSend, receive: playReceive, setVolume } = useSound({ volume: props.soundVolume });
 
+// Отмена запросов
+const abortController = ref(null);
+const isCancelling = ref(false);
+const lastAbortId = ref(null);
+
 watch(() => props.soundVolume, (v) => setVolume(v));
 
 // Agent mode state
@@ -179,6 +185,19 @@ const approvalMessages = ref([]);
 
 function onAgentModeChange() {
   localStorage.setItem(AGENT_MODE_KEY, agentMode.value.toString());
+}
+
+function handleStop() {
+  if (isCancelling.value || !abortController.value) return;
+  isCancelling.value = true;
+  // Отменяем на фронтенде — закрываем fetch
+  abortController.value.abort();
+  abortController.value = null;
+  // Отменяем на бэкенде через /chat/cancel (только для agent loop)
+  if (lastAbortId.value) {
+    cancelChat(lastAbortId.value).catch(() => {});
+    lastAbortId.value = null;
+  }
 }
 
 // 🔥 Константы для localStorage
@@ -383,7 +402,7 @@ function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolN
 }
 
 // Agent loop send message
-async function sendAgentMessage(text) {
+async function sendAgentMessage(text, signal = null, abortId = null) {
   // Собираем историю для отправки на бэкенд
   const historyMsgs = messages.value
     .filter(m => !m.type) // только обычные сообщения
@@ -397,13 +416,24 @@ async function sendAgentMessage(text) {
     serverUrl: props.serverUrl,
     modelName: props.modelName,
     systemPrompt: props.systemPrompt,
-  });
+  }, signal, abortId);
 
   isTyping.value = false;
   if (props.soundEnabled) playReceive();
 
   if (!result.success) {
     throw new Error(result.error || "Agent loop failed");
+  }
+
+  // Отмена — показываем специальное сообщение, не обрабатываем tool data
+  if (result.cancelled) {
+    messages.value.push({
+      role: "system",
+      content: "🔴 Cancelled",
+      type: "cancelled",
+    });
+    emit("log", { message: "Agent loop cancelled", type: "warning" });
+    return result;
   }
 
   // Добавляем ответ бота
@@ -448,6 +478,12 @@ async function approveTool(msg) {
   messages.value = messages.value.filter(m => m !== msg);
 
   isTyping.value = true;
+  isCancelling.value = false;
+  const controller = new AbortController();
+  abortController.value = controller;
+  // Pre-generate abortId so STOP can cancel the backend immediately
+  const continueAbortId = crypto.randomUUID();
+  lastAbortId.value = continueAbortId;
   pendingApproval.value = null;
   savePendingApproval(null);
   pendingToolCalls.value = [];
@@ -458,9 +494,13 @@ async function approveTool(msg) {
       messages: approvalMessages.value,
       approvalDecision: decision,
       accountName: "",
-    });
+      abortId: continueAbortId,
+    }, controller.signal);
 
     isTyping.value = false;
+
+    // Capture abortId from continue response so STOP can cancel the backend
+    if (result.abortId) lastAbortId.value = result.abortId;
 
     if (!result.success) {
       messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
@@ -488,7 +528,13 @@ async function approveTool(msg) {
     saveApprovalMessages(approvalMessages.value);
   } catch (e) {
     isTyping.value = false;
-    messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+    if (e.name === "AbortError") {
+      messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+    } else {
+      messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+    }
+  } finally {
+    if (abortController.value === controller) abortController.value = null;
   }
 }
 
@@ -504,6 +550,12 @@ async function rejectTool(msg) {
 
   messages.value = messages.value.filter(m => m !== msg);
   isTyping.value = true;
+  isCancelling.value = false;
+  const controller = new AbortController();
+  abortController.value = controller;
+  // Pre-generate abortId so STOP can cancel the backend immediately
+  const continueAbortId = crypto.randomUUID();
+  lastAbortId.value = continueAbortId;
   pendingApproval.value = null;
   savePendingApproval(null);
   pendingToolCalls.value = [];
@@ -514,9 +566,13 @@ async function rejectTool(msg) {
       messages: approvalMessages.value,
       approvalDecision: decision,
       accountName: "",
-    });
+      abortId: continueAbortId,
+    }, controller.signal);
 
     isTyping.value = false;
+
+    // Capture abortId from continue response so STOP can cancel the backend
+    if (result.abortId) lastAbortId.value = result.abortId;
 
     if (!result.success) {
       messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
@@ -544,12 +600,19 @@ async function rejectTool(msg) {
     saveApprovalMessages(approvalMessages.value);
   } catch (e) {
     isTyping.value = false;
-    messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+    if (e.name === "AbortError") {
+      messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+    } else {
+      messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+    }
+  } finally {
+    if (abortController.value === controller) abortController.value = null;
   }
 }
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return;
+  if (isTyping.value || isStreaming.value) return; // guard against double-send
 
   const text = inputMessage.value.trim();
   inputMessage.value = "";
@@ -557,6 +620,11 @@ const sendMessage = async () => {
   messages.value.push({ role: "user", content: text });
   if (props.soundEnabled) playSend();
   isTyping.value = true;
+  isCancelling.value = false;
+
+  // Создаём AbortController для отмены запроса
+  const controller = new AbortController();
+  abortController.value = controller;
 
   await nextTick();
   scrollToBottom();
@@ -572,8 +640,11 @@ const sendMessage = async () => {
 
   // Agent mode — используем agent loop
   if (agentMode.value) {
+    // Генерируем abortId для отмены на бэкенде
+    const abortId = crypto.randomUUID();
+    lastAbortId.value = abortId;
     try {
-      const result = await sendAgentMessage(text);
+      const result = await sendAgentMessage(text, controller.signal, abortId);
       const latency = Date.now() - startTime;
 
       if (props.verbose) {
@@ -591,14 +662,22 @@ const sendMessage = async () => {
     } catch (error) {
       const latency = Date.now() - startTime;
       isTyping.value = false;
-      messages.value.push({
-        role: "bot",
-        content: `❌ Ошибка: ${error.message}`,
-      });
-      emit("log", {
-        message: `Agent error (${latency}ms): ${error.message}`,
-        type: "error",
-      });
+      if (error.name === "AbortError") {
+        messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+        emit("log", { message: `Agent cancelled (${latency}ms)`, type: "warning" });
+      } else {
+        messages.value.push({
+          role: "bot",
+          content: `❌ Ошибка: ${error.message}`,
+        });
+        emit("log", {
+          message: `Agent error (${latency}ms): ${error.message}`,
+          type: "error",
+        });
+      }
+    } finally {
+      if (abortController.value === controller) abortController.value = null;
+      if (lastAbortId.value === abortId) lastAbortId.value = null;
     }
 
     await nextTick();
@@ -644,7 +723,8 @@ const sendMessage = async () => {
           onError: (error) => {
             throw new Error(error);
           },
-        }
+        },
+        controller.signal
       );
 
       const latency = Date.now() - startTime;
@@ -676,7 +756,7 @@ const sendMessage = async () => {
         serverUrl: props.serverUrl,
         projectPath: props.projectPath,
         systemPrompt: props.systemPrompt,
-      });
+      }, controller.signal);
 
       const latency = Date.now() - startTime;
       isTyping.value = false;
@@ -715,14 +795,27 @@ const sendMessage = async () => {
       isTyping.value = false;
       if (props.soundEnabled) playReceive();
     isStreaming.value = false;
-    messages.value.push({
-      role: "bot",
-      content: `❌ Ошибка: ${error.message}`,
-    });
-    emit("log", {
-      message: `Chat error (${latency}ms): ${error.message}`,
-      type: "error",
-    });
+    if (error.name === "AbortError") {
+      const lastIdx = messages.value.length - 1;
+      if (messages.value[lastIdx]?.streaming) {
+        messages.value[lastIdx].content = "🔴 Cancelled";
+        messages.value[lastIdx].streaming = false;
+      } else {
+        messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+      }
+      emit("log", { message: `Chat cancelled (${latency}ms)`, type: "warning" });
+    } else {
+      messages.value.push({
+        role: "bot",
+        content: `❌ Ошибка: ${error.message}`,
+      });
+      emit("log", {
+        message: `Chat error (${latency}ms): ${error.message}`,
+        type: "error",
+      });
+    }
+  } finally {
+    if (abortController.value === controller) abortController.value = null;
   }
 
   await nextTick();
@@ -746,6 +839,17 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  // Отменяем in-flight запрос при уходе со страницы
+  if (abortController.value) {
+    abortController.value.abort();
+    abortController.value = null;
+  }
+  isCancelling.value = false;
+  // Отменяем на бэкенде до того, как очищаем abortId
+  if (lastAbortId.value) {
+    cancelChat(lastAbortId.value).catch(() => {});
+  }
+  lastAbortId.value = null;
   saveChatHistory(messages.value);
   saveApprovalMessages(approvalMessages.value);
   savePendingApproval(pendingApproval.value);
@@ -1188,6 +1292,34 @@ defineExpose({ clearChatHistory });
 .chat-send:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.chat-stop {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  transition: var(--transition);
+  flex-shrink: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.chat-stop:hover {
+  background: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .typing-indicator {

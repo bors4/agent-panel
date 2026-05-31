@@ -246,9 +246,10 @@ function buildToolExecConfig(account, cfg) {
  * @param {number} maxIterations - Максимальное число итераций (default: 5)
  * @param {Object|null} account - Аккаунт пользователя
  * @param {Function} [onProgress] - Колбэк прогресса: ({ type: 'content'|'tool'|'response'|'error', ... })
- * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages?, tokenUsage?, timings? }
+ * @param {AbortSignal} [abortSignal] - Внешний сигнал отмены (из Telegram /cancel или фронтенда)
+ * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages?, tokenUsage?, timings?, cancelled? }
  */
-export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null) {
+export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null, abortSignal = null) {
   const toolConfig = getToolConfig();
   let messages = [
     {
@@ -279,6 +280,10 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
 
   while (iterations < maxIterations) {
     iterations++;
+    // Проверка отмены в начале каждой итерации (для случаев между tool calls)
+    if (abortSignal?.aborted) {
+      return { response: "Cancelled", cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+    }
     try {
       const body = {
         model: cfg.modelName,
@@ -303,6 +308,10 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const controller = new AbortController();
       const timeout = cfg.timeout ?? configDefaults.timeout;
       let timeoutId = setTimeout(() => controller.abort(), timeout);
+      // Объединяем таймаут и внешний сигнал отмены
+      const fetchSignal = abortSignal
+        ? AbortSignal.any([controller.signal, abortSignal])
+        : controller.signal;
       const isOpenRouter = cfg.serverUrl.includes("openrouter.ai");
       const loopHeaders = { "Content-Type": "application/json" };
       if (isOpenRouter) {
@@ -318,11 +327,14 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           method: "POST",
           headers: loopHeaders,
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: fetchSignal,
         });
       } catch (e) {
         clearTimeout(timeoutId);
         if (e.name === "AbortError") {
+          if (abortSignal?.aborted) {
+            return { response: "Cancelled", cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+          }
           return { error: "Request timed out. Generate a shorter response or increase the timeout setting." };
         }
         throw e;
@@ -376,6 +388,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           };
         } catch (e) {
           if (e.name === "AbortError") {
+            if (abortSignal?.aborted) {
+              return { response: "Cancelled", cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+            }
             return { error: "Generation timed out. Try again or increase the timeout setting." };
           }
           throw e;

@@ -121,6 +121,11 @@ async function apiFetch(endpoint, options = {}, retry = true) {
 
     return response;
   } catch (error) {
+    // 🚫 AbortError — пользователь отменил запрос, никогда не повторяем
+    if (error.name === "AbortError") {
+      throw error;
+    }
+
     // 🚫 При первой ошибке — включаем короткое подавление "шума"
     if (isConnected) {
       window.__apiConnectionLost = true;
@@ -193,11 +198,12 @@ export async function restartBot() {
   return response.json();
 }
 
-export async function directChat(options) {
+export async function directChat(options, signal = null) {
   const body = typeof options === "string" ? { message: options } : options;
   const response = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify(body),
+    signal,
   });
   return response.json();
 }
@@ -211,11 +217,12 @@ export async function directChat(options) {
  * @param {Function} [callbacks.onError] - Вызывается при ошибке (error)
  * @returns {Promise<string>} Полный накопленный текст
  */
-export async function directChatStream(options, callbacks = {}) {
+export async function directChatStream(options, callbacks = {}, signal = null) {
   const body = { ...(typeof options === "string" ? { message: options } : options), stream: true };
   const response = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {
@@ -227,6 +234,17 @@ export async function directChatStream(options, callbacks = {}) {
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
+
+  // При отмене — закрываем reader
+  if (signal) {
+    if (signal.aborted) {
+      reader.cancel().catch(() => {});
+    } else {
+      signal.addEventListener("abort", () => {
+        reader.cancel().catch(() => {});
+      }, { once: true });
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read();
@@ -341,7 +359,7 @@ export async function executeTool(toolCall) {
  * @param {boolean} [options.useAgentLoop=true] - Флаг agent loop
  * @returns {Promise<Object>} Ответ с toolCalls, toolResults и reply
  */
-export async function agentChat(options) {
+export async function agentChat(options, signal = null, abortId = null) {
   const response = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify({
@@ -353,7 +371,9 @@ export async function agentChat(options) {
       serverUrl: options.serverUrl,
       modelName: options.modelName,
       systemPrompt: options.systemPrompt,
+      abortId,
     }),
+    signal,
   });
   return response.json();
 }
@@ -366,14 +386,16 @@ export async function agentChat(options) {
  * @param {string} [options.accountName] - Имя аккаунта
  * @returns {Promise<Object>}
  */
-export async function agentChatContinue(options) {
+export async function agentChatContinue(options, signal = null) {
   const response = await apiFetch("/chat/continue", {
     method: "POST",
     body: JSON.stringify({
       messages: options.messages,
       approvalDecision: options.approvalDecision,
       accountName: options.accountName || "",
+      abortId: options.abortId,
     }),
+    signal,
   });
   return response.json();
 }
@@ -432,6 +454,19 @@ export async function getDirectories(dirPath) {
 
 export async function browseFolder() {
   const response = await apiFetch("/browse-folder");
+  return response.json();
+}
+
+/**
+ * Отменить выполняющийся agent loop запрос.
+ * @param {string} abortId - ID запроса из ответа agentChat
+ * @returns {Promise<Object>}
+ */
+export async function cancelChat(abortId) {
+  const response = await apiFetch("/chat/cancel", {
+    method: "POST",
+    body: JSON.stringify({ abortId }),
+  });
   return response.json();
 }
 

@@ -35,6 +35,9 @@ export function createApiRouter(deps) {
   const { config, stats, chatHistories, pendingApprovals, addLog, wsBroadcast } =
     deps;
 
+  /** @type {Map<string, AbortController>} — реестр активных agent loop запросов для отмены */
+  const activeChatControllers = new Map();
+
   // ─── Auth middleware ─────────────────────────────────────────────────────
   router.use((req, res, next) => {
     if (req.path === "/health") return next();
@@ -544,10 +547,30 @@ export function createApiRouter(deps) {
         };
 
         const messages = req.body.messages || [];
-        const result = await agentLoopStep(message, "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account);
 
-        if (result.error) {
-          return res.json({ success: false, error: result.error, messages: result.messages || messages });
+        // Регистрируем AbortController для отмены через /chat/cancel
+        // Фронтенд может передать abortId в теле запроса (иначе генерируем сами)
+        const abortId = req.body.abortId || crypto.randomUUID();
+        const abortController = new AbortController();
+        activeChatControllers.set(abortId, abortController);
+
+        // При отключении клиента — прерываем запрос
+        req.on("close", () => {
+          if (!res.writableEnded && activeChatControllers.has(abortId)) {
+            abortController.abort();
+            activeChatControllers.delete(abortId);
+          }
+        });
+
+        let result;
+        try {
+          result = await agentLoopStep(message, "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account, null, abortController.signal);
+        } finally {
+          activeChatControllers.delete(abortId);
+        }
+
+        if (result.error && !result.cancelled) {
+          return res.json({ success: false, error: result.error, messages: result.messages || messages, abortId });
         }
 
         // Извлекаем tool_calls и tool_results из сообщений для удобства фронтенда
@@ -610,6 +633,8 @@ export function createApiRouter(deps) {
           approvalToolCallId: result.toolCallId,
           pendingToolCalls: result.pendingToolCalls || null,
           tokenUsage: result.tokenUsage || null,
+          cancelled: result.cancelled || false,
+          abortId,
         });
       }
 
@@ -834,6 +859,23 @@ export function createApiRouter(deps) {
     }
   });
 
+  // ─── Chat Cancel ─────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/chat/cancel — Отменить выполняющийся agent loop запрос.
+   * Body: { abortId }
+   * Ищет AbortController в реестре и вызывает abort().
+   */
+  router.post("/chat/cancel", (req, res) => {
+    const { abortId } = req.body;
+    if (!abortId) return res.status(400).json({ error: "abortId required" });
+    const controller = activeChatControllers.get(abortId);
+    if (!controller) return res.json({ success: false, error: "No active request found for this abortId" });
+    if (!controller.signal.aborted) controller.abort();
+    activeChatControllers.delete(abortId);
+    res.json({ success: true, cancelled: true });
+  });
+
   // ─── Agent Loop Approval ─────────────────────────────────────────────────
 
   /**
@@ -888,10 +930,28 @@ export function createApiRouter(deps) {
         systemPrompt: config.systemPrompt,
       };
 
-      const result = await agentLoopStep("", "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account);
+      // Регистрируем AbortController для отмены
+      const abortId = crypto.randomUUID();
+      const abortController = new AbortController();
+      activeChatControllers.set(abortId, abortController);
 
-      if (result.error) {
-        return res.json({ success: false, error: result.error, messages: result.messages || messages });
+      // При отключении клиента — прерываем запрос
+      req.on("close", () => {
+        if (!res.writableEnded && activeChatControllers.has(abortId)) {
+          abortController.abort();
+          activeChatControllers.delete(abortId);
+        }
+      });
+
+      let result;
+      try {
+        result = await agentLoopStep("", "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account, null, abortController.signal);
+      } finally {
+        activeChatControllers.delete(abortId);
+      }
+
+      if (result.error && !result.cancelled) {
+        return res.json({ success: false, error: result.error, messages: result.messages || messages, abortId });
       }
 
       const toolCalls = [];
@@ -928,6 +988,8 @@ export function createApiRouter(deps) {
         approvalArgs: result.args,
         approvalToolCallId: result.toolCallId,
         tokenUsage: result.tokenUsage || null,
+        cancelled: result.cancelled || false,
+        abortId,
       });
     } catch (error) {
       stats.errors++;
