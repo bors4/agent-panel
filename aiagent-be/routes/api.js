@@ -188,6 +188,78 @@ export function createApiRouter(deps) {
   });
 
   /**
+   * GET /api/directories — Список поддиректорий по пути.
+   * Query: ?path=C:\Users (по умолчанию корень диска или home)
+   * Возвращает { path, directories: [{ name, path }] }
+   */
+  router.get("/directories", async (req, res) => {
+    const targetPath = req.query.path || "";
+    try {
+      let resolved = targetPath;
+      if (!resolved) {
+        resolved = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\" : "/");
+      }
+      const stat = await fs.promises.stat(resolved);
+      if (!stat.isDirectory()) {
+        return res.json({ path: resolved, directories: [] });
+      }
+      const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+      const directories = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => ({ name: e.name, path: path.join(resolved, e.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      res.json({ path: resolved, directories });
+    } catch {
+      res.json({ path: targetPath, directories: [] });
+    }
+  });
+
+  /**
+   * GET /api/browse-folder — Открыть нативный OS диалог выбора папки.
+   * Возвращает { path: "полный/путь/к/папке" } или { path: null } при отмене.
+   */
+  router.get("/browse-folder", async (_req, res) => {
+    const { execFile } = await import("child_process");
+    const { promisify } = await import("util");
+    const execFileAsync = promisify(execFile);
+
+    try {
+      let selectedPath = null;
+
+      if (process.platform === "win32") {
+        const ps = [
+          "Add-Type -AssemblyName System.Windows.Forms;",
+          "$f = New-Object System.Windows.Forms.FolderBrowserDialog;",
+          "$f.Description = 'Select project directory';",
+          "$f.ShowNewFolderButton = $true;",
+          "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
+        ].join(" ");
+        const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", ps], { timeout: 120000 });
+        selectedPath = stdout.trim();
+      } else if (process.platform === "darwin") {
+        const script = 'tell application "Finder" to set p to POSIX path of (choose folder)\nreturn p';
+        const { stdout } = await execFileAsync("osascript", ["-e", script], { timeout: 120000 });
+        selectedPath = stdout.trim();
+      } else {
+        const { stdout } = await execFileAsync("zenity", ["--file-selection", "--directory", "--title=Select project directory"], { timeout: 120000 });
+        selectedPath = stdout.trim();
+      }
+
+      if (selectedPath) {
+        res.json({ path: selectedPath });
+      } else {
+        res.json({ path: null });
+      }
+    } catch (e) {
+      if (e.killed || e.signal === "SIGTERM" || e.code === 1) {
+        res.json({ path: null });
+      } else {
+        res.status(500).json({ error: "Failed to open folder picker: " + e.message });
+      }
+    }
+  });
+
+  /**
    * POST /api/config — Обновить конфигурацию.
    * Body: { serverUrl?, modelName?, projectPath?, systemPrompt?, maxTokens?, temperature?,
    *         timeout?, token?, openrouterApiKey?, stream?, insertUserAfterTool?, chatMode?,

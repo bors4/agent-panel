@@ -14,7 +14,6 @@ Match content format to file extension:
 | `.js` / `.ts` | Valid JavaScript/TypeScript |
 | `.md` | Markdown |
 | `.yaml` / `.yml` | Valid YAML |
-| `.toml` | Valid TOML |
 
 ## Rules
 

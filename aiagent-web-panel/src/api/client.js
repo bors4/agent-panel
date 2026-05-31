@@ -425,6 +425,16 @@ export async function checkPath(path) {
   return response.json();
 }
 
+export async function getDirectories(dirPath) {
+  const response = await apiFetch(`/directories?path=${encodeURIComponent(dirPath || "")}`);
+  return response.json();
+}
+
+export async function browseFolder() {
+  const response = await apiFetch("/browse-folder");
+  return response.json();
+}
+
 // ─────────────────────────────────────────────────────
 // 🧭 Утилиты для внешней проверки состояния
 // ─────────────────────────────────────────────────────

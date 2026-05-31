@@ -32,6 +32,7 @@
       </div>
       <div class="project-path-row">
         <input v-model="projectPathDraft" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
+        <Button variant="ghost" @click="browseDirectory">BROWSE</Button>
         <Button @click="handleSaveProjectPath">SAVE PATH</Button>
       </div>
       <p v-if="pathError" class="path-error">{{ pathError }}</p>
@@ -114,14 +115,16 @@
         <label>OpenRouter модели</label>
         <span class="hint">Загрузить модели из OpenRouter</span>
       </div>
-      <Button
-        class="btn-refresh-models"
-        :disabled="loadingStates.openrouterModels"
-        :loading="loadingStates.openrouterModels"
-        @click="handleLoadOpenRouterModels"
-      >
-        LOAD OPENROUTER
-      </Button>
+      <div class="openrouter-row">
+        <Button
+          class="btn-refresh-models"
+          :disabled="loadingStates.openrouterModels"
+          :loading="loadingStates.openrouterModels"
+          @click="handleLoadOpenRouterModels"
+        >
+          LOAD OPENROUTER
+        </Button>
+      </div>
     </div>
   </Card>
 
@@ -371,7 +374,7 @@ import { ref, reactive, watch, computed } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
-import { checkPath } from "@/api/client";
+import { checkPath, browseFolder } from "@/api/client";
 
 /**
  * @typedef {Object} SettingsTabProps
@@ -559,6 +562,22 @@ watch(apiBasesCopy, autoSave, { deep: true });
 watch(() => configCopy.projectPath, () => {
   pathError.value = "";
 });
+
+/**
+ * Открыть системное окно выбора директории через backend.
+ * Backend вызывает нативный OS диалог (PowerShell/Zenity) и возвращает полный путь.
+ */
+const browseDirectory = async () => {
+  try {
+    const data = await browseFolder();
+    if (data.path) {
+      projectPathDraft.value = data.path;
+      pathError.value = "";
+    }
+  } catch {
+    pathError.value = "⚠️ Failed to open folder picker";
+  }
+};
 
 /**
  * Проверить существование директории через API /api/validate-path.
@@ -802,6 +821,10 @@ const adjustTokens = (delta) => {
 }
 .btn-refresh-models {
   flex-shrink: 0;
+}
+.openrouter-row {
+  display: flex;
+  justify-content: flex-end;
 }
 .form-label {
   display: flex;
