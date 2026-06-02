@@ -8,7 +8,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from "vue";
+import { ref, onMounted } from "vue";
 
 const isDark = ref(true);
 

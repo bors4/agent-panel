@@ -269,6 +269,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   messages = validateAndFixHistory(messages);
   let iterations = 0,
     finalResponse = "",
+    finalReasoning = "",
     useFunctionCalling = true,
     accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 },
     latestTimings = null,
@@ -282,7 +283,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     iterations++;
     // Проверка отмены в начале каждой итерации (для случаев между tool calls)
     if (abortSignal?.aborted) {
-      return { response: "Cancelled", cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+      return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
     }
     try {
       const body = {
@@ -333,7 +334,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         clearTimeout(timeoutId);
         if (e.name === "AbortError") {
           if (abortSignal?.aborted) {
-            return { response: "Cancelled", cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+            return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
           }
           return { error: "Request timed out. Generate a shorter response or increase the timeout setting." };
         }
@@ -354,13 +355,22 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         try {
           const t0 = performance.now();
           firstTokenMs = 0;
-          const { content, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
+          const { content, reasoningContent, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
             onContent: (chunk, accumulated) => {
               if (!firstTokenMs) firstTokenMs = performance.now() - t0;
               // Per-chunk timeout reset — длинные генерации не обрываются
               clearTimeout(timeoutId);
               timeoutId = setTimeout(() => controller.abort(), timeout);
               onProgress?.({ type: "content", chunk, accumulated });
+            },
+            onReasoning: (chunk, accumulated) => {
+              if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+              clearTimeout(timeoutId);
+              timeoutId = setTimeout(() => controller.abort(), timeout);
+              onProgress?.({ type: "reasoning", chunk, accumulated });
+            },
+            onReasoningDone: () => {
+              onProgress?.({ type: "reasoning_done" });
             },
             onToolCall: (idx, tc) => {
               onProgress?.({ type: "tool_call_delta", index: idx, delta: tc });
@@ -372,6 +382,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           totalMs = performance.now() - t0;
           usage = u;
           if (t) latestTimings = t;
+          finalReasoning = reasoningContent || "";
           msg = {
             role: "assistant",
             content: content || null,
@@ -389,7 +400,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         } catch (e) {
           if (e.name === "AbortError") {
             if (abortSignal?.aborted) {
-              return { response: "Cancelled", cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+              return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
             }
             return { error: "Generation timed out. Try again or increase the timeout setting." };
           }
@@ -403,6 +414,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         const asst = data.choices?.[0]?.message;
         if (!asst) return { error: "AI error: empty response" };
         msg = asst;
+        finalReasoning = asst.reasoning_content || "";
         usage = data.usage;
         if (data.timings) {
           const tc = data.tokens_cached ?? data.__verbose?.tokens_cached ?? 0;
@@ -594,5 +606,5 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     };
   }
 
-  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
+  return { response: finalResponse, reasoning: finalReasoning, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
 }

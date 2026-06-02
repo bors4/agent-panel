@@ -33,7 +33,7 @@ const BASE_RECONNECT_DELAY = 1000; // 1 секунда старт
   // Перехватываем ошибки "send was called before connect"
   const originalOnError = window.onerror;
   window.onerror = function (message, source, _lineno, _colno, _error) {
-    if (message?.includes?.("send was called before connect") && source?.includes("client:")) {
+    if (message?.includes?.("send was called before connect") && source?.includes("client.js")) {
       const now = Date.now();
       if (now < suppressUntil) {
         return true;
@@ -212,6 +212,8 @@ export async function directChat(options, signal = null) {
  * Потоковый чат с AI (SSE). Принимает колбэки для real-time обновлений.
  * @param {Object|string} options - Опции запроса или строка сообщения
  * @param {Object} callbacks - Колбэки
+ * @param {Function} [callbacks.onReasoning] - Вызывается при чанке reasoning (chunk, accumulated)
+ * @param {Function} [callbacks.onReasoningDone] - Вызывается при завершении reasoning
  * @param {Function} [callbacks.onContent] - Вызывается при каждом чанке (chunk, accumulated)
  * @param {Function} [callbacks.onDone] - Вызывается при завершении (usage)
  * @param {Function} [callbacks.onError] - Вызывается при ошибке (error)
@@ -234,6 +236,7 @@ export async function directChatStream(options, callbacks = {}, signal = null) {
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
+  let fullReasoning = "";
 
   // При отмене — закрываем reader
   if (signal) {
@@ -273,6 +276,13 @@ export async function directChatStream(options, callbacks = {}, signal = null) {
         callbacks.onError?.(parsed.error);
         throw new Error(parsed.error);
       }
+      if (parsed.reasoning) {
+        fullReasoning += parsed.reasoning;
+        callbacks.onReasoning?.(parsed.reasoning, fullReasoning);
+      }
+      if (parsed.reasoningDone) {
+        callbacks.onReasoningDone?.();
+      }
       if (parsed.reply) {
         fullContent += parsed.reply;
         callbacks.onContent?.(parsed.reply, fullContent);
@@ -291,6 +301,7 @@ export async function directChatStream(options, callbacks = {}, signal = null) {
       if (raw !== "[DONE]") {
         try {
           const data = JSON.parse(raw);
+          if (data.reasoning) fullReasoning += data.reasoning;
           if (data.reply) fullContent += data.reply;
           if (data.done) callbacks.onDone?.(data.usage || null, fullContent);
         } catch {}

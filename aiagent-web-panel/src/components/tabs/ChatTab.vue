@@ -11,6 +11,11 @@
         </div>
         <div class="chat-header-right">
           <span v-if="verbose" class="verbose-badge">VERBOSE</span>
+          <label class="agent-toggle" title="Toggle reasoning display">
+            <span class="toggle-label" :class="{ active: showReasoning }">REASONING</span>
+            <input type="checkbox" :checked="showReasoning" @change="toggleReasoning" />
+            <span class="toggle-slider" />
+          </label>
           <label class="agent-toggle" title="Toggle agent loop with tools">
             <span class="toggle-label">AGENT</span>
             <input v-model="agentMode" type="checkbox" @change="onAgentModeChange" />
@@ -66,6 +71,14 @@
             </div>
             <!-- Regular message -->
             <template v-else>
+              <div v-if="showReasoning && msg.reasoning && msg.role === 'bot'" class="reasoning-block">
+                <div class="reasoning-header" @click="msg.reasoningExpanded = !msg.reasoningExpanded">
+                  <span class="reasoning-icon">💭</span>
+                  <span class="reasoning-label">Reasoning</span>
+                  <span class="tool-call-toggle">{{ msg.reasoningExpanded ? "▲" : "▼" }}</span>
+                </div>
+                <pre v-if="msg.reasoningExpanded" class="reasoning-content">{{ msg.reasoning }}</pre>
+              </div>
               <div class="chat-bubble" :class="{ streaming: msg.streaming }">
                 {{ msg.content }}
                 <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
@@ -165,6 +178,8 @@ const inputMessage = ref("");
 const isTyping = ref(false);
 const isStreaming = ref(false);
 const streamingContent = ref("");
+const streamingReasoning = ref("");
+const reasoningDone = ref(false);
 const chatContainer = ref(null);
 
 const { send: playSend, receive: playReceive, setVolume } = useSound({ volume: props.soundVolume });
@@ -178,13 +193,20 @@ watch(() => props.soundVolume, (v) => setVolume(v));
 
 // Agent mode state
 const AGENT_MODE_KEY = "agent-chat-mode";
+const SHOW_REASONING_KEY = "agent-show-reasoning";
 const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) !== "false");
+const showReasoning = ref(localStorage.getItem(SHOW_REASONING_KEY) !== "false");
 const pendingApproval = ref(null);
 const pendingToolCalls = ref([]);
 const approvalMessages = ref([]);
 
 function onAgentModeChange() {
   localStorage.setItem(AGENT_MODE_KEY, agentMode.value.toString());
+}
+
+function toggleReasoning() {
+  showReasoning.value = !showReasoning.value;
+  localStorage.setItem(SHOW_REASONING_KEY, showReasoning.value.toString());
 }
 
 function handleStop() {
@@ -441,6 +463,8 @@ async function sendAgentMessage(text, signal = null, abortId = null) {
     messages.value.push({
       role: "bot",
       content: result.reply,
+      reasoning: result.reasoning || "",
+      reasoningExpanded: false,
       usage: result.tokenUsage || null,
     });
     if (result.tokenUsage) emit("token-usage", result.tokenUsage);
@@ -464,24 +488,21 @@ async function sendAgentMessage(text, signal = null, abortId = null) {
   return result;
 }
 
-async function approveTool(msg) {
+async function handleToolDecision(msg, approved) {
   if (!pendingApproval.value) return;
 
   const decision = {
-    approved: true,
+    approved,
     toolName: pendingApproval.value.toolName,
     args: pendingApproval.value.args,
     toolCallId: pendingApproval.value.toolCallId,
   };
 
-  // Убираем approval блок и добавляем одобрение
   messages.value = messages.value.filter(m => m !== msg);
-
   isTyping.value = true;
   isCancelling.value = false;
   const controller = new AbortController();
   abortController.value = controller;
-  // Pre-generate abortId so STOP can cancel the backend immediately
   const continueAbortId = crypto.randomUUID();
   lastAbortId.value = continueAbortId;
   pendingApproval.value = null;
@@ -499,7 +520,6 @@ async function approveTool(msg) {
 
     isTyping.value = false;
 
-    // Capture abortId from continue response so STOP can cancel the backend
     if (result.abortId) lastAbortId.value = result.abortId;
 
     if (!result.success) {
@@ -511,6 +531,8 @@ async function approveTool(msg) {
       messages.value.push({
         role: "bot",
         content: result.reply,
+        reasoning: result.reasoning || "",
+        reasoningExpanded: false,
         usage: result.tokenUsage || null,
       });
     }
@@ -538,77 +560,8 @@ async function approveTool(msg) {
   }
 }
 
-async function rejectTool(msg) {
-  if (!pendingApproval.value) return;
-
-  const decision = {
-    approved: false,
-    toolName: pendingApproval.value.toolName,
-    args: pendingApproval.value.args,
-    toolCallId: pendingApproval.value.toolCallId,
-  };
-
-  messages.value = messages.value.filter(m => m !== msg);
-  isTyping.value = true;
-  isCancelling.value = false;
-  const controller = new AbortController();
-  abortController.value = controller;
-  // Pre-generate abortId so STOP can cancel the backend immediately
-  const continueAbortId = crypto.randomUUID();
-  lastAbortId.value = continueAbortId;
-  pendingApproval.value = null;
-  savePendingApproval(null);
-  pendingToolCalls.value = [];
-  savePendingToolCalls([]);
-
-  try {
-    const result = await agentChatContinue({
-      messages: approvalMessages.value,
-      approvalDecision: decision,
-      accountName: "",
-      abortId: continueAbortId,
-    }, controller.signal);
-
-    isTyping.value = false;
-
-    // Capture abortId from continue response so STOP can cancel the backend
-    if (result.abortId) lastAbortId.value = result.abortId;
-
-    if (!result.success) {
-      messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
-      return;
-    }
-
-    if (result.reply) {
-      messages.value.push({
-        role: "bot",
-        content: result.reply,
-        usage: result.tokenUsage || null,
-      });
-    }
-
-    addToolMessages(
-      result.toolCalls,
-      result.toolResults,
-      result.requiresApproval,
-      result.approvalToolName,
-      result.approvalArgs,
-      result.approvalToolCallId
-    );
-
-    approvalMessages.value = result.messages || [];
-    saveApprovalMessages(approvalMessages.value);
-  } catch (e) {
-    isTyping.value = false;
-    if (e.name === "AbortError") {
-      messages.value.push({ role: "bot", content: "🔴 Cancelled" });
-    } else {
-      messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
-    }
-  } finally {
-    if (abortController.value === controller) abortController.value = null;
-  }
-}
+function approveTool(msg) { return handleToolDecision(msg, true); }
+function rejectTool(msg) { return handleToolDecision(msg, false); }
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return;
@@ -691,10 +644,12 @@ const sendMessage = async () => {
       isStreaming.value = true;
       isTyping.value = false;
       streamingContent.value = "";
+      streamingReasoning.value = "";
+      reasoningDone.value = false;
 
       // Добавляем пустое сообщение бота, которое будем обновлять
       const botMsgIdx = messages.value.length;
-      messages.value.push({ role: "bot", content: "", streaming: true });
+      messages.value.push({ role: "bot", content: "", streaming: true, reasoning: "", reasoningExpanded: false });
 
       let fullContent = "";
       let lastUsage = null;
@@ -708,6 +663,13 @@ const sendMessage = async () => {
           systemPrompt: props.systemPrompt,
         },
         {
+          onReasoning: (chunk, accumulated) => {
+            streamingReasoning.value = accumulated;
+            messages.value[botMsgIdx].reasoning = accumulated;
+          },
+          onReasoningDone: () => {
+            reasoningDone.value = true;
+          },
           onContent: (chunk, accumulated) => {
             fullContent = accumulated;
             streamingContent.value = accumulated;
@@ -764,6 +726,7 @@ const sendMessage = async () => {
       const botMsg = {
         role: "bot",
         content: data.reply || "Пустой ответ",
+        reasoning: data.reasoning || "",
         usage: data.usage || null,
       };
       messages.value.push(botMsg);
@@ -857,11 +820,13 @@ onUnmounted(() => {
   window.removeEventListener("storage", handleStorageChange);
 });
 
-// 🔥 Автосохранение при изменении истории
+// 🔥 Автосохранение при изменении истории (debounced — не дёргаем на каждый стриминг-токен)
+let saveTimer = null;
 watch(
   messages,
-  (newVal) => {
-    saveChatHistory(newVal);
+  () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveChatHistory(messages.value), 500);
   },
   { deep: true }
 );
@@ -1561,5 +1526,66 @@ defineExpose({ clearChatHistory });
 
 .approval-btn.reject:hover {
   background: rgba(239, 68, 68, 0.2);
+}
+
+/* Reasoning block */
+.reasoning-block {
+  background: rgba(139, 92, 246, 0.06);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin: 2px 0;
+  max-width: 450px;
+}
+
+.reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.reasoning-header:hover {
+  background: var(--bg-hover);
+}
+
+.reasoning-icon {
+  font-size: 13px;
+}
+
+.reasoning-label {
+  flex: 1;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.reasoning-content {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 8px 10px;
+  margin: 0;
+  background: var(--bg-primary);
+  border-top: 1px solid rgba(139, 92, 246, 0.15);
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.toggle-label.active {
+  color: #8b5cf6;
+}
+
+.chat-header-right .agent-toggle:first-child {
+  margin-right: 2px;
 }
 </style>

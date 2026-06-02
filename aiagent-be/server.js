@@ -229,7 +229,19 @@ function initBot(token) {
 
       // НЕ await — запускаем в фоне, чтобы GrammY мог обработать /cancel
       agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
-        if (progress.type === "content") {
+        try {
+          if (progress.type === "reasoning") {
+            const now = Date.now();
+            if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
+              lastEditTime = now;
+              const snippet = progress.accumulated.length > 200
+                ? progress.accumulated.substring(0, 200) + "..."
+                : progress.accumulated;
+              await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+            }
+          } else if (progress.type === "reasoning_done") {
+            await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
+          } else if (progress.type === "content") {
           accumulatedContent = progress.accumulated;
           const now = Date.now();
           if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
@@ -243,6 +255,9 @@ function initBot(token) {
           await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
         } else if (progress.type === "response") {
           await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
+        }
+        } catch (e) {
+          addLog(`Progress update error: ${e.message}`, "error");
         }
       }, abortController.signal)
         .then((result) => {
@@ -926,13 +941,17 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId, abort
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
     let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
     if (!cleanResponse) cleanResponse = "✅ Done.";
+    const hasReasoning = result.reasoning && result.reasoning.length > 0;
+    const reasoningBlock = hasReasoning
+      ? `💭 Reasoning:\n\`\`\`\n${result.reasoning}\n\`\`\`\n\n`
+      : "";
     if (typeof draftMsgId === "number") {
-      // Если есть черновик — обновляем его (streaming mode)
-      await editDraftMessage(ctx, draftMsgId, "✅ " + cleanResponse);
+      await editDraftMessage(ctx, draftMsgId, reasoningBlock + cleanResponse);
     } else if (ctx.chat?.type === "private") {
-      await ctx.replyWithStream(chunkText(cleanResponse));
+      const fullText = reasoningBlock + cleanResponse;
+      await ctx.replyWithStream(chunkText(fullText));
     } else {
-      await replyMsg(ctx, cleanResponse);
+      await replyMsg(ctx, reasoningBlock + cleanResponse);
     }
     return true;
   }

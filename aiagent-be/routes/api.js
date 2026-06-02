@@ -41,6 +41,10 @@ export function createApiRouter(deps) {
   // ─── Auth middleware ─────────────────────────────────────────────────────
   router.use((req, res, next) => {
     if (req.path === "/health") return next();
+    if (!config.apiKey) {
+      addLog("API key not configured — auth disabled", "warning");
+      return next();
+    }
     const apiKey = req.headers["x-api-key"];
     if (!apiKey || apiKey !== config.apiKey) {
       addLog(`API auth failed: ${req.method} ${req.path} from ${req.ip}`, "warning");
@@ -183,6 +187,16 @@ export function createApiRouter(deps) {
     const checkPath = req.query.path;
     if (!checkPath) return res.status(400).json({ valid: false, error: "Path parameter required" });
     try {
+      const projectRoot = config.projectPath;
+      if (projectRoot) {
+        const resolved = path.resolve(checkPath);
+        const normalizedResolved = resolved.replace(/\\/g, "/").toLowerCase();
+        const normalizedRoot = path.resolve(projectRoot).replace(/\\/g, "/").toLowerCase();
+        const rootPrefix = normalizedRoot === "/" ? "/" : normalizedRoot.endsWith("/") ? normalizedRoot : normalizedRoot + "/";
+        if (normalizedResolved !== normalizedRoot && !normalizedResolved.startsWith(rootPrefix)) {
+          return res.status(403).json({ valid: false, error: "Path outside project directory" });
+        }
+      }
       const stat = await fs.promises.stat(path.resolve(checkPath));
       res.json({ valid: stat.isDirectory() });
     } catch {
@@ -309,7 +323,7 @@ export function createApiRouter(deps) {
     }
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
     if (body.maxTokens !== undefined) config.maxTokens = parseInt(body.maxTokens) || configDefaults.maxTokens;
-    if (body.temperature !== undefined) config.temperature = parseFloat(body.temperature);
+    if (body.temperature !== undefined) { const t = parseFloat(body.temperature); config.temperature = isNaN(t) ? configDefaults.temperature : t; }
     if (body.timeout !== undefined) config.timeout = parseInt(body.timeout);
     if (body.maxFileChars !== undefined) config.maxFileChars = parseInt(body.maxFileChars);
     if (body.maxHistoryPairs !== undefined) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
@@ -356,7 +370,7 @@ export function createApiRouter(deps) {
       const headers = { "Content-Type": "application/json" };
       if (isOpenRouter) {
         const apiKey = req.headers["x-openrouter-key"] || config.openrouterApiKey;
-        headers["Authorization"] = `Bearer ${apiKey}`;
+        headers["Authorization"] = `Bearer ${apiKey || ""}`;
         headers["HTTP-Referer"] = "https://agent-panel.local";
         headers["X-OpenRouter-Title"] = "AI Agent Panel";
       } else {
@@ -554,14 +568,6 @@ export function createApiRouter(deps) {
         const abortController = new AbortController();
         activeChatControllers.set(abortId, abortController);
 
-        // При отключении клиента — прерываем запрос
-        req.on("close", () => {
-          if (!res.writableEnded && activeChatControllers.has(abortId)) {
-            abortController.abort();
-            activeChatControllers.delete(abortId);
-          }
-        });
-
         let result;
         try {
           result = await agentLoopStep(message, "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account, null, abortController.signal);
@@ -624,6 +630,7 @@ export function createApiRouter(deps) {
         return res.json({
           success: true,
           reply: result.response || "",
+          reasoning: result.reasoning || "",
           messages: result.messages || [],
           toolCalls,
           toolResults,
@@ -647,7 +654,7 @@ export function createApiRouter(deps) {
       const isOpenRouter = actualServerUrl.includes("openrouter.ai");
       const chatHeaders = { "Content-Type": "application/json" };
       if (isOpenRouter) {
-        chatHeaders["Authorization"] = `Bearer ${config.openrouterApiKey}`;
+        chatHeaders["Authorization"] = `Bearer ${config.openrouterApiKey || ""}`;
         chatHeaders["HTTP-Referer"] = "https://agent-panel.local";
         chatHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
       } else {
@@ -694,6 +701,13 @@ export function createApiRouter(deps) {
         let fullContent = "";
         let perfStatsSent = false;
         const { usage: sseUsage, timings: sseTimings, tokensCached } = await parseStreamedResponse(response, {
+          onReasoning: (chunk, _accumulated) => {
+            if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+            res.write(`data: ${JSON.stringify({ reasoning: chunk })}\n\n`);
+          },
+          onReasoningDone: () => {
+            res.write(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`);
+          },
           onContent: (chunk, accumulated) => {
             if (!firstTokenMs) firstTokenMs = performance.now() - t0;
             fullContent += chunk;
@@ -802,6 +816,7 @@ export function createApiRouter(deps) {
         const data = await response.json();
         const msg = data.choices?.[0]?.message || {};
         const reply = msg.content || msg.reasoning_content || "Пустой ответ от модели";
+        const reasoning = msg.reasoning_content || "";
         const usage = data.usage || null;
 
         // Извлекаем tokens_cached (общий размер KV-кэша) и встраиваем в timings
@@ -844,7 +859,7 @@ export function createApiRouter(deps) {
           });
         }
         wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
-        res.json({ success: true, reply, usage, timings });
+        res.json({ success: true, reply, reasoning, usage, timings });
       }
     } catch (error) {
       stats.errors++;
@@ -980,6 +995,7 @@ export function createApiRouter(deps) {
       res.json({
         success: true,
         reply: result.response || "",
+        reasoning: result.reasoning || "",
         messages: result.messages || [],
         toolCalls,
         toolResults,
@@ -1017,7 +1033,7 @@ export function createApiRouter(deps) {
       const isOpenRouter = config.serverUrl.includes("openrouter.ai");
       const healthHeaders = {};
       if (isOpenRouter) {
-        healthHeaders["Authorization"] = `Bearer ${config.openrouterApiKey}`;
+        healthHeaders["Authorization"] = `Bearer ${config.openrouterApiKey || ""}`;
         healthHeaders["HTTP-Referer"] = "https://agent-panel.local";
         healthHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
       } else {

@@ -39,6 +39,7 @@ function resolveRealPath(p) {
  *   - Нормализует к forward slashes для сравнения
  */
 export function safePath(userPath, projectRoot) {
+  if (!projectRoot) throw new Error("Project root is not configured");
   // Trim projectRoot to handle trailing whitespace/newlines from env
   const trimmedRoot = projectRoot.trim();
   const cleanPath = userPath.replace(/^\.\//, "").trim();
@@ -65,7 +66,7 @@ export function safePath(userPath, projectRoot) {
   const normalizedRealRoot = normalize(realRoot);
   const normalizedRealPath = normalize(realPath);
 
-  const rootPrefix = normalizedRealRoot.endsWith("/") ? normalizedRealRoot : normalizedRealRoot + "/";
+  const rootPrefix = normalizedRealRoot === "/" ? "/" : normalizedRealRoot.endsWith("/") ? normalizedRealRoot : normalizedRealRoot + "/";
   if (normalizedRealPath !== normalizedRealRoot && !normalizedRealPath.startsWith(rootPrefix)) {
     throw new Error(`Path outside project is forbidden: ${resolvedPath.replace(/\\/g, "/")} (root: ${normalizedRealRoot})`);
   }

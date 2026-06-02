@@ -13,9 +13,12 @@ export function useSound(options = {}) {
     volumeLevel.value = v;
   }
 
-  function getCtx() {
+  function ensureContext() {
     if (!audioCtx.value) {
       audioCtx.value = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.value.state === "suspended") {
+      audioCtx.value.resume();
     }
     return audioCtx.value;
   }
@@ -26,7 +29,8 @@ export function useSound(options = {}) {
 
   function playTone({ freq = 440, duration = 0.12, type = "sine", volume = 0.3 } = {}) {
     try {
-      const ctx = getCtx();
+      const ctx = audioCtx.value;
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = type;
@@ -37,8 +41,8 @@ export function useSound(options = {}) {
       gain.connect(ctx.destination);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + duration);
-    } catch {
-      /* silent */
+    } catch (e) {
+      console.warn("[useSound] playTone error:", e);
     }
   }
 
@@ -53,6 +57,7 @@ export function useSound(options = {}) {
   }
 
   function send() {
+    ensureContext();
     playSequence([
       { freq: 600, duration: 0.06, type: "sine", volume: 0.25 },
       { freq: 900, duration: 0.08, type: "sine", volume: 0.2 },
@@ -60,6 +65,7 @@ export function useSound(options = {}) {
   }
 
   function receive() {
+    ensureContext();
     playSequence([
       { freq: 1200, duration: 0.04, type: "sine", volume: 0.2 },
       { freq: 800, duration: 0.06, type: "sine", volume: 0.15 },
@@ -67,8 +73,16 @@ export function useSound(options = {}) {
   }
 
   function error() {
+    ensureContext();
     playTone({ freq: 200, duration: 0.2, type: "sawtooth", volume: 0.2 });
   }
 
-  return { playTone, playSequence, click, send, receive, error, setVolume };
+  function cleanup() {
+    if (audioCtx.value) {
+      audioCtx.value.close().catch(() => {});
+      audioCtx.value = null;
+    }
+  }
+
+  return { playTone, playSequence, click, send, receive, error, setVolume, cleanup };
 }

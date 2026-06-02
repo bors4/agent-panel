@@ -60,6 +60,10 @@ const BLOCKED_PATTERNS = [
   { pattern: /shutdown|reboot|halt|poweroff/i, description: "system power" },
   { pattern: /mkfs|dd\s+if=/i, description: "disk write" },
   { pattern: /:\(\)\s*\{/, description: "fork bomb" },
+  { pattern: /Remove-Item\s+-Recurse\s+-Force/i, description: "PowerShell recursive force delete" },
+  { pattern: /rm\s+-rf\s+\S*\$/, description: "recursive delete with variable expansion" },
+  { pattern: /Clear-Item|Clear-Content|rm\s+-recurse/i, description: "PowerShell content removal" },
+  { pattern: /Format-Volume|Format-C/i, description: "PowerShell disk format" },
 ];
 
 /**
@@ -486,7 +490,7 @@ export function rejectReDoS(pattern) {
       if (hadQuantifier && depth > 0) {
         depthHasQuantifier.add(depth);
       }
-    } else if ((c === "+" || c === "*" || c === "?") && pattern[i - 1] !== "\\" && depth > 0) {
+    } else if ((c === "+" || c === "*" || c === "?" || c === "{") && pattern[i - 1] !== "\\" && depth > 0) {
       depthHasQuantifier.add(depth);
     }
   }
@@ -770,6 +774,10 @@ export async function executeTool(toolCall, config = {}) {
                   .replace(/^(-command|-c)\s+/i, "")
                   .trim()
                   .replace(/^["'](.*)["']\s*$/, "$1");
+                const pwshCheck = sanitizeCommand(pwshCmd);
+                if (pwshCheck.blocked) {
+                  throw new Error(pwshCheck.reason);
+                }
                 return { shell: "powershell.exe", shellArgs: ["-NoLogo", "-NoProfile", "-Command", pwshCmd] };
               })()
             : isWin
@@ -842,7 +850,7 @@ export async function executeTool(toolCall, config = {}) {
 
         // Clean up from active processes after 1 min
         entry.promise.then(() => {
-          setTimeout(() => activeProcesses.delete(taskId), 60000);
+          setTimeout(() => { entry.expired = true; }, 60000);
         });
 
         return {
