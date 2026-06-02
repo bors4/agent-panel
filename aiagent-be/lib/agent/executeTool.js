@@ -42,6 +42,45 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 // ============================================================================
+// COMMAND SAFETY
+// ============================================================================
+
+/** Паттерны опасных конструкций shell для блокировки command injection. */
+const BLOCKED_PATTERNS = [
+  { pattern: /;\s*\S/, description: "command chaining with semicolon" },
+  { pattern: /&&\s*\S/, description: "conditional chaining with &&" },
+  { pattern: /\|\s*\S/, description: "pipe" },
+  { pattern: /\$\(.*\)/, description: "subshell $()" },
+  { pattern: /`[^`]+`/, description: "backtick subshell" },
+  { pattern: />>?\s*\S/, description: "redirect output" },
+  { pattern: /<\s*\S/, description: "input redirect" },
+  { pattern: /rm\s+-rf\s+[/~]/i, description: "recursive delete from root" },
+  { pattern: /del\s+\/[fqs]/i, description: "Windows force delete" },
+  { pattern: /format\s+[a-zA-Z]:/i, description: "disk format" },
+  { pattern: /shutdown|reboot|halt|poweroff/i, description: "system power" },
+  { pattern: /mkfs|dd\s+if=/i, description: "disk write" },
+  { pattern: /:\(\)\s*\{/, description: "fork bomb" },
+  { pattern: /Remove-Item\s+-Recurse\s+-Force/i, description: "PowerShell recursive force delete" },
+  { pattern: /rm\s+-rf\s+\S*\$/, description: "recursive delete with variable expansion" },
+  { pattern: /Clear-Item|Clear-Content|rm\s+-recurse/i, description: "PowerShell content removal" },
+  { pattern: /Format-Volume|Format-C/i, description: "PowerShell disk format" },
+];
+
+/**
+ * Проверить команду на наличие опасных паттернов.
+ * @param {string} command - Shell команда
+ * @returns {{blocked: boolean, reason?: string}}
+ */
+export function sanitizeCommand(command) {
+  for (const { pattern, description } of BLOCKED_PATTERNS) {
+    if (pattern.test(command)) {
+      return { blocked: true, reason: `Blocked: ${description}` };
+    }
+  }
+  return { blocked: false };
+}
+
+// ============================================================================
 // DEFAULT CONFIGURATION
 // ============================================================================
 
@@ -451,7 +490,7 @@ export function rejectReDoS(pattern) {
       if (hadQuantifier && depth > 0) {
         depthHasQuantifier.add(depth);
       }
-    } else if ((c === "+" || c === "*" || c === "?") && pattern[i - 1] !== "\\" && depth > 0) {
+    } else if ((c === "+" || c === "*" || c === "?" || c === "{") && pattern[i - 1] !== "\\" && depth > 0) {
       depthHasQuantifier.add(depth);
     }
   }
@@ -561,17 +600,25 @@ async function searchDirectory(dirPath, pattern, results, depth, extension, maxR
  */
 export async function executeTool(toolCall, config = {}) {
   const { name, args = {} } = toolCall;
-  // Resolve projectPath: server passes it via config (from .env or API /api/config).
-  const rawPath = config.projectPath || "";
   const account = config.account;
-  // If no project path is configured at all, return a clear error
-  if (!rawPath) {
+  const chatMode = config.chatMode || false;
+
+  // In chatMode: always ignore projectPath, use account.include_paths[0]
+  // Outside chatMode: use projectPath from config
+  let resolvedPath;
+  if (chatMode) {
+    resolvedPath = account?.include_paths?.[0] || "";
+  } else {
+    resolvedPath = config.projectPath || "";
+  }
+
+  if (!resolvedPath) {
     return {
       success: false,
       error: "Project path is not configured. Set it in Settings or PROJECT_PATH in .env",
     };
   }
-  const projectPath = path.resolve(rawPath);
+  const projectPath = path.resolve(resolvedPath);
   const maxResults = config.maxSearchResults ?? configDefaults.maxSearchResults;
   const maxSearchFileSize = config.maxSearchFileSize ?? configDefaults.maxSearchFileSize;
   const maxFileChars = config.maxFileChars ?? configDefaults.maxFileChars;
@@ -708,6 +755,12 @@ export async function executeTool(toolCall, config = {}) {
         const timeoutSec = args.timeout !== undefined
           ? (args.timeout > 0 ? Math.min(args.timeout, 3600) : (args.timeout === 0 ? 0 : 1))
           : defaultTimeout;
+
+        const cmdCheck = sanitizeCommand(args.command);
+        if (cmdCheck.blocked) {
+          return { success: false, error: cmdCheck.reason };
+        }
+
         const isWin = process.platform === "win32";
         const trimmedCmd = args.command.trimStart();
         const isPwsh = /^powershell\b/i.test(trimmedCmd) || /^pwsh\b/i.test(trimmedCmd);
@@ -721,6 +774,10 @@ export async function executeTool(toolCall, config = {}) {
                   .replace(/^(-command|-c)\s+/i, "")
                   .trim()
                   .replace(/^["'](.*)["']\s*$/, "$1");
+                const pwshCheck = sanitizeCommand(pwshCmd);
+                if (pwshCheck.blocked) {
+                  throw new Error(pwshCheck.reason);
+                }
                 return { shell: "powershell.exe", shellArgs: ["-NoLogo", "-NoProfile", "-Command", pwshCmd] };
               })()
             : isWin
@@ -793,7 +850,7 @@ export async function executeTool(toolCall, config = {}) {
 
         // Clean up from active processes after 1 min
         entry.promise.then(() => {
-          setTimeout(() => activeProcesses.delete(taskId), 60000);
+          setTimeout(() => { entry.expired = true; }, 60000);
         });
 
         return {

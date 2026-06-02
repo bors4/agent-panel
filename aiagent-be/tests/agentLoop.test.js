@@ -2,8 +2,8 @@
  * Тесты для модуля agent loop.
  */
 
-import { describe, it, expect } from "vitest";
-import { buildSystemMessage } from "../lib/agent/agentLoop.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { buildSystemMessage, agentLoopStep } from "../lib/agent/agentLoop.js";
 
 describe("buildSystemMessage", () => {
   const projectPath = "/home/user/project";
@@ -59,5 +59,81 @@ describe("buildSystemMessage", () => {
     const msg = buildSystemMessage(projectPath, "", true);
     expect(msg).toContain("Windows Rules");
     expect(msg).toContain("PowerShell");
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════
+// agentLoopStep — OpenRouter headers
+// ═════════════════════════════════════════════════════════════════
+describe("agentLoopStep OpenRouter headers", () => {
+  /** @type {import("vitest").MockInstance} */
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "Hello!", role: "assistant" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+  });
+
+  afterEach(() => {
+    fetchMock.mockRestore();
+  });
+
+  const baseCfg = {
+    serverUrl: "http://localhost:8080/v1",
+    modelName: "test-model",
+    apiKey: "local-key",
+    openrouterApiKey: "",
+    maxTokens: 1024,
+    temperature: 0.1,
+    timeout: 30000,
+    stream: false,
+    projectPath: "/tmp/test",
+    systemPrompt: "",
+    chatMode: false,
+    maxHistoryPairs: 5,
+    insertUserAfterTool: false,
+  };
+
+  it("uses openrouterApiKey when serverUrl contains openrouter.ai", async () => {
+    const cfg = {
+      ...baseCfg,
+      serverUrl: "https://openrouter.ai/api/v1",
+      openrouterApiKey: "sk-or-v1-agent-loop",
+    };
+
+    await agentLoopStep("hello", "test-chat", [], cfg, 1, null, null);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("openrouter.ai"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer sk-or-v1-agent-loop",
+          "HTTP-Referer": "https://agent-panel.local",
+          "X-OpenRouter-Title": "AI Agent Panel",
+        }),
+      }),
+    );
+  });
+
+  it("uses apiKey for local server (no OpenRouter headers)", async () => {
+    await agentLoopStep("hello", "test-chat", [], baseCfg, 1, null, null);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("localhost"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer local-key",
+        }),
+      }),
+    );
+    // Should NOT have OpenRouter-specific headers
+    const callArgs = fetchMock.mock.calls[0];
+    expect(callArgs[1].headers["HTTP-Referer"]).toBeUndefined();
+    expect(callArgs[1].headers["X-OpenRouter-Title"]).toBeUndefined();
   });
 });

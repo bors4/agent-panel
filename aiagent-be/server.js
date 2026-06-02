@@ -20,30 +20,373 @@ dotenv.config();
 // ─── Инициализация Express и Telegram бота ─────────────────────────────────
 
 const app = express();
-const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
-bot.api.config.use(autoRetry());
-bot.use(stream());
 
-bot.use(async (ctx, next) => {
-  const username = ctx.chat?.username;
-  const account = getAccountByUsername(username);
-  if (!account) {
-    await replyMsg(
-      ctx,
-      `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered.\nContact the administrator to get access.`
+/**
+ * Экземпляр Telegram Bot (GrammY). Может быть null до первого запуска или сброса.
+ * Создаётся через initBot(token). Заменяется при смене токена через API.
+ * @type {Bot|null}
+ */
+let bot = null;
+
+/**
+ * Фабрика создания GrammY Bot с полным набором хендлеров.
+ * Создаёт экземпляр Bot, подключает middleware (autoRetry, stream), account check,
+ * команды (/start, /help, /model, /clear, /tools, /tasks, /cancel, /mode),
+ * обработчик сообщений (agent loop) и callback query handler (approve/deny).
+ * @param {string} token - Telegram Bot API токен
+ * @returns {Bot|null} Экземпляр GrammY Bot с хендлерами или null если token пустой
+ */
+function initBot(token) {
+  if (!token) return null;
+  const b = new Bot(token);
+  b.api.config.use(autoRetry());
+  b.use(stream());
+  b.use(async (ctx, next) => {
+    const username = ctx.chat?.username;
+    const account = getAccountByUsername(username);
+    if (!account) {
+      await replyMsg(
+        ctx,
+        `❌ <b>Access denied</b>\n\nYour account (@${username || "unknown"}) is not registered.\nContact the administrator to get access.`
+      );
+      return;
+    }
+    ctx.account = account;
+    await next();
+  });
+
+  // ─── Telegram Commands ─────────────────────────────────────────────────
+  b.command("start", (ctx) => {
+    if (config.modelName === "Имя модели") {
+      ctx.reply("⚠️ Модель не выбрана. Настройте модель в веб-интерфейсе.", REPLY_OPTS);
+      return;
+    }
+    updateStatus("running", "Работает");
+    ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
+  });
+
+  b.command("help", (ctx) => {
+    ctx.reply(
+      "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel &lt;id&gt; - Cancel task\n/mode &lt;chat|project&gt; - Switch mode",
+      REPLY_OPTS
     );
-    return;
-  }
-  ctx.account = account;
-  await next();
-});
+  });
+
+  b.command("model", (ctx) => {
+    ctx.reply(`Model: ${config.modelName}\nServer: ${config.serverUrl}`, REPLY_OPTS);
+  });
+
+  b.command("clear", (ctx) => {
+    chatHistories.delete(ctx.chat.id.toString());
+    ctx.reply("🗑️ History cleared!", REPLY_OPTS);
+  });
+
+  b.command("tools", async (ctx) => {
+    const account = ctx.account;
+    const toolList = Object.entries(TOOLS)
+      .map(([name, tool]) => {
+        const enabled = account.permissions?.[name] !== false;
+        const icon = enabled ? "✅" : "❌";
+        return `${icon} <b>${name}</b>: ${tool.description}`;
+      })
+      .join("\n");
+    ctx.reply(`📦 Tools for @${ctx.chat.username} (${account.role}):\n\n${toolList}`, REPLY_OPTS);
+  });
+
+  b.command("tasks", (ctx) => {
+    const tasks = getActiveTasks();
+    if (tasks.length === 0) {
+      ctx.reply("No active tasks.", REPLY_OPTS);
+      return;
+    }
+    const lines = tasks.map((t) => {
+      const uptime = Math.floor(t.uptime / 1000);
+      return `• <code>${t.taskId.substring(0, 8)}</code> <b>${t.command}</b> (${uptime}s)`;
+    });
+    ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
+  });
+
+  b.command("cancel", async (ctx) => {
+    const chatId = ctx.chat.id.toString();
+    const text = ctx.message?.text || "";
+    const parts = text.trim().split(/\s+/);
+    const taskIdArg = parts[1];
+
+    // Если есть активный agent loop для этого чата — отменяем его
+    const agentController = activeAgentControllers.get(chatId);
+    if (agentController && !agentController.signal.aborted) {
+      agentController.abort();
+      // Identity check: удаляем только если это всё ещё тот же контроллер
+      if (activeAgentControllers.get(chatId) === agentController) {
+        activeAgentControllers.delete(chatId);
+      }
+      await replyMsg(ctx, "❌ Cancelled.");
+      return;
+    }
+
+    // Отменяем ожидающее подтверждение инструмента
+    const pending = pendingApprovals.get(chatId);
+    if (pending) {
+      pendingApprovals.delete(chatId);
+      await replyMsg(ctx, `❌ Cancelled pending approval for ${pending.toolName}.`);
+      return;
+    }
+
+    // Если передан taskId — отменяем execute-таск (старое поведение)
+    if (taskIdArg) {
+      const tasks = getActiveTasks();
+      const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
+      if (!match) {
+        await replyMsg(ctx, `❌ Task not found: ${taskIdArg}`);
+        return;
+      }
+      if (cancelTask(match.taskId)) {
+        await replyMsg(ctx, `❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`);
+      } else {
+        await replyMsg(ctx, `⚠️ Task ${taskIdArg} is no longer running.`);
+      }
+      return;
+    }
+
+    // Нет ни активного agent loop, ни taskId
+    await replyMsg(ctx, "No active request to cancel.");
+  });
+
+  b.command("mode", (ctx) => {
+    const text = ctx.message?.text || "";
+    const parts = text.trim().split(/\s+/);
+    const mode = parts[1];
+    if (mode === "chat") {
+      config.chatMode = true;
+      ctx.reply("✅ Chat mode enabled. No project context.", REPLY_OPTS);
+    } else if (mode === "project") {
+      config.chatMode = false;
+      ctx.reply("✅ Project mode enabled.", REPLY_OPTS);
+    } else {
+      ctx.reply(
+        `Current mode: <b>${config.chatMode ? "chat" : "project"}</b>\n\nUsage: /mode chat | /mode project`,
+        REPLY_OPTS
+      );
+    }
+  });
+
+  // ─── Message Handler ───────────────────────────────────────────────────
+  b.on("message", async (ctx) => {
+    const message = ctx.message?.text || ctx.message?.caption;
+    if (!message) {
+      ctx.reply("Только текст.", REPLY_OPTS);
+      return;
+    }
+
+    if (message === "✅ YES" || message === "❌ NO" || message === "YES" || message === "NO") {
+      return;
+    }
+
+    if (!config.projectPath) {
+      await replyMsg(
+        ctx,
+        "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env"
+      );
+      return;
+    }
+
+    const account = ctx.account;
+    const chatId = ctx.chat.id.toString();
+    if (!recordAndCheckRateLimit(chatId)) {
+      await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
+      return;
+    }
+    addLog(`Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`, "info");
+    stats.requests++;
+    wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
+
+    let draftMsgId;
+    let safeCleanup;
+    let abortController;
+    try {
+      await sendTyping(ctx);
+      draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
+
+      const history = chatHistories.get(chatId) || [];
+      let accumulatedContent = "";
+      let lastEditTime = 0;
+      const MIN_EDIT_INTERVAL = 1000;
+
+      // Если был предыдущий активный запрос для этого чата — отменяем его
+      const prevController = activeAgentControllers.get(chatId);
+      if (prevController && !prevController.signal.aborted) prevController.abort();
+
+      // Функция безопасного удаления контроллера из мапы (должна быть объявлена до set)
+      safeCleanup = (ctrl) => {
+        if (activeAgentControllers.get(chatId) === ctrl) {
+          activeAgentControllers.delete(chatId);
+        }
+      };
+
+      // Регистрируем AbortController для /cancel
+      abortController = new AbortController();
+      activeAgentControllers.set(chatId, abortController);
+
+      // НЕ await — запускаем в фоне, чтобы GrammY мог обработать /cancel
+      agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
+        try {
+          if (progress.type === "reasoning") {
+            const now = Date.now();
+            if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
+              lastEditTime = now;
+              const snippet = progress.accumulated.length > 200
+                ? progress.accumulated.substring(0, 200) + "..."
+                : progress.accumulated;
+              await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+            }
+          } else if (progress.type === "reasoning_done") {
+            await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
+          } else if (progress.type === "content") {
+          accumulatedContent = progress.accumulated;
+          const now = Date.now();
+          if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
+            lastEditTime = now;
+            const display = accumulatedContent.length > 300
+              ? accumulatedContent.substring(0, 300) + "..."
+              : accumulatedContent;
+            await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
+          }
+        } else if (progress.type === "tool") {
+          await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
+        } else if (progress.type === "response") {
+          await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
+        }
+        } catch (e) {
+          addLog(`Progress update error: ${e.message}`, "error");
+        }
+      }, abortController.signal)
+        .then((result) => {
+          safeCleanup(abortController);
+          if (result.tokenUsage) {
+            tokenUsage.prompt += result.tokenUsage.prompt || 0;
+            tokenUsage.completion += result.tokenUsage.completion || 0;
+            tokenUsage.total += result.tokenUsage.total || 0;
+            tokenUsage.cached += result.tokenUsage.cached || 0;
+            if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
+            wsBroadcast("tokenUsage", { ...tokenUsage });
+          }
+          if (result.timings) {
+            wsBroadcast("perfStats", buildPerfStats(result.timings));
+          }
+          // Если отменено через /cancel — не шлём ответ (cancel handler уже ответил)
+          if (result.cancelled) {
+            addLog("Agent loop cancelled by user", "warning");
+            return;
+          }
+          addLog(
+            `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
+            "info"
+          );
+          handleAgentResult(ctx, chatId, result, account, draftMsgId, abortController.signal).catch((err) => {
+            addLog(`handleAgentResult error: ${err.message}`, "error");
+          });
+        })
+        .catch((error) => {
+          safeCleanup(abortController);
+          addLog(`Bot error: ${error.message}`, "error");
+          if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+          replyMsg(ctx, `❌ Error: ${error.message}`).catch(() => {});
+        });
+
+      // Возвращаемся — GrammY может обработать следующий апдейт (например, /cancel)
+    } catch (error) {
+      if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+      safeCleanup?.(abortController);
+      await replyMsg(ctx, `❌ Error: ${error.message}`);
+      addLog(`Bot error: ${error.message}`, "error");
+    }
+  });
+
+  // ─── Callback Handler ──────────────────────────────────────────────────
+  b.on("callback_query", async (ctx) => {
+    const callbackData = ctx.callbackQuery.data;
+    const chatId = ctx.chat.id.toString();
+    addLog(`Callback: ${callbackData} from ${chatId}`, "info");
+
+    if (callbackData.startsWith("approve_")) {
+      const toolName = callbackData.replace("approve_", "");
+      const pending = pendingApprovals.get(chatId);
+
+      if (!pending || pending.toolName !== toolName) {
+        addLog(`Stale approve: tool=${toolName}, pending=${pending?.toolName || "none"}`, "warning");
+        await ctx.answerCallbackQuery("❌ Request not found or outdated");
+        return;
+      }
+
+      addLog(`Executing: ${toolName} with args=${JSON.stringify(pending.args)}`, "success");
+      await ctx.answerCallbackQuery("Executing...");
+      await clearButtons(ctx);
+      pendingApprovals.delete(chatId);
+      await sendTyping(ctx);
+
+      // Регистрируем AbortController, чтобы /cancel мог прервать продолжение
+      const prevController = activeAgentControllers.get(chatId);
+      if (prevController && !prevController.signal.aborted) prevController.abort();
+      const approvalAbortController = new AbortController();
+      activeAgentControllers.set(chatId, approvalAbortController);
+
+      continueAfterApproval(ctx, pending, 0, approvalAbortController.signal)
+        .catch((err) => {
+          addLog(`continueAfterApproval (async) error: ${err.message}`, "error");
+        })
+        .finally(() => {
+          if (activeAgentControllers.get(chatId) === approvalAbortController) {
+            activeAgentControllers.delete(chatId);
+          }
+        });
+    } else if (callbackData.startsWith("deny_")) {
+      const toolName = callbackData.replace("deny_", "");
+      const pending = pendingApprovals.get(chatId);
+      pendingApprovals.delete(chatId);
+      addLog(`Deny: ${toolName}`, "warning");
+      await ctx.answerCallbackQuery("Cancelled");
+      await clearButtons(ctx);
+
+      if (pending) {
+        const deniedMessages = [
+          ...pending.messages,
+          {
+            role: "tool",
+            tool_call_id: pending.toolCallId,
+            content: JSON.stringify({ success: false, error: "denied by user" }),
+          },
+        ];
+        deniedMessages.push({ role: "assistant", content: "" });
+        chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
+      }
+
+      await replyMsg(ctx, `❌ <b>${toolName}</b> cancelled. The tool was not executed.`);
+    }
+  });
+
+  b.catch((err, ctx) => {
+    addLog(`Bot error: ${err.message}`, "error");
+    if (ctx) {
+      ctx.reply(`❌ Error: ${err.message}`, REPLY_OPTS).catch(() => {});
+    }
+  });
+
+  return b;
+}
+
+const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+if (telegramToken) {
+  bot = initBot(telegramToken);
+} else {
+  console.warn("[server] TELEGRAM_BOT_TOKEN not set — use web panel to configure");
+}
 
 // ─── Состояние приложения ──────────────────────────────────────────────────
 
 /**
  * Конфигурация приложения. Обновляется через API /api/config.
  * Все дефолтные значения — в lib/configDefaults.js.
- * .env используется только для TELEGRAM_BOT_TOKEN и API_KEY.
+ * .env используется только для TELEGRAM_BOT_TOKEN, API_KEY и OPENROUTER_API_KEY.
  * @type {Object}
  * @property {string} serverUrl - URL AI сервера
  * @property {string} modelName - Имя модели (из UI или .env)
@@ -58,6 +401,11 @@ bot.use(async (ctx, next) => {
  * @property {number} maxSearchResults - Макс. результатов поиска
  * @property {number} maxFilesInPrompt - Макс. файлов в промпте
  * @property {number} maxSearchFileSize - Макс. размер файла для поиска (байт)
+ * @property {boolean} stream - Потоковый вывод SSE
+ * @property {boolean} insertUserAfterTool - Вставлять "Continue" после tool-сообщений
+ * @property {boolean} chatMode - Режим простого чата без проектного контекста
+ * @property {string} openrouterApiKey - API ключ OpenRouter (из .env или UI)
+ * @property {string} telegramToken - Telegram Bot токен (из .env или UI)
  */
 const config = {
   serverUrl: configDefaults.serverUrl,
@@ -71,6 +419,8 @@ const config = {
   maxSearchFileSize: configDefaults.maxSearchFileSize,
   stream: configDefaults.stream,
   insertUserAfterTool: configDefaults.insertUserAfterTool,
+  openrouterApiKey: process.env.OPENROUTER_API_KEY || configDefaults.openrouterApiKey,
+  telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
 };
 
 /**
@@ -170,6 +520,9 @@ const chatHistories = new Map();
 /** @type {Map.<string, Object>} */
 const pendingApprovals = new Map();
 
+/** @type {Map<string, AbortController>} — реестр agent loop запросов для Telegram /cancel */
+const activeAgentControllers = new Map();
+
 /** @type {Object | null} */
 let wss = null;
 
@@ -263,7 +616,9 @@ app.use(requestLogger);
 
 const apiRouter = createApiRouter({
   config,
-  bot,
+  get bot() { return bot; },
+  set bot(v) { bot = v; },
+  initBot,
   stats,
   chatHistories,
   pendingApprovals,
@@ -289,9 +644,17 @@ const REPLY_OPTS = {
 
 /**
  * Экранирует недопустимые HTML-теги для Telegram API.
- * Telegram поддерживает только: b, i, u, s, code, pre, tg-spoiler, a, strong, em.
- * @param {string} text - Исходный текст с HTML
- * @returns {string} Безопасный текст
+ * Telegram поддерживает только ограниченный набор тегов:
+ * b, i, u, s, code, pre, tg-spoiler, a, strong, em.
+ * Остальные теги (включая произвольные, script, style и т.д.) заменяются
+ * на HTML-сущности (&lt;tag&gt;), что предотвращает ошибку
+ * "can't parse entities" от Telegram API.
+ *
+ * Использует регулярное выражение для обнаружения любых HTML-подобных тегов
+ * и сверяет имя тега (регистронезависимо) со списком разрешённых.
+ *
+ * @param {string} text - Исходный текст, который может содержать HTML-теги
+ * @returns {string} Текст, где неразрешённые теги экранированы в HTML-сущности
  */
 function sanitizeTelegramHtml(text) {
   return text.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (match, slash, tag) => {
@@ -303,10 +666,17 @@ function sanitizeTelegramHtml(text) {
 
 /**
  * Отправить сообщение в Telegram с fallback на plain text.
- * @param {Object} ctx - GrammY контекст
- * @param {string} text - Текст сообщения
- * @param {Object} extra - Дополнительные опции
- * @returns {Promise<number|null>} ID отправленного сообщения
+ *
+ * Сначала пытается отправить HTML-сообщение через `ctx.reply()`.
+ * Если Telegram возвращает ошибку "can't parse entities" или "Bad Request"
+ * (невалидный HTML), удаляет все HTML-теги и отправляет обычный текст.
+ * Все ошибки перехватываются и логируются в консоль — метод никогда
+ * не выбрасывает исключений наружу.
+ *
+ * @param {Object} ctx - GrammY контекст (содержит chat, api и методы reply)
+ * @param {string} text - Текст сообщения (может содержать HTML-теги)
+ * @param {Object} extra - Дополнительные опции Telegram (reply_markup и т.д.)
+ * @returns {Promise<number|null>} ID отправленного сообщения или null при ошибке
  */
 async function replyMsg(ctx, text, extra = {}) {
   try {
@@ -356,9 +726,17 @@ async function sendTyping(ctx) {
 
 /**
  * Разбивает текст на чанки для streaming в Telegram.
- * Генерирует части по 80-150 символов, стараясь не разрывать слова.
- * @param {string} text - Исходный текст
- * @returns {AsyncGenerator<string>}
+ * Генерирует части длиной от 80 до 150 символов, стараясь не разрывать слова
+ * (разделяет по границе последнего пробела перед лимитом).
+ *
+ * Поведение:
+ * - Если остаток текста ≤ 150 символов — отдаёт его целиком и завершает итерацию.
+ * - Если граница слова найдена на расстоянии > 80 символов от начала — режет по ней.
+ * - Если граница слова не найдена — режет ровно на 150 символов.
+ * - Разделитель (пробел) не включается в следующий чанк (start = end + 1).
+ *
+ * @param {string} text - Исходный текст для разбиения
+ * @returns {AsyncGenerator<string>} Асинхронный генератор чанков текста
  */
 async function* chunkText(text) {
   const maxChunk = 150;
@@ -399,6 +777,8 @@ async function clearButtons(ctx) {
   }
 }
 
+// ─── Telegram Commands (registered inside initBot) ────────────────────────
+
 // ─── Обработка сообщений от пользователей ───────────────────────────────────
 
 /**
@@ -407,93 +787,22 @@ async function clearButtons(ctx) {
  * @param {Object} ctx - GrammY контекст сообщения
  * @returns {Promise<void>}
  */
-bot.on("message", async (ctx) => {
-  const message = ctx.message?.text || ctx.message?.caption;
-  if (!message) {
-    ctx.reply("Только текст.", REPLY_OPTS);
-    return;
-  }
-
-  // Игнорировать тексты кнопок подтверждения
-  if (message === "✅ YES" || message === "❌ NO" || message === "YES" || message === "NO") {
-    return;
-  }
-
-  if (!config.projectPath) {
-    await replyMsg(
-      ctx,
-      "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env"
-    );
-    return;
-  }
-
-  const account = ctx.account;
-  const chatId = ctx.chat.id.toString();
-  if (!recordAndCheckRateLimit(chatId)) {
-    await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
-    return;
-  }
-  addLog(`Message from ${ctx.chat.username || chatId}: ${message.substring(0, 50)}...`, "info");
-  stats.requests++;
-  wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
-
-  let draftMsgId;
-  try {
-    await sendTyping(ctx);
-    draftMsgId = await sendDraft(ctx, "⏳ Analyzing request...");
-
-    const history = chatHistories.get(chatId) || [];
-    let accumulatedContent = "";
-    let lastEditTime = 0;
-    const MIN_EDIT_INTERVAL = 1000; // Не чаще раза в секунду
-
-    const result = await agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
-      if (progress.type === "content") {
-        accumulatedContent = progress.accumulated;
-        const now = Date.now();
-        if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
-          lastEditTime = now;
-          const display = accumulatedContent.length > 300
-            ? accumulatedContent.substring(0, 300) + "..."
-            : accumulatedContent;
-          await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
-        }
-      } else if (progress.type === "tool") {
-        await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
-      } else if (progress.type === "response") {
-        await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
-      }
-    });
-    if (result.tokenUsage) {
-      tokenUsage.prompt += result.tokenUsage.prompt;
-      tokenUsage.completion += result.tokenUsage.completion;
-      tokenUsage.total += result.tokenUsage.total;
-      tokenUsage.cached += result.tokenUsage.cached;
-      if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
-      wsBroadcast("tokenUsage", { ...tokenUsage });
-    }
-    if (result.timings) {
-      wsBroadcast("perfStats", buildPerfStats(result.timings));
-    }
-    addLog(
-      `agentLoopStep: requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
-      "info"
-    );
-
-    await handleAgentResult(ctx, chatId, result, account, draftMsgId);
-  } catch (error) {
-    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-    await replyMsg(ctx, `❌ Error: ${error.message}`);
-    addLog(`Bot error: ${error.message}`, "error");
-  }
-});
+// Handler registered inside initBot()
 
 /**
- * Отправить черновик сообщения.
+ * Отправить черновик сообщения (используется для индикации прогресса).
+ * Применяет санитизацию HTML через `sanitizeTelegramHtml()` и стандартные
+ * опции `REPLY_OPTS` (HTML parse mode + отключённый превью ссылок).
+ *
+ * Внимание: в отличие от `replyMsg()`, этот метод НЕ перехватывает ошибки
+ * Telegram API. При проблемах с отправкой (например, слишком длинный текст)
+ * исключение пробрасывается наверх. Вызывающий код должен обрабатывать ошибки
+ * самостоятельно (обычно в catch-блоке message handler).
+ *
  * @param {Object} ctx - GrammY контекст
- * @param {string} text - Текст
- * @param {Object} extra - Дополнительные опции
- * @returns {Promise<number>}
+ * @param {string} text - Текст черновика
+ * @param {Object} extra - Дополнительные опции Telegram (переопределяют REPLY_OPTS)
+ * @returns {Promise<number>} ID отправленного сообщения
  */
 async function sendDraft(ctx, text, extra = {}) {
   const sent = await ctx.reply(sanitizeTelegramHtml(text), {
@@ -504,10 +813,19 @@ async function sendDraft(ctx, text, extra = {}) {
 }
 
 /**
- * Обновить существующее сообщение (для потокового вывода).
+ * Обновить существующее сообщение (для потокового вывода промежуточных результатов).
+ *
+ * Безопасный метод — перехватывает и игнорирует штатные ошибки Telegram API:
+ * - "message is not modified" — контент не изменился;
+ * - "message to edit not found" — сообщение удалено;
+ * - "MESSAGE_ID_INVALID" — невалидный ID.
+ * Все остальные ошибки выводятся в консоль, но не выбрасываются наружу.
+ *
+ * Если `messageId` не передан (falsy), метод сразу завершается без вызова API.
+ *
  * @param {Object} ctx - GrammY контекст
  * @param {number} messageId - ID сообщения для обновления
- * @param {string} text - Новый текст
+ * @param {string} text - Новый текст (проходит через sanitizeTelegramHtml)
  * @returns {Promise<void>}
  */
 async function editDraftMessage(ctx, messageId, text) {
@@ -527,14 +845,52 @@ async function editDraftMessage(ctx, messageId, text) {
 /**
  * Унифицированная обработка результата agent loop.
  * Избегает дублирования кода для первичного и повторного вызовов.
+ *
+ * Логика ветвления по полю `result`:
+ * 1. `requiresApproval === true` — сохраняет в `pendingApprovals`, показывает
+ *    inline-кнопки YES/NO, обновляет историю чата.
+ * 2. `result.error` присутствует — показывает ошибку, очищает историю от
+ *    tool-сообщений и маркеров подтверждения.
+ * 3. `result.response` финальный (не "continue") — отправляет ответ пользователю
+ *    (через editDraftMessage, replyWithStream или replyMsg), обновляет историю.
+ * 4. `result.response === "continue"` — рекурсивно вызывает `agentLoopStep()` и
+ *    снова обрабатывает результат (без черновика).
+ * 5. Иначе — "Iteration limit reached".
+ *
+ * Побочные эффекты:
+ * - Модифицирует `chatHistories` (очистка, обновление).
+ * - Модифицирует `pendingApprovals` (сохранение для последующего подтверждения).
+ * - Удаляет черновик через `ctx.api.deleteMessage()` при ошибке или лимите.
+ *
  * @param {Object} ctx - GrammY контекст
  * @param {string} chatId - ID чата
  * @param {Object} result - Результат agentLoopStep
- * @param {Object} account - Аккаунт пользователя
+ * @param {boolean} result.requiresApproval - Требуется подтверждение пользователя
+ * @param {string} [result.error] - Текст ошибки (если произошла)
+ * @param {string} [result.response] - Финальный ответ модели или "continue"
+ * @param {string} [result.toolName] - Имя инструмента (при requiresApproval)
+ * @param {Object} [result.args] - Аргументы инструмента (при requiresApproval)
+ * @param {string} [result.toolCallId] - ID вызова инструмента
+ * @param {Array.<Object>} [result.messages] - Обновлённая история сообщений
+ * @param {Object} [result.tokenUsage] - Счётчики токенов
+ * @param {number} result.tokenUsage.prompt - Токены промпта
+ * @param {number} result.tokenUsage.completion - Токены генерации
+ * @param {number} result.tokenUsage.total - Всего токенов
+ * @param {number} result.tokenUsage.cached - Кешированные токены
+ * @param {Object} [result.timings] - Тайминги от llama.cpp
+ * @param {Array.<Object>} [result.pendingToolCalls] - Очередь вызовов инструментов
+ * @param {Object} account - Аккаунт пользователя (из getAccountByUsername)
  * @param {number} [draftMsgId] - ID черновика для обновления (streaming mode)
- * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен)
+ * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен пользователю)
  */
-async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
+async function handleAgentResult(ctx, chatId, result, account, draftMsgId, abortSignal) {
+  // Отменено пользователем
+  if (result.cancelled) {
+    addLog("Agent loop cancelled during continuation", "warning");
+    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+    return true;
+  }
+
   // Требуется подтверждение
   if (result.requiresApproval) {
     pendingApprovals.set(chatId, {
@@ -585,13 +941,17 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
     if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
     let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
     if (!cleanResponse) cleanResponse = "✅ Done.";
+    const hasReasoning = result.reasoning && result.reasoning.length > 0;
+    const reasoningBlock = hasReasoning
+      ? `💭 Reasoning:\n\`\`\`\n${result.reasoning}\n\`\`\`\n\n`
+      : "";
     if (typeof draftMsgId === "number") {
-      // Если есть черновик — обновляем его (streaming mode)
-      await editDraftMessage(ctx, draftMsgId, "✅ " + cleanResponse);
+      await editDraftMessage(ctx, draftMsgId, reasoningBlock + cleanResponse);
     } else if (ctx.chat?.type === "private") {
-      await ctx.replyWithStream(chunkText(cleanResponse));
+      const fullText = reasoningBlock + cleanResponse;
+      await ctx.replyWithStream(chunkText(fullText));
     } else {
-      await replyMsg(ctx, cleanResponse);
+      await replyMsg(ctx, reasoningBlock + cleanResponse);
     }
     return true;
   }
@@ -599,9 +959,9 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
   // Продолжение (нужен ещё один шаг)
   if (result.response === "continue") {
     const history = result.messages || chatHistories.get(chatId) || [];
-    const retryResult = await agentLoopStep("", chatId, history, config, MAX_AGENT_ITERATIONS, account);
+    const retryResult = await agentLoopStep("", chatId, history, config, MAX_AGENT_ITERATIONS, account, null, abortSignal);
     addLog(`agentLoopStep (retry): requiresApproval=${retryResult.requiresApproval}`, "info");
-    return await handleAgentResult(ctx, chatId, retryResult, account);
+    return await handleAgentResult(ctx, chatId, retryResult, account, undefined, abortSignal);
   }
 
   // Лимит итераций
@@ -613,16 +973,49 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId) {
 // ─── Обработка подтверждений (callback queries) ─────────────────────────────
 
 /**
- * Продолжить выполнение после подтверждения пользователем.
- * Выполняет инструмент, отправляет результат модели и обрабатывает ответ.
+ * Продолжить выполнение после подтверждения пользователем (нажатие "✅ YES").
+ *
+ * Рекурсивный поток выполнения:
+ * 1. Проверяет глубину рекурсии (`depth < MAX_APPROVAL_DEPTH`).
+ * 2. Выполняет инструмент через `executeTool()`.
+ * 3. Если инструмент асинхронный (возвращает `taskId`) — ждёт завершения
+ *    через `waitForTask()`.
+ * 4. Если инструмент завершился ошибкой — сохраняет результат в историю,
+ *    показывает ошибку пользователю и завершается.
+ * 5. Если успешно — формирует tool-сообщение, обрабатывает оставшиеся
+ *    `pendingToolCalls` (для каждого проверяет `permission === "ask"` —
+ *    если да, показывает новое подтверждение; иначе выполняет автоматически).
+ * 6. После обработки всех вызовов запускает `agentLoopStep()` для генерации
+ *    ответа модели и передаёт результат в `handleAgentResult()`.
+ *
+ * Побочные эффекты:
+ * - Инкрементирует `stats.tools` и рассылает через WebSocket.
+ * - Модифицирует `chatHistories` (добавляет результаты инструментов).
+ * - Модифицирует `pendingApprovals` (при новом запросе подтверждения).
+ * - Рассылает `tokenUsage` и `perfStats` через WebSocket.
+ * - Логирует каждый шаг через `addLog()`.
+ *
+ * Обработка ошибок:
+ * - Все исключения перехватываются внутри try/catch, логируются,
+ *   пользователю отправляется сообщение об ошибке.
+ * - При превышении лимита глубины (MAX_APPROVAL_DEPTH) выдаёт предупреждение.
+ *
  * @param {Object} ctx - GrammY контекст
- * @param {Object} pending - Ожидающий инструмент
- * @param {number} depth - Текущая глубина рекурсии (default: 0)
+ * @param {Object} pending - Объект ожидающего подтверждения инструмента
+ * @param {string} pending.toolName - Имя инструмента (read, write, execute, ...)
+ * @param {Object} pending.args - Аргументы для выполнения инструмента
+ * @param {string} pending.toolCallId - ID вызова инструмента для привязки результата
+ * @param {Array.<Object>} pending.messages - История сообщений на момент запроса
+ * @param {Object} pending.account - Аккаунт пользователя (роль, permissions)
+ * @param {number} pending.createdAt - Timestamp создания (для TTL-очистки)
+ * @param {Array.<Object>} [pending.pendingToolCalls] - Очередь дополнительных
+ *   вызовов инструментов от модели (multi-tool), обрабатывается последовательно
+ * @param {number} [depth=0] - Текущая глубина рекурсии (для защиты от циклов)
  * @returns {Promise<void>}
  */
 const MAX_APPROVAL_DEPTH = 10;
 
-async function continueAfterApproval(ctx, pending, depth = 0) {
+async function continueAfterApproval(ctx, pending, depth = 0, abortSignal) {
   if (depth >= MAX_APPROVAL_DEPTH) {
     addLog(`continueAfterApproval: depth limit (${MAX_APPROVAL_DEPTH}) reached`, "warning");
     await replyMsg(ctx, `⚠️ Reached tool call chain limit (${MAX_APPROVAL_DEPTH}).`);
@@ -726,7 +1119,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
 
     chatHistories.set(chatId, newHistory);
 
-    const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account);
+    const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account, null, abortSignal);
     if (retryResult.tokenUsage) {
       tokenUsage.prompt += retryResult.tokenUsage.prompt || 0;
       tokenUsage.completion += retryResult.tokenUsage.completion || 0;
@@ -737,7 +1130,7 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
     if (retryResult.timings) {
       wsBroadcast("perfStats", buildPerfStats(retryResult.timings));
     }
-    return await handleAgentResult(ctx, chatId, retryResult, account);
+    return await handleAgentResult(ctx, chatId, retryResult, account, undefined, abortSignal);
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
     console.error("[continueAfterApproval] Full error:", error);
@@ -745,142 +1138,9 @@ async function continueAfterApproval(ctx, pending, depth = 0) {
   }
 }
 
-/**
- * Обработка callback-запросов (inline keyboard).
- * @param {Object} ctx - GrammY контекст callback query
- * @returns {Promise<void>}
- */
-bot.on("callback_query", async (ctx) => {
-  const callbackData = ctx.callbackQuery.data;
-  const chatId = ctx.chat.id.toString();
-  addLog(`Callback: ${callbackData} from ${chatId}`, "info");
+// ─── Callback Handler (registered inside initBot()) ────────────────────────
 
-  if (callbackData.startsWith("approve_")) {
-    const toolName = callbackData.replace("approve_", "");
-    const pending = pendingApprovals.get(chatId);
-
-    if (!pending || pending.toolName !== toolName) {
-      addLog(`Stale approve: tool=${toolName}, pending=${pending?.toolName || "none"}`, "warning");
-      await ctx.answerCallbackQuery("❌ Request not found or outdated");
-      return;
-    }
-
-    addLog(`Executing: ${toolName} with args=${JSON.stringify(pending.args)}`, "success");
-    await ctx.answerCallbackQuery("Executing...");
-    await clearButtons(ctx);
-    pendingApprovals.delete(chatId);
-    await sendTyping(ctx);
-    continueAfterApproval(ctx, pending).catch((err) => {
-      addLog(`continueAfterApproval (async) error: ${err.message}`, "error");
-    });
-  } else if (callbackData.startsWith("deny_")) {
-    const toolName = callbackData.replace("deny_", "");
-    const pending = pendingApprovals.get(chatId);
-    pendingApprovals.delete(chatId);
-    addLog(`Deny: ${toolName}`, "warning");
-    await ctx.answerCallbackQuery("Cancelled");
-    await clearButtons(ctx);
-
-    if (pending) {
-      const deniedMessages = [
-        ...pending.messages,
-        {
-          role: "tool",
-          tool_call_id: pending.toolCallId,
-          content: JSON.stringify({ success: false, error: "denied by user" }),
-        },
-      ];
-      deniedMessages.push({ role: "assistant", content: "" });
-      chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
-    }
-
-    await replyMsg(ctx, `❌ <b>${toolName}</b> cancelled. The tool was not executed.`);
-  }
-});
-
-// ─── Telegram Commands ─────────────────────────────────────────────────────
-
-bot.command("start", (ctx) => {
-  if (config.modelName === "Имя модели") {
-    ctx.reply("⚠️ Модель не выбрана. Настройте модель в веб-интерфейсе.", REPLY_OPTS);
-    return;
-  }
-  updateStatus("running", "Работает");
-  ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
-});
-
-bot.command("help", (ctx) => {
-  ctx.reply(
-    "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel <id> - Cancel task",
-    REPLY_OPTS
-  );
-});
-
-bot.command("model", (ctx) => {
-  ctx.reply(`Model: ${config.modelName}\nServer: ${config.serverUrl}`, REPLY_OPTS);
-});
-
-bot.command("clear", (ctx) => {
-  chatHistories.delete(ctx.chat.id.toString());
-  ctx.reply("🗑️ History cleared!", REPLY_OPTS);
-});
-
-bot.command("tools", async (ctx) => {
-  const account = ctx.account;
-  const toolList = Object.entries(TOOLS)
-    .map(([name, tool]) => {
-      const enabled = account.permissions?.[name] !== false;
-      const icon = enabled ? "✅" : "❌";
-      return `${icon} <b>${name}</b>: ${tool.description}`;
-    })
-    .join("\n");
-  ctx.reply(`📦 Tools for @${ctx.chat.username} (${account.role}):\n\n${toolList}`, {
-    ...REPLY_OPTS,
-    parse_mode: "HTML",
-  });
-});
-
-bot.command("tasks", (ctx) => {
-  const tasks = getActiveTasks();
-  if (tasks.length === 0) {
-    ctx.reply("No active tasks.", REPLY_OPTS);
-    return;
-  }
-  const lines = tasks.map((t) => {
-    const uptime = Math.floor(t.uptime / 1000);
-    return `• <code>${t.taskId.substring(0, 8)}</code> <b>${t.command}</b> (${uptime}s)`;
-  });
-  ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
-});
-
-bot.command("cancel", (ctx) => {
-  const text = ctx.message?.text || "";
-  const parts = text.trim().split(/\s+/);
-  const taskIdArg = parts[1];
-  if (!taskIdArg) {
-    ctx.reply("Usage: /cancel <taskId>", REPLY_OPTS);
-    return;
-  }
-  // Find by prefix (first 8 chars)
-  const tasks = getActiveTasks();
-  const match = tasks.find((t) => t.taskId.startsWith(taskIdArg));
-  if (!match) {
-    ctx.reply(`❌ Task not found: ${taskIdArg}`, REPLY_OPTS);
-    return;
-  }
-  if (cancelTask(match.taskId)) {
-    ctx.reply(`❌ Cancelled task <code>${match.taskId.substring(0, 8)}</code>`, REPLY_OPTS);
-  } else {
-    ctx.reply(`⚠️ Task ${taskIdArg} is no longer running.`, REPLY_OPTS);
-  }
-});
-
-bot.catch((err, ctx) => {
-  addLog(`Bot error: ${err.message}`, "error");
-  if (ctx) {
-    ctx.reply(`❌ Error: ${err.message}`, REPLY_OPTS).catch(() => {});
-  }
-});
+// ─── Error Handler (registered inside initBot()) ──────────────────────────
 
 // ─── Запуск сервера ────────────────────────────────────────────────────────
 

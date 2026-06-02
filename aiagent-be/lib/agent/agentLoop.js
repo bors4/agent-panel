@@ -45,17 +45,36 @@ function buildToolsDescription(account, globalToolConfig) {
 
 /**
  * Собирает system message для AI модели на основе конфигурации и аккаунта.
- * Делегирует сборку InstructionLoader, который загружает инструкции из файлов.
+ * В режиме chatMode возвращает минимальный промпт без проектного контекста.
  * @param {string} projectPath - Путь к проекту
  * @param {string} systemPrompt - Кастомный system prompt
  * @param {boolean} useFunctionCalling - Использовать function calling (true) или XML-формат (false)
  * @param {Object|null} [account=null] - Аккаунт пользователя
+ * @param {boolean} [chatMode=false] - Режим простого чата
  * @returns {string} Полный system prompt
  */
-export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null) {
-  const loader = getInstructionLoader();
+export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling, account = null, chatMode = false) {
   const toolConfig = getToolConfig();
+  const td = buildToolsDescription(account, toolConfig);
 
+  if (chatMode) {
+    const parts = [];
+    parts.push("You are a helpful AI assistant. Answer user questions directly without project context.");
+    if (account) {
+      let accountSection = "# Account\n\nRole: " + account.role;
+      if (account.include_paths?.length > 0) {
+        accountSection += "\nAllowed directories: " + account.include_paths.join(", ");
+      }
+      parts.push(accountSection);
+    }
+    if (systemPrompt) parts.push(systemPrompt);
+    if (useFunctionCalling) {
+      parts.push("Use function calling.");
+    }
+    return parts.join("\n\n") + "\n\n" + td;
+  }
+
+  const loader = getInstructionLoader();
   const basePrompt = loader.buildSystemPrompt({
     projectPath,
     systemPrompt,
@@ -64,7 +83,6 @@ export function buildSystemMessage(projectPath, systemPrompt, useFunctionCalling
     toolConfig,
   });
 
-  const td = buildToolsDescription(account, toolConfig);
   return basePrompt + "\n\n" + td;
 }
 
@@ -191,6 +209,7 @@ function validateAndFixHistory(messages) {
 function buildToolExecConfig(account, cfg) {
   return {
     projectPath: cfg.projectPath,
+    chatMode: cfg.chatMode || false,
     account,
     maxFileChars: cfg.maxFileChars,
     maxSearchResults: cfg.maxSearchResults,
@@ -205,21 +224,37 @@ function buildToolExecConfig(account, cfg) {
 /**
  * Один шаг агентного цикла: отправляет запрос к AI модели и обрабатывает ответ.
  * Поддерживает до maxIterations итераций с tool calls.
+ * Для OpenRouter: автодетект по cfg.serverUrl (содержит "openrouter.ai"),
+ * использует cfg.openrouterApiKey с кастомными заголовками (HTTP-Referer, X-OpenRouter-Title);
+ * иначе использует cfg.apiKey.
  * @param {string} message - Сообщение пользователя
  * @param {string} chatId - ID чата Telegram
  * @param {Array} history - История сообщений
  * @param {Object} cfg - Конфигурация агента (из server.js)
+ * @param {string} cfg.serverUrl - URL AI сервера
+ * @param {string} cfg.modelName - Имя модели
+ * @param {string} cfg.apiKey - API ключ (для локального сервера)
+ * @param {string} cfg.openrouterApiKey - API ключ OpenRouter (опционально)
+ * @param {number} cfg.maxTokens - Макс. токенов ответа
+ * @param {number} cfg.temperature - Температура генерации
+ * @param {number} cfg.timeout - Таймаут запроса (мс)
+ * @param {boolean} cfg.stream - Использовать SSE
+ * @param {boolean} cfg.insertUserAfterTool - Вставлять "Continue" после tool
+ * @param {string} cfg.projectPath - Путь к проекту
+ * @param {string} cfg.systemPrompt - Системный промпт
+ * @param {boolean} cfg.chatMode - Режим простого чата
  * @param {number} maxIterations - Максимальное число итераций (default: 5)
  * @param {Object|null} account - Аккаунт пользователя
  * @param {Function} [onProgress] - Колбэк прогресса: ({ type: 'content'|'tool'|'response'|'error', ... })
- * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages? }
+ * @param {AbortSignal} [abortSignal] - Внешний сигнал отмены (из Telegram /cancel или фронтенда)
+ * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages?, tokenUsage?, timings?, cancelled? }
  */
-export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null) {
+export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null, abortSignal = null) {
   const toolConfig = getToolConfig();
   let messages = [
     {
       role: "system",
-      content: buildSystemMessage(cfg.projectPath, cfg.systemPrompt, true, account),
+      content: buildSystemMessage(cfg.projectPath, cfg.systemPrompt, true, account, cfg.chatMode),
     },
     ...truncateHistory(history, cfg.maxHistoryPairs),
   ];
@@ -234,6 +269,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   messages = validateAndFixHistory(messages);
   let iterations = 0,
     finalResponse = "",
+    finalReasoning = "",
     useFunctionCalling = true,
     accumulatedUsage = { prompt: 0, completion: 0, total: 0, cached: 0 },
     latestTimings = null,
@@ -245,6 +281,10 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
 
   while (iterations < maxIterations) {
     iterations++;
+    // Проверка отмены в начале каждой итерации (для случаев между tool calls)
+    if (abortSignal?.aborted) {
+      return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+    }
     try {
       const body = {
         model: cfg.modelName,
@@ -269,20 +309,33 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const controller = new AbortController();
       const timeout = cfg.timeout ?? configDefaults.timeout;
       let timeoutId = setTimeout(() => controller.abort(), timeout);
+      // Объединяем таймаут и внешний сигнал отмены
+      const fetchSignal = abortSignal
+        ? AbortSignal.any([controller.signal, abortSignal])
+        : controller.signal;
+      const isOpenRouter = cfg.serverUrl.includes("openrouter.ai");
+      const loopHeaders = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        loopHeaders["Authorization"] = "Bearer " + (cfg.openrouterApiKey || "");
+        loopHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        loopHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        loopHeaders["Authorization"] = "Bearer " + cfg.apiKey;
+      }
       let resp;
       try {
         resp = await fetch(cfg.serverUrl + "/chat/completions", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer " + cfg.apiKey,
-          },
+          headers: loopHeaders,
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: fetchSignal,
         });
       } catch (e) {
         clearTimeout(timeoutId);
         if (e.name === "AbortError") {
+          if (abortSignal?.aborted) {
+            return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+          }
           return { error: "Request timed out. Generate a shorter response or increase the timeout setting." };
         }
         throw e;
@@ -290,7 +343,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       if (!resp.ok && useFunctionCalling && resp.status === 400) {
         clearTimeout(timeoutId);
         useFunctionCalling = false;
-        messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account);
+        messages[0].content = buildSystemMessage(cfg.projectPath, cfg.systemPrompt, false, account, cfg.chatMode);
         continue;
       }
       if (!resp.ok) {
@@ -302,13 +355,22 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         try {
           const t0 = performance.now();
           firstTokenMs = 0;
-          const { content, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
+          const { content, reasoningContent, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
             onContent: (chunk, accumulated) => {
               if (!firstTokenMs) firstTokenMs = performance.now() - t0;
               // Per-chunk timeout reset — длинные генерации не обрываются
               clearTimeout(timeoutId);
               timeoutId = setTimeout(() => controller.abort(), timeout);
               onProgress?.({ type: "content", chunk, accumulated });
+            },
+            onReasoning: (chunk, accumulated) => {
+              if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+              clearTimeout(timeoutId);
+              timeoutId = setTimeout(() => controller.abort(), timeout);
+              onProgress?.({ type: "reasoning", chunk, accumulated });
+            },
+            onReasoningDone: () => {
+              onProgress?.({ type: "reasoning_done" });
             },
             onToolCall: (idx, tc) => {
               onProgress?.({ type: "tool_call_delta", index: idx, delta: tc });
@@ -320,6 +382,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           totalMs = performance.now() - t0;
           usage = u;
           if (t) latestTimings = t;
+          finalReasoning = reasoningContent || "";
           msg = {
             role: "assistant",
             content: content || null,
@@ -336,6 +399,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           };
         } catch (e) {
           if (e.name === "AbortError") {
+            if (abortSignal?.aborted) {
+              return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+            }
             return { error: "Generation timed out. Try again or increase the timeout setting." };
           }
           throw e;
@@ -348,6 +414,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         const asst = data.choices?.[0]?.message;
         if (!asst) return { error: "AI error: empty response" };
         msg = asst;
+        finalReasoning = asst.reasoning_content || "";
         usage = data.usage;
         if (data.timings) {
           const tc = data.tokens_cached ?? data.__verbose?.tokens_cached ?? 0;
@@ -539,5 +606,5 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     };
   }
 
-  return { response: finalResponse, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
+  return { response: finalResponse, reasoning: finalReasoning, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
 }

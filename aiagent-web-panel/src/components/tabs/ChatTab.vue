@@ -3,15 +3,21 @@
     <template #header>
       <div class="chat-header">
         <div class="chat-header-left">
-          <h2>💬 Чат с агентом</h2>
-          <span class="status-badge" :class="{ active: isActive }">
-            <span class="status-dot" />
-            {{ isActive ? "Агент запущен" : "Агент не запущен" }}
+          <h3 class="mono-label">COM://CHAT</h3>
+          <span class="chat-status" :class="{ active: isActive }">
+            <span class="chat-dot" />
+            {{ isActive ? "ONLINE" : "OFFLINE" }}
           </span>
         </div>
         <div class="chat-header-right">
-          <label class="agent-toggle" title="Использовать agent loop с инструментами">
-            <span class="toggle-label">Agent</span>
+          <span v-if="verbose" class="verbose-badge">VERBOSE</span>
+          <label class="agent-toggle" title="Toggle reasoning display">
+            <span class="toggle-label" :class="{ active: showReasoning }">REASONING</span>
+            <input type="checkbox" :checked="showReasoning" @change="toggleReasoning" />
+            <span class="toggle-slider" />
+          </label>
+          <label class="agent-toggle" title="Toggle agent loop with tools">
+            <span class="toggle-label">AGENT</span>
             <input v-model="agentMode" type="checkbox" @change="onAgentModeChange" />
             <span class="toggle-slider" />
           </label>
@@ -65,6 +71,14 @@
             </div>
             <!-- Regular message -->
             <template v-else>
+              <div v-if="showReasoning && msg.reasoning && msg.role === 'bot'" class="reasoning-block">
+                <div class="reasoning-header" @click="msg.reasoningExpanded = !msg.reasoningExpanded">
+                  <span class="reasoning-icon">💭</span>
+                  <span class="reasoning-label">Reasoning</span>
+                  <span class="tool-call-toggle">{{ msg.reasoningExpanded ? "▲" : "▼" }}</span>
+                </div>
+                <pre v-if="msg.reasoningExpanded" class="reasoning-content">{{ msg.reasoning }}</pre>
+              </div>
               <div class="chat-bubble" :class="{ streaming: msg.streaming }">
                 {{ msg.content }}
                 <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
@@ -97,7 +111,8 @@
           :placeholder="isActive ? 'Введите сообщение...' : 'Сначала запустите агента'"
           @keypress="handleKeypress"
         />
-        <button class="chat-send" :disabled="!isActive || !inputMessage.trim()" @click="sendMessage">➤</button>
+        <button class="chat-send" :disabled="!isActive || !inputMessage.trim() || isCancelling || isTyping" @click="sendMessage">➤</button>
+        <button v-if="isTyping || isStreaming" class="chat-stop" title="Отменить запрос" @click="handleStop">■</button>
         <button
           class="chat-clear"
           :disabled="messages.length === 0"
@@ -140,7 +155,8 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
-import { directChat, directChatStream, agentChat, agentChatContinue } from "@/api/client";
+import { directChat, directChatStream, agentChat, agentChatContinue, cancelChat } from "@/api/client";
+import { useSound } from "@/composables/useSound";
 
 const props = defineProps({
   isActive: Boolean,
@@ -150,6 +166,8 @@ const props = defineProps({
   systemPrompt: { type: String, default: "" },
   verbose: { type: Boolean, default: false },
   showTokens: { type: Boolean, default: true },
+  soundEnabled: { type: Boolean, default: true },
+  soundVolume: { type: Number, default: 50 },
   streamEnabled: { type: Boolean, default: false },
 });
 
@@ -160,17 +178,48 @@ const inputMessage = ref("");
 const isTyping = ref(false);
 const isStreaming = ref(false);
 const streamingContent = ref("");
+const streamingReasoning = ref("");
+const reasoningDone = ref(false);
 const chatContainer = ref(null);
+
+const { send: playSend, receive: playReceive, setVolume } = useSound({ volume: props.soundVolume });
+
+// Отмена запросов
+const abortController = ref(null);
+const isCancelling = ref(false);
+const lastAbortId = ref(null);
+
+watch(() => props.soundVolume, (v) => setVolume(v));
 
 // Agent mode state
 const AGENT_MODE_KEY = "agent-chat-mode";
+const SHOW_REASONING_KEY = "agent-show-reasoning";
 const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) !== "false");
+const showReasoning = ref(localStorage.getItem(SHOW_REASONING_KEY) !== "false");
 const pendingApproval = ref(null);
 const pendingToolCalls = ref([]);
 const approvalMessages = ref([]);
 
 function onAgentModeChange() {
   localStorage.setItem(AGENT_MODE_KEY, agentMode.value.toString());
+}
+
+function toggleReasoning() {
+  showReasoning.value = !showReasoning.value;
+  localStorage.setItem(SHOW_REASONING_KEY, showReasoning.value.toString());
+}
+
+function handleStop() {
+  if (isCancelling.value || !abortController.value) return;
+  isCancelling.value = true;
+  // Отменяем на фронтенде — закрываем fetch
+  abortController.value.abort();
+  abortController.value = null;
+  // Отменяем на бэкенде через /chat/cancel (только для agent loop)
+  if (lastAbortId.value) {
+    cancelChat(lastAbortId.value).catch(() => {});
+    lastAbortId.value = null;
+  }
 }
 
 // 🔥 Константы для localStorage
@@ -375,7 +424,7 @@ function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolN
 }
 
 // Agent loop send message
-async function sendAgentMessage(text) {
+async function sendAgentMessage(text, signal = null, abortId = null) {
   // Собираем историю для отправки на бэкенд
   const historyMsgs = messages.value
     .filter(m => !m.type) // только обычные сообщения
@@ -389,12 +438,24 @@ async function sendAgentMessage(text) {
     serverUrl: props.serverUrl,
     modelName: props.modelName,
     systemPrompt: props.systemPrompt,
-  });
+  }, signal, abortId);
 
   isTyping.value = false;
+  if (props.soundEnabled) playReceive();
 
   if (!result.success) {
     throw new Error(result.error || "Agent loop failed");
+  }
+
+  // Отмена — показываем специальное сообщение, не обрабатываем tool data
+  if (result.cancelled) {
+    messages.value.push({
+      role: "system",
+      content: "🔴 Cancelled",
+      type: "cancelled",
+    });
+    emit("log", { message: "Agent loop cancelled", type: "warning" });
+    return result;
   }
 
   // Добавляем ответ бота
@@ -402,6 +463,8 @@ async function sendAgentMessage(text) {
     messages.value.push({
       role: "bot",
       content: result.reply,
+      reasoning: result.reasoning || "",
+      reasoningExpanded: false,
       usage: result.tokenUsage || null,
     });
     if (result.tokenUsage) emit("token-usage", result.tokenUsage);
@@ -425,20 +488,23 @@ async function sendAgentMessage(text) {
   return result;
 }
 
-async function approveTool(msg) {
+async function handleToolDecision(msg, approved) {
   if (!pendingApproval.value) return;
 
   const decision = {
-    approved: true,
+    approved,
     toolName: pendingApproval.value.toolName,
     args: pendingApproval.value.args,
     toolCallId: pendingApproval.value.toolCallId,
   };
 
-  // Убираем approval блок и добавляем одобрение
   messages.value = messages.value.filter(m => m !== msg);
-
   isTyping.value = true;
+  isCancelling.value = false;
+  const controller = new AbortController();
+  abortController.value = controller;
+  const continueAbortId = crypto.randomUUID();
+  lastAbortId.value = continueAbortId;
   pendingApproval.value = null;
   savePendingApproval(null);
   pendingToolCalls.value = [];
@@ -449,9 +515,12 @@ async function approveTool(msg) {
       messages: approvalMessages.value,
       approvalDecision: decision,
       accountName: "",
-    });
+      abortId: continueAbortId,
+    }, controller.signal);
 
     isTyping.value = false;
+
+    if (result.abortId) lastAbortId.value = result.abortId;
 
     if (!result.success) {
       messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
@@ -462,6 +531,8 @@ async function approveTool(msg) {
       messages.value.push({
         role: "bot",
         content: result.reply,
+        reasoning: result.reasoning || "",
+        reasoningExpanded: false,
         usage: result.tokenUsage || null,
       });
     }
@@ -479,74 +550,34 @@ async function approveTool(msg) {
     saveApprovalMessages(approvalMessages.value);
   } catch (e) {
     isTyping.value = false;
-    messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+    if (e.name === "AbortError") {
+      messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+    } else {
+      messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
+    }
+  } finally {
+    if (abortController.value === controller) abortController.value = null;
   }
 }
 
-async function rejectTool(msg) {
-  if (!pendingApproval.value) return;
-
-  const decision = {
-    approved: false,
-    toolName: pendingApproval.value.toolName,
-    args: pendingApproval.value.args,
-    toolCallId: pendingApproval.value.toolCallId,
-  };
-
-  messages.value = messages.value.filter(m => m !== msg);
-  isTyping.value = true;
-  pendingApproval.value = null;
-  savePendingApproval(null);
-  pendingToolCalls.value = [];
-  savePendingToolCalls([]);
-
-  try {
-    const result = await agentChatContinue({
-      messages: approvalMessages.value,
-      approvalDecision: decision,
-      accountName: "",
-    });
-
-    isTyping.value = false;
-
-    if (!result.success) {
-      messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
-      return;
-    }
-
-    if (result.reply) {
-      messages.value.push({
-        role: "bot",
-        content: result.reply,
-        usage: result.tokenUsage || null,
-      });
-    }
-
-    addToolMessages(
-      result.toolCalls,
-      result.toolResults,
-      result.requiresApproval,
-      result.approvalToolName,
-      result.approvalArgs,
-      result.approvalToolCallId
-    );
-
-    approvalMessages.value = result.messages || [];
-    saveApprovalMessages(approvalMessages.value);
-  } catch (e) {
-    isTyping.value = false;
-    messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
-  }
-}
+function approveTool(msg) { return handleToolDecision(msg, true); }
+function rejectTool(msg) { return handleToolDecision(msg, false); }
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return;
+  if (isTyping.value || isStreaming.value) return; // guard against double-send
 
   const text = inputMessage.value.trim();
   inputMessage.value = "";
 
   messages.value.push({ role: "user", content: text });
+  if (props.soundEnabled) playSend();
   isTyping.value = true;
+  isCancelling.value = false;
+
+  // Создаём AbortController для отмены запроса
+  const controller = new AbortController();
+  abortController.value = controller;
 
   await nextTick();
   scrollToBottom();
@@ -562,8 +593,11 @@ const sendMessage = async () => {
 
   // Agent mode — используем agent loop
   if (agentMode.value) {
+    // Генерируем abortId для отмены на бэкенде
+    const abortId = crypto.randomUUID();
+    lastAbortId.value = abortId;
     try {
-      const result = await sendAgentMessage(text);
+      const result = await sendAgentMessage(text, controller.signal, abortId);
       const latency = Date.now() - startTime;
 
       if (props.verbose) {
@@ -581,14 +615,22 @@ const sendMessage = async () => {
     } catch (error) {
       const latency = Date.now() - startTime;
       isTyping.value = false;
-      messages.value.push({
-        role: "bot",
-        content: `❌ Ошибка: ${error.message}`,
-      });
-      emit("log", {
-        message: `Agent error (${latency}ms): ${error.message}`,
-        type: "error",
-      });
+      if (error.name === "AbortError") {
+        messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+        emit("log", { message: `Agent cancelled (${latency}ms)`, type: "warning" });
+      } else {
+        messages.value.push({
+          role: "bot",
+          content: `❌ Ошибка: ${error.message}`,
+        });
+        emit("log", {
+          message: `Agent error (${latency}ms): ${error.message}`,
+          type: "error",
+        });
+      }
+    } finally {
+      if (abortController.value === controller) abortController.value = null;
+      if (lastAbortId.value === abortId) lastAbortId.value = null;
     }
 
     await nextTick();
@@ -602,10 +644,12 @@ const sendMessage = async () => {
       isStreaming.value = true;
       isTyping.value = false;
       streamingContent.value = "";
+      streamingReasoning.value = "";
+      reasoningDone.value = false;
 
       // Добавляем пустое сообщение бота, которое будем обновлять
       const botMsgIdx = messages.value.length;
-      messages.value.push({ role: "bot", content: "", streaming: true });
+      messages.value.push({ role: "bot", content: "", streaming: true, reasoning: "", reasoningExpanded: false });
 
       let fullContent = "";
       let lastUsage = null;
@@ -619,6 +663,13 @@ const sendMessage = async () => {
           systemPrompt: props.systemPrompt,
         },
         {
+          onReasoning: (chunk, accumulated) => {
+            streamingReasoning.value = accumulated;
+            messages.value[botMsgIdx].reasoning = accumulated;
+          },
+          onReasoningDone: () => {
+            reasoningDone.value = true;
+          },
           onContent: (chunk, accumulated) => {
             fullContent = accumulated;
             streamingContent.value = accumulated;
@@ -634,11 +685,13 @@ const sendMessage = async () => {
           onError: (error) => {
             throw new Error(error);
           },
-        }
+        },
+        controller.signal
       );
 
       const latency = Date.now() - startTime;
       isStreaming.value = false;
+      if (props.soundEnabled) playReceive();
 
       if (props.verbose) {
         emit("log", {
@@ -665,7 +718,7 @@ const sendMessage = async () => {
         serverUrl: props.serverUrl,
         projectPath: props.projectPath,
         systemPrompt: props.systemPrompt,
-      });
+      }, controller.signal);
 
       const latency = Date.now() - startTime;
       isTyping.value = false;
@@ -673,6 +726,7 @@ const sendMessage = async () => {
       const botMsg = {
         role: "bot",
         content: data.reply || "Пустой ответ",
+        reasoning: data.reasoning || "",
         usage: data.usage || null,
       };
       messages.value.push(botMsg);
@@ -700,17 +754,31 @@ const sendMessage = async () => {
       }
     }
   } catch (error) {
-    const latency = Date.now() - startTime;
-    isTyping.value = false;
+      const latency = Date.now() - startTime;
+      isTyping.value = false;
+      if (props.soundEnabled) playReceive();
     isStreaming.value = false;
-    messages.value.push({
-      role: "bot",
-      content: `❌ Ошибка: ${error.message}`,
-    });
-    emit("log", {
-      message: `Chat error (${latency}ms): ${error.message}`,
-      type: "error",
-    });
+    if (error.name === "AbortError") {
+      const lastIdx = messages.value.length - 1;
+      if (messages.value[lastIdx]?.streaming) {
+        messages.value[lastIdx].content = "🔴 Cancelled";
+        messages.value[lastIdx].streaming = false;
+      } else {
+        messages.value.push({ role: "bot", content: "🔴 Cancelled" });
+      }
+      emit("log", { message: `Chat cancelled (${latency}ms)`, type: "warning" });
+    } else {
+      messages.value.push({
+        role: "bot",
+        content: `❌ Ошибка: ${error.message}`,
+      });
+      emit("log", {
+        message: `Chat error (${latency}ms): ${error.message}`,
+        type: "error",
+      });
+    }
+  } finally {
+    if (abortController.value === controller) abortController.value = null;
   }
 
   await nextTick();
@@ -734,6 +802,17 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  // Отменяем in-flight запрос при уходе со страницы
+  if (abortController.value) {
+    abortController.value.abort();
+    abortController.value = null;
+  }
+  isCancelling.value = false;
+  // Отменяем на бэкенде до того, как очищаем abortId
+  if (lastAbortId.value) {
+    cancelChat(lastAbortId.value).catch(() => {});
+  }
+  lastAbortId.value = null;
   saveChatHistory(messages.value);
   saveApprovalMessages(approvalMessages.value);
   savePendingApproval(pendingApproval.value);
@@ -741,11 +820,13 @@ onUnmounted(() => {
   window.removeEventListener("storage", handleStorageChange);
 });
 
-// 🔥 Автосохранение при изменении истории
+// 🔥 Автосохранение при изменении истории (debounced — не дёргаем на каждый стриминг-токен)
+let saveTimer = null;
 watch(
   messages,
-  (newVal) => {
-    saveChatHistory(newVal);
+  () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveChatHistory(messages.value), 500);
   },
   { deep: true }
 );
@@ -761,6 +842,15 @@ defineExpose({ clearChatHistory });
   height: 480px;
 }
 
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
 .chat-header {
   display: flex;
   justify-content: space-between;
@@ -773,6 +863,7 @@ defineExpose({ clearChatHistory });
 .chat-header-left {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .chat-header-right {
@@ -782,48 +873,58 @@ defineExpose({ clearChatHistory });
   flex-wrap: wrap;
 }
 
-.status-badge {
+.verbose-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+  background: rgba(212, 135, 74, 0.15);
+  color: var(--accent-secondary);
+  border: 1px solid rgba(212, 135, 74, 0.3);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+}
+
+.chat-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   padding: 3px 8px;
-  border-radius: 10px;
   background: var(--bg-tertiary);
   color: var(--text-muted);
   border: 1px solid var(--border);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   transition: var(--transition);
 }
 
-.status-badge.active {
+.chat-status.active {
   background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  color: var(--success);
   border-color: rgba(16, 185, 129, 0.3);
 }
 
-.status-dot {
+.chat-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
   background: var(--text-muted);
-  transition: var(--transition);
+  flex-shrink: 0;
 }
 
-.status-badge.active .status-dot {
-  background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
-  animation: pulse 2s infinite;
+.chat-status.active .chat-dot {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: chatPulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+@keyframes chatPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 /* Chat clear button */
@@ -891,7 +992,7 @@ defineExpose({ clearChatHistory });
 
 .context-menu-item:hover {
   background: var(--bg-hover);
-  color: var(--accent-primary);
+  color: var(--accent);
 }
 
 /* Confirm dialog */
@@ -1055,9 +1156,9 @@ defineExpose({ clearChatHistory });
 }
 
 .chat-msg.user .chat-bubble {
-  background: var(--accent-primary);
+  background: var(--accent);
   color: white;
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
   border-bottom-right-radius: 4px;
 }
 
@@ -1068,7 +1169,7 @@ defineExpose({ clearChatHistory });
 }
 
 .chat-msg.bot .chat-bubble.streaming {
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
   box-shadow: 0 0 8px var(--accent-glow);
 }
 
@@ -1076,7 +1177,7 @@ defineExpose({ clearChatHistory });
   display: inline-block;
   width: 2px;
   height: 16px;
-  background: var(--accent-primary);
+  background: var(--accent);
   margin-left: 2px;
   vertical-align: middle;
   animation: blink 0.8s step-end infinite;
@@ -1156,6 +1257,34 @@ defineExpose({ clearChatHistory });
 .chat-send:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.chat-stop {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  transition: var(--transition);
+  flex-shrink: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.chat-stop:hover {
+  background: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .typing-indicator {
@@ -1239,8 +1368,8 @@ defineExpose({ clearChatHistory });
 }
 
 .agent-toggle input:checked + .toggle-slider {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .agent-toggle input:checked + .toggle-slider::before {
@@ -1279,7 +1408,7 @@ defineExpose({ clearChatHistory });
   flex: 1;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  color: var(--accent-primary);
+  color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1397,5 +1526,66 @@ defineExpose({ clearChatHistory });
 
 .approval-btn.reject:hover {
   background: rgba(239, 68, 68, 0.2);
+}
+
+/* Reasoning block */
+.reasoning-block {
+  background: rgba(139, 92, 246, 0.06);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin: 2px 0;
+  max-width: 450px;
+}
+
+.reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.reasoning-header:hover {
+  background: var(--bg-hover);
+}
+
+.reasoning-icon {
+  font-size: 13px;
+}
+
+.reasoning-label {
+  flex: 1;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b5cf6;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.reasoning-content {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 8px 10px;
+  margin: 0;
+  background: var(--bg-primary);
+  border-top: 1px solid rgba(139, 92, 246, 0.15);
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.toggle-label.active {
+  color: #8b5cf6;
+}
+
+.chat-header-right .agent-toggle:first-child {
+  margin-right: 2px;
 }
 </style>

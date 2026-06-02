@@ -2,32 +2,26 @@
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Системный промпт агента</h2>
+        <h3 class="mono-label">PRM://EDITOR</h3>
         <div class="header-actions">
           <Button :disabled="loadingStates.reset" @click="handleReset">
-            <span v-if="loadingStates.reset" class="btn-loading" />
-            <span v-else>↩️ Сброс</span>
+            RESET
           </Button>
           <Button :disabled="loadingStates.format" @click="handleFormat">
-            <span v-if="loadingStates.format" class="btn-loading" />
-            <span v-else>✨ Формат</span>
+            FORMAT
           </Button>
           <Button :disabled="loadingStates.copy" @click="handleCopy">
-            <span v-if="loadingStates.copy" class="btn-loading" />
-            <span v-else>📋 Копировать</span>
+            COPY
           </Button>
-          <span class="action-separator" />
+          <span class="header-sep" />
           <Button variant="primary" :disabled="loadingStates.save" @click="handleSave">
-            <span v-if="loadingStates.save" class="btn-loading" />
-            <span v-else>💾 Сохранить</span>
+            SAVE
           </Button>
           <Button :disabled="loadingStates.export" @click="handleExport">
-            <span v-if="loadingStates.export" class="btn-loading" />
-            <span v-else>📤 Экспорт</span>
+            EXPORT
           </Button>
           <Button :disabled="loadingStates.import" @click="handleImport">
-            <span v-if="loadingStates.import" class="btn-loading" />
-            <span v-else>📥 Импорт</span>
+            IMPORT
           </Button>
         </div>
       </div>
@@ -188,23 +182,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
 .header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-}
-
-.header-row h2 {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  font-weight: 500;
-  background: none;
-  background-clip: unset;
-  -webkit-background-clip: unset;
-  -webkit-text-fill-color: unset;
 }
 
 .header-actions {
@@ -213,16 +204,12 @@ onMounted(() => {
   gap: 4px;
 }
 
-.header-actions button {
-  font-size: 12px;
-  padding: 6px 12px;
-}
-
-.action-separator {
+.header-sep {
   width: 1px;
-  height: 20px;
+  height: 18px;
   background: var(--border);
   margin: 0 2px;
+  flex-shrink: 0;
 }
 
 .prompt-editor {
@@ -247,20 +234,20 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
+  padding: 7px 12px;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-bottom: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  font-size: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
 }
 
 .column-header .char-count {
-  font-size: 10px;
-  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  color: var(--text-muted);
   font-family: "JetBrains Mono", monospace;
   text-transform: none;
   letter-spacing: 0;
@@ -271,35 +258,41 @@ onMounted(() => {
   flex: 1;
   resize: none;
   line-height: 1.6;
-  font-size: 13px;
+  font-size: 0.8rem;
   tab-size: 2;
   font-family: "JetBrains Mono", monospace;
   padding: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   color: var(--text-primary);
   overflow-y: auto;
+  clip-path: polygon(
+    0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    4px 100%, 0 calc(100% - 4px)
+  );
 }
 
 .form-textarea:focus {
   outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent-sm);
 }
 
 .preview-container {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(
+    0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    4px 100%, 0 calc(100% - 4px)
+  );
   display: flex;
   flex-direction: column;
   height: 600px;
   overflow-y: hidden;
-}
-
-.preview-container .column-header {
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
 .preview-content {
@@ -317,7 +310,7 @@ onMounted(() => {
 .preview-content h4,
 .preview-content h5,
 .preview-content h6 {
-  color: var(--accent-primary);
+  color: var(--accent);
   margin-top: 12px;
   margin-bottom: 6px;
 }
@@ -359,7 +352,7 @@ onMounted(() => {
 }
 
 .preview-content blockquote {
-  border-left: 3px solid var(--accent-primary);
+  border-left: 2px solid var(--accent);
   padding-left: 10px;
   color: var(--text-muted);
   margin: 8px 0;
@@ -369,22 +362,6 @@ onMounted(() => {
   color: var(--error);
   padding: 8px;
   background: var(--error-bg);
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-}
-
-.btn-loading {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  font-size: 0.75rem;
 }
 </style>

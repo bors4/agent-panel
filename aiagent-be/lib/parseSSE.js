@@ -9,11 +9,13 @@
  * @param {Response} response - fetch Response с stream: true
  * @param {Object} [callbacks] - Опциональные колбэки для real-time уведомлений
  * @param {Function} [callbacks.onContent] - Вызывается при каждом новом content чанке (chunk, accumulated)
+ * @param {Function} [callbacks.onReasoning] - Вызывается при reasoning_content чанке (chunk, accumulated)
+ * @param {Function} [callbacks.onReasoningDone] - Вызывается когда reasoning закончился и начался content
  * @param {Function} [callbacks.onToolCall] - Вызывается при tool_call (toolCallIndex, toolCallDelta)
  * @param {Function} [callbacks.onFinish] - Вызывается при получении finish_reason (finishReason)
  * @param {Function} [callbacks.onUsage] - Вызывается при получении usage (usage)
  * @param {Function} [callbacks.onTimings] - Вызывается при получении timings от llama.cpp (timings c injected tokens_cached)
- * @returns {Promise<{content: string, toolCalls: Array|null, finishReason: string|null, usage: Object|null, timings: Object|null, tokensCached: number}>}
+ * @returns {Promise<{content: string, reasoningContent: string, toolCalls: Array|null, finishReason: string|null, usage: Object|null, timings: Object|null, tokensCached: number}>}
  */
 export async function parseStreamedResponse(response, callbacks = {}) {
   if (!response.ok) {
@@ -29,6 +31,9 @@ export async function parseStreamedResponse(response, callbacks = {}) {
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  let reasoningContent = "";
+  let hasSeenReasoning = false;
+  let hasSeenContent = false;
   /** @type {Object.<number, {index: number, id?: string, type?: string, function?: {name?: string, arguments?: string}}>} */
   const toolCallAccum = {};
   let finishReason = null;
@@ -43,7 +48,6 @@ export async function parseStreamedResponse(response, callbacks = {}) {
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
-      // Последняя строка может быть неполной — оставляем в буфере
       buffer = lines.pop() || "";
 
       for (const line of lines) {
@@ -62,26 +66,22 @@ export async function parseStreamedResponse(response, callbacks = {}) {
 
         const choices = parsed.choices;
 
-        // Usage может приходить отдельным SSE-ивентом без choices (llama.cpp)
         if (parsed.usage) {
           usage = parsed.usage;
           callbacks.onUsage?.(parsed.usage);
         }
 
-        // tokens_cached — общий размер KV-кэша (top-level или __verbose)
         if (parsed.tokens_cached !== undefined) {
           tokensCached = parsed.tokens_cached;
         } else if (parsed.__verbose?.tokens_cached !== undefined) {
           tokensCached = parsed.__verbose.tokens_cached;
         }
 
-        // llama.cpp иногда отправляет timings в том же чанке или в последнем чанке
         if (parsed.timings) {
           timings = { ...parsed.timings, tokens_cached: tokensCached };
           callbacks.onTimings?.(timings);
         }
 
-        // LM Studio: stats в финальном чанке (draft info)
         if (parsed.stats) {
           if (!timings) timings = {};
           timings.draft_n = Math.max(timings.draft_n || 0, parsed.stats.total_draft_tokens_count || 0);
@@ -93,12 +93,19 @@ export async function parseStreamedResponse(response, callbacks = {}) {
         const delta = choices[0].delta || {};
         const finish = choices[0].finish_reason;
 
+        if (delta.reasoning_content) {
+          reasoningContent += delta.reasoning_content;
+          hasSeenReasoning = true;
+          callbacks.onReasoning?.(delta.reasoning_content, reasoningContent);
+        }
+
         if (delta.content) {
+          if (hasSeenReasoning && !hasSeenContent) {
+            hasSeenContent = true;
+            callbacks.onReasoningDone?.();
+          }
           content += delta.content;
           callbacks.onContent?.(delta.content, content);
-        } else if (delta.reasoning_content) {
-          content += delta.reasoning_content;
-          callbacks.onContent?.(delta.reasoning_content, content);
         }
 
         if (delta.tool_calls) {
@@ -130,6 +137,8 @@ export async function parseStreamedResponse(response, callbacks = {}) {
   } catch (err) {
     if (err.name === "AbortError") throw err;
     throw new Error(`SSE parse error: ${err.message}`, { cause: err });
+  } finally {
+    reader.cancel().catch(() => {});
   }
 
   // Обработка оставшегося буфера
@@ -141,6 +150,8 @@ export async function parseStreamedResponse(response, callbacks = {}) {
         try {
           const parsed = JSON.parse(raw);
           if (parsed.usage) usage = parsed.usage;
+          if (parsed.reasoning_content) reasoningContent += parsed.reasoning_content;
+          if (parsed.content) content += parsed.content;
           if (parsed.tokens_cached !== undefined) {
             tokensCached = parsed.tokens_cached;
           } else if (parsed.__verbose?.tokens_cached !== undefined) {
@@ -180,5 +191,5 @@ export async function parseStreamedResponse(response, callbacks = {}) {
         })
       : null;
 
-  return { content, toolCalls, finishReason, usage, timings, tokensCached };
+  return { content, reasoningContent, toolCalls, finishReason, usage, timings, tokensCached };
 }

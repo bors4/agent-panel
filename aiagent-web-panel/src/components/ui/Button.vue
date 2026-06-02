@@ -1,13 +1,24 @@
 <template>
   <button
-    :class="['btn', variant, { 'full-width': fullWidth, disabled: disabled }]"
-    :disabled="disabled"
+    :class="[
+      'btn',
+      `btn--${variant}`,
+      {
+        'btn--full': fullWidth,
+        'btn--disabled': disabled,
+        'btn--loading': loading,
+      },
+    ]"
+    :disabled="disabled || loading"
     :aria-label="ariaLabel"
-    :aria-disabled="disabled"
+    :aria-disabled="disabled || loading"
     @click="$emit('click')"
   >
-    <span v-if="icon" class="btn-icon-text" aria-hidden="true">{{ icon }}</span>
-    <slot />
+    <span v-if="icon" class="btn__icon" aria-hidden="true">{{ icon }}</span>
+    <span v-if="loading" class="btn__loader" aria-hidden="true" />
+    <span :class="{ 'btn__text--hidden': loading }">
+      <slot />
+    </span>
   </button>
 </template>
 
@@ -15,11 +26,12 @@
 defineProps({
   variant: {
     type: String,
-    default: "default",
-    validator: (v) => ["default", "primary", "danger", "success"].includes(v),
+    default: "primary",
+    validator: (v) => ["primary", "secondary", "ghost", "danger"].includes(v),
   },
   fullWidth: Boolean,
   disabled: Boolean,
+  loading: Boolean,
   icon: String,
   ariaLabel: String,
 });
@@ -29,148 +41,161 @@ defineEmits(["click"]);
 
 <style scoped>
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
+  gap: 8px;
+  padding: 9px 18px;
+  min-height: 38px;
+  border: 1.5px solid var(--border);
+  background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   cursor: pointer;
-  transition: var(--transition);
-  font-family: inherit;
   white-space: nowrap;
-  position: relative;
-  overflow: hidden;
+  clip-path: polygon(
+    0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    4px 100%, 0 calc(100% - 4px)
+  );
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.btn::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s ease;
+/* ─── PRIMARY (Electric Blue — LAUNCH/ACTIVATE) ─── */
+.btn--primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(42, 127, 255, 0.06);
 }
 
-.btn:hover::before {
-  left: 100%;
+.btn--primary:hover:not(.btn--disabled) {
+  background: var(--accent);
+  color: var(--space-black);
+  box-shadow: var(--glow-accent);
+  border-color: var(--accent);
 }
 
-.btn:hover:not(.disabled) {
-  border-color: var(--border-focus);
-  background: var(--bg-hover);
-  box-shadow: var(--shadow-sm);
+.btn--primary:active:not(.btn--disabled) {
+  transform: scale(0.97);
 }
 
-.btn:active:not(.disabled) {
-  transform: translateY(0);
+/* ─── SECONDARY (Warm Orange — WARNING/ABORT) ─── */
+.btn--secondary {
+  border-color: var(--accent-secondary);
+  color: var(--accent-secondary);
+  background: rgba(212, 135, 74, 0.06);
+}
+
+.btn--secondary:hover:not(.btn--disabled) {
+  background: var(--accent-secondary);
+  color: var(--space-black);
+  box-shadow: var(--glow-orange);
+  border-color: var(--accent-secondary);
+}
+
+.btn--secondary:active:not(.btn--disabled) {
+  transform: scale(0.97);
+}
+
+/* ─── GHOST — прозрачный, без границы ─── */
+.btn--ghost {
+  border-color: transparent;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.btn--ghost:hover:not(.btn--disabled) {
+  color: var(--accent);
+  background: rgba(42, 127, 255, 0.08);
+  border-color: transparent;
   box-shadow: none;
 }
 
-.btn.disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none !important;
+.btn--ghost:active:not(.btn--disabled) {
+  background: rgba(42, 127, 255, 0.14);
 }
 
-.btn.primary {
-  background: var(--gradient-accent);
-  border: none;
-  color: white;
-  position: relative;
-  overflow: hidden;
-}
-
-.btn.primary::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.2) 50%, transparent 70%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.btn.primary:hover:not(.disabled)::after {
-  opacity: 1;
-}
-
-.btn.primary:hover:not(.disabled) {
-  background: linear-gradient(135deg, var(--accent-hover), #6d28d9);
-  box-shadow: 0 4px 20px var(--accent-glow);
-}
-
-.btn.danger {
-  background: linear-gradient(135deg, var(--error-bg), rgba(239, 68, 68, 0.05));
-  border: 1px solid var(--error-border);
-  color: var(--error);
-  position: relative;
-}
-
-.btn.danger:hover:not(.disabled) {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.1));
+/* ─── DANGER (Red — DESTRUCT/ABORT) ─── */
+.btn--danger {
   border-color: var(--error);
-  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.06);
 }
 
-.btn.success {
-  background: linear-gradient(135deg, var(--success-bg), rgba(16, 185, 129, 0.05));
-  border: 1px solid var(--success-border);
-  color: var(--success);
-  position: relative;
+.btn--danger:hover:not(.btn--disabled) {
+  background: var(--error);
+  color: white;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5), 0 0 20px rgba(239, 68, 68, 0.3);
+  border-color: var(--error);
 }
 
-.btn.success:hover:not(.disabled) {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.1));
-  border-color: var(--success);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+.btn--danger:active:not(.btn--disabled) {
+  transform: scale(0.97);
 }
 
-.btn.full-width {
+/* ─── FULL WIDTH ─── */
+.btn--full {
   width: 100%;
+  justify-content: center;
 }
 
-.btn-icon-text {
-  font-size: 14px;
+/* ─── DISABLED ─── */
+.btn--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
-/* Loading state */
-.btn.loading {
-  position: relative;
-  color: transparent;
+/* ─── LOADING ─── */
+.btn--loading {
+  pointer-events: none;
 }
 
-.btn.loading::after {
-  content: "";
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  top: 50%;
-  left: 50%;
-  margin-left: -8px;
-  margin-top: -8px;
+.btn__loader {
+  width: 14px;
+  height: 14px;
   border: 2px solid transparent;
   border-top-color: currentColor;
+  border-right-color: currentColor;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
-  color: white;
+  animation: btnSpin 0.6s linear infinite;
+  flex-shrink: 0;
 }
 
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+.btn__text--hidden {
+  opacity: 0;
+}
+
+.btn__icon {
+  font-size: 0.875rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ─── FOCUS ─── */
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-accent-sm), 0 0 0 1px var(--accent);
+}
+
+.btn--danger:focus-visible {
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.5), 0 0 0 1px var(--error);
+}
+
+.btn--secondary:focus-visible {
+  box-shadow: var(--glow-orange), 0 0 0 1px var(--accent-secondary);
+}
+
+@keyframes btnSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

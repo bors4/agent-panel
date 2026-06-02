@@ -155,6 +155,36 @@ describe("checkAccountToolPermission", () => {
     expect(result.reason).toContain("not in allowed");
   });
 
+  it("denies traversal with multiple ../ segments", () => {
+    const account = {
+      permissions: { read: true },
+      include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "read", { filePath: "../../etc/passwd" }, testDir);
+    expect(result.allowed).toBe(false);
+  });
+
+  it("denies path that starts with include_paths prefix but is outside", () => {
+    const account = {
+      permissions: { read: true },
+      include_paths: [path.join(testDir, "all")],
+    };
+
+    const result = checkAccountToolPermission(account, "read", { filePath: "allowed/file.txt" }, testDir);
+    expect(result.allowed).toBe(false);
+  });
+
+  it("allows path with trailing separator containment", () => {
+    const account = {
+      permissions: { read: true },
+      include_paths: [testDir],
+    };
+
+    const result = checkAccountToolPermission(account, "read", { filePath: "subdir/file.txt" }, testDir);
+    expect(result.allowed).toBe(true);
+  });
+
   it("skips include_paths check for execute tool", () => {
     const account = {
       permissions: { execute: true },

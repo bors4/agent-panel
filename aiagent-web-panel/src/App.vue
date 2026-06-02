@@ -16,7 +16,7 @@
         :token-usage="tokenUsage"
         :perf-stats="perfStats"
         :max-tokens="modelContextLength"
-        :show-tokens="quickSettings.showTokens"
+        :show-tokens="localConfig.showTokens"
         @refresh="refreshStatus"
       />
       <BotCheckCard :token="localConfig.token" />
@@ -33,7 +33,7 @@
           :aria-controls="`panel-${tab.id}`"
           @click="activeTab = tab.id"
         >
-          <span aria-hidden="true">{{ tab.icon }}</span>
+          <span class="tab__indicator" aria-hidden="true">{{ tab.symbol }}</span>
           {{ tab.label }}
         </button>
       </div>
@@ -64,8 +64,6 @@
         @save-path="handleSaveProjectPath"
       />
 
-      <QuickSettingsTab v-if="activeTab === 'quick'" :settings="quickSettings" @save="handleQuickSettingsSave" />
-
       <ChatTab
         v-show="activeTab === 'chat'"
         ref="chatTabRef"
@@ -74,8 +72,10 @@
         :server-url="serverUrl"
         :project-path="localConfig.projectPath"
         :system-prompt="systemPrompt"
-        :verbose="quickSettings.verbose"
-        :show-tokens="quickSettings.showTokens"
+        :verbose="localConfig.verbose"
+        :show-tokens="localConfig.showTokens"
+        :sound-enabled="localConfig.soundEnabled"
+        :sound-volume="localConfig.soundVolume"
         :stream-enabled="localConfig.stream === true"
         @log="addLog"
         @token-usage="handleTokenUsage"
@@ -103,7 +103,6 @@ import StatsCard from "@/components/features/StatsCard.vue";
 import BotCheckCard from "@/components/features/BotCheckCard.vue";
 import PromptTab from "@/components/tabs/PromptTab.vue";
 import SettingsTab from "@/components/tabs/SettingsTab.vue";
-import QuickSettingsTab from "@/components/tabs/QuickSettingsTab.vue";
 import ChatTab from "@/components/tabs/ChatTab.vue";
 import LogsTab from "@/components/tabs/LogsTab.vue";
 import ToolsTab from "@/components/tabs/ToolsTab.vue";
@@ -124,6 +123,13 @@ const defaultConfig = {
   temperature: configDefaults.temperature,
   stream: configDefaults.stream,
   insertUserAfterTool: configDefaults.insertUserAfterTool,
+  openrouterApiKey: "",
+  autoSave: true,
+  verbose: false,
+  autoStart: false,
+  showTokens: true,
+  soundEnabled: true,
+  soundVolume: 50,
 };
 
 const localConfig = ref({ ...defaultConfig });
@@ -148,12 +154,6 @@ const { success, error, warning } = useToast();
 // State
 const activeTab = ref("prompt");
 const systemPrompt = ref("");
-const quickSettings = ref({
-  autoSave: true,
-  verbose: false,
-  autoStart: false,
-  showTokens: true,
-});
 
 const apiBases = ref([
   { url: "http://192.168.1.101:8080/v1", connected: true },
@@ -171,6 +171,11 @@ const modelContextLength = computed(() =>
   selectedModel.value?.maxContextLength || localConfig.value.maxTokens || configDefaults.maxTokens
 );
 
+/**
+ * Добавить запись в локальный лог (на стороне фронтенда).
+ * @param {string} message - Текст сообщения
+ * @param {"info"|"error"|"warning"|"success"|"system"} [type="info"] - Тип записи
+ */
 const addLog = (message, type = "info") => {
   logs.value.push({
     time: new Date().toLocaleTimeString(),
@@ -190,12 +195,11 @@ const handleClearLogs = async () => {
 };
 
 const tabs = [
-  { id: "prompt", label: "Системный промпт", icon: "📝" },
-  { id: "settings", label: "Параметры", icon: "⚙️" },
-  { id: "quick", label: "Быстрые настройки", icon: "🔘" },
-  { id: "tools", label: "Инструменты", icon: "🔧" },
-  { id: "chat", label: "Чат-тест", icon: "💬" },
-  { id: "logs", label: "Логи", icon: "🖥️" },
+  { id: "prompt", label: "Системный промпт", symbol: ">" },
+  { id: "settings", label: "Параметры", symbol: "#" },
+  { id: "tools", label: "Инструменты", symbol: "~" },
+  { id: "chat", label: "Чат с агентом", symbol: "@" },
+  { id: "logs", label: "Логи", symbol: "!" },
 ];
 
 // Initialize
@@ -233,10 +237,39 @@ const loadApiBases = async () => {
   }
 };
 
-const updateModels = async () => {
-  availableModels.value = [];
-  await loadApiBases();
-  success("Модели обновлены");
+/**
+ * Обновить список моделей. Если передан openrouterUrl — загружает модели из OpenRouter
+ * с использованием openrouterApiKey. Иначе загружает модели из локальных API баз.
+ * Вызывается из SettingsTab через событие @models-updated.
+ * @param {string} [openrouterUrl] - URL OpenRouter API (например, "https://openrouter.ai/api/v1")
+ * @param {string} [openrouterApiKey] - Ключ API OpenRouter
+ */
+const updateModels = async (openrouterUrl, openrouterApiKey) => {
+  if (openrouterUrl) {
+    try {
+      const data = await getModels(openrouterUrl, openrouterApiKey);
+      if (data.models) {
+        const models = data.models || [];
+        models.forEach((m) => {
+          if (!availableModels.value.find((x) => x.id === m.id)) {
+            availableModels.value.push({
+              id: m.id,
+              source: openrouterUrl,
+              maxContextLength: m.max_context_length || null,
+            });
+          }
+        });
+        addLog(`Connected to OpenRouter - ${models.length} models`, "success");
+      }
+    } catch (e) {
+      addLog(`Failed to connect OpenRouter: ${e.message}`, "error");
+    }
+    success("Модели OpenRouter загружены");
+  } else {
+    availableModels.value = [];
+    await loadApiBases();
+    success("Модели обновлены");
+  }
   addLog("Models refreshed", "success");
 };
 
@@ -258,13 +291,6 @@ onMounted(async () => {
         }
       });
 
-      quickSettings.value = {
-        autoSave: parsed.autoSave !== false,
-        verbose: parsed.verbose === true,
-        autoStart: parsed.autoStart === true,
-        showTokens: parsed.showTokens !== false,
-      };
-
       if (parsed.apiBases) apiBases.value = parsed.apiBases;
       if (parsed.modelName) modelName.value = parsed.modelName;
       if (parsed.serverUrl) serverUrl.value = parsed.serverUrl;
@@ -281,6 +307,10 @@ onMounted(async () => {
         localConfig.value.projectPath = backendConfig.config.projectPath;
         hasProjectPath = true;
         addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
+      }
+      if (backendConfig?.config?.token && !localConfig.value.token) {
+        localConfig.value.token = backendConfig.config.token;
+        addLog("Loaded Telegram token from backend", "info");
       }
     } catch (e) {
       addLog(`Failed to load backend config: ${e.message}`, "warning");
@@ -309,6 +339,7 @@ onMounted(async () => {
         maxSearchResults: localConfig.value.maxSearchResults,
         maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
         stream: localConfig.value.stream,
+        token: localConfig.value.token || "",
       });
       addLog(`Synced config to backend (projectPath: ${localConfig.value.projectPath})`, "info");
     } catch (e) {
@@ -316,12 +347,26 @@ onMounted(async () => {
     }
   }
 
-  if (quickSettings.value.autoStart && localConfig.value.token && localConfig.value.projectPath) {
+  // AUTO START
+  const autoStartEnabled = localConfig.value.autoStart;
+  const hasToken = !!localConfig.value.token;
+  const hasPath = !!localConfig.value.projectPath;
+  addLog(`AUTO START check: enabled=${autoStartEnabled}, token=${hasToken}, projectPath=${hasPath}`, "system");
+  if (autoStartEnabled && hasToken && hasPath) {
+    addLog("AUTO START triggered — starting bot...", "system");
     await handleStart();
+    await refreshStatus();
+  } else if (autoStartEnabled) {
+    const missing = [];
+    if (!hasToken) missing.push("token");
+    if (!hasPath) missing.push("projectPath");
+    addLog(`AUTO START skipped — missing: ${missing.join(", ")}`, "warning");
   }
 });
 
-// Handlers
+/**
+ * Запустить Telegram бота через API.
+ */
 const handleStart = async () => {
   try {
     await startAgent();
@@ -331,6 +376,9 @@ const handleStart = async () => {
   }
 };
 
+/**
+ * Остановить Telegram бота через API.
+ */
 const handleStop = async () => {
   try {
     await stopAgent();
@@ -340,6 +388,9 @@ const handleStop = async () => {
   }
 };
 
+/**
+ * Перезапустить Telegram бота через API.
+ */
 const handleRestart = async () => {
   try {
     await restartAgent();
@@ -376,6 +427,9 @@ const handleNavigate = (action) => {
   }
 };
 
+/**
+ * Сохранить системный промпт в localStorage.
+ */
 const savePrompt = async () => {
   try {
     localStorage.setItem(
@@ -383,13 +437,12 @@ const savePrompt = async () => {
       JSON.stringify({
         ...localConfig.value,
         systemPrompt: systemPrompt.value,
-        ...quickSettings.value,
         apiBases: apiBases.value,
         modelName: modelName.value,
         serverUrl: serverUrl.value,
       })
     );
-    if (quickSettings.value.autoSave) success("Промпт сохранён");
+    if (localConfig.value.autoSave) success("Промпт сохранён");
     addLog("Prompt saved", "success");
   } catch (e) {
     error(e.message);
@@ -404,18 +457,27 @@ const resetPrompt = () => {
   }
 };
 
+/**
+ * Отформатировать промпт: удалить лишние пробелы и пустые строки.
+ */
 const formatPrompt = () => {
   systemPrompt.value = systemPrompt.value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   success("Отформатировано");
   addLog("Prompt formatted", "info");
 };
 
+/**
+ * Скопировать системный промпт в буфер обмена.
+ */
 const copyPrompt = () => {
   navigator.clipboard.writeText(systemPrompt.value);
   success("Скопировано");
   addLog("Prompt copied to clipboard", "info");
 };
 
+/**
+ * Экспортировать конфигурацию в JSON-файл и скачать.
+ */
 const exportConfig = () => {
   const data = { ...localConfig.value, systemPrompt: systemPrompt.value };
   const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -431,6 +493,9 @@ const exportConfig = () => {
   addLog("Config exported", "success");
 };
 
+/**
+ * Импортировать конфигурацию из JSON-файла (через диалог выбора файла).
+ */
 const importConfig = () => {
   const input = document.createElement("input");
   input.type = "file";
@@ -456,6 +521,12 @@ const importConfig = () => {
   input.click();
 };
 
+/**
+ * Обработать сохранение настроек из SettingsTab.
+ * Обновляет локальное состояние (localConfig, apiBases, modelName, serverUrl)
+ * и сохраняет в localStorage + backend.
+ * @param {{ config?: Object, apiBases?: Array, modelName?: string, serverUrl?: string }} data
+ */
 const handleSettingsSave = (data) => {
   if (data.config) {
     Object.assign(localConfig.value, data.config);
@@ -469,9 +540,13 @@ const handleSettingsSave = (data) => {
   if (data.serverUrl) {
     serverUrl.value = data.serverUrl;
   }
-  saveSettings();
+  saveSettings(true);
 };
 
+/**
+ * Обработать сохранение пути к проекту из SettingsTab.
+ * @param {{ projectPath: string }} data
+ */
 const handleSaveProjectPath = (data) => {
   if (data.projectPath) {
     localConfig.value.projectPath = data.projectPath;
@@ -488,14 +563,19 @@ const resetSettings = () => {
   }
 };
 
-const saveSettings = async () => {
+/**
+ * Сохранить настройки: записывает в localStorage ("agent-config") и
+ * отправляет на backend через POST /api/config.
+ * Включает все поля конфигурации, включая openrouterApiKey и token.
+ * @param {boolean|null} [showToast=null] - true=всегда показывать, false=никогда, null=по autoSave
+ */
+const saveSettings = async (showToast = null) => {
   try {
     localStorage.setItem(
       "agent-config",
       JSON.stringify({
         ...localConfig.value,
         systemPrompt: systemPrompt.value,
-        ...quickSettings.value,
         apiBases: apiBases.value,
         modelName: modelName.value,
         serverUrl: serverUrl.value,
@@ -515,6 +595,8 @@ const saveSettings = async () => {
       temperature: localConfig.value.temperature,
       stream: localConfig.value.stream,
       insertUserAfterTool: localConfig.value.insertUserAfterTool,
+      openrouterApiKey: localConfig.value.openrouterApiKey || "",
+      token: localConfig.value.token || "",
     };
     try {
       await updateConfig(payload);
@@ -522,35 +604,20 @@ const saveSettings = async () => {
     } catch (e) {
       error(`Failed to update backend config: ${e.message}`);
     }
-    if (quickSettings.value.autoSave) success("Настройки сохранены");
+    const shouldShowToast = showToast !== null ? showToast : localConfig.value.autoSave;
+    if (shouldShowToast) success("Настройки сохранены");
   } catch (e) {
     error(e.message);
   }
 };
 
-const saveQuickSettings = (newSettings) => {
-  if (newSettings) {
-    quickSettings.value = newSettings;
-  }
-  localStorage.setItem(
-    "agent-config",
-    JSON.stringify({
-      ...localConfig.value,
-      systemPrompt: systemPrompt.value,
-      ...quickSettings.value,
-      apiBases: apiBases.value,
-      modelName: modelName.value,
-      serverUrl: serverUrl.value,
-    })
-  );
-  if (quickSettings.value.autoSave) success("Сохранено");
-};
 
-const handleQuickSettingsSave = (newSettings) => {
-  quickSettings.value = newSettings;
-  saveQuickSettings(newSettings);
-};
 
+/**
+ * Обработать обновление статистики токенов из ChatTab.
+ * Аккумулирует usage в реактивный tokenUsage.
+ * @param {{ prompt_tokens?: number, completion_tokens?: number, total_tokens?: number, prompt_tokens_details?: { cached_tokens?: number } }} usage
+ */
 const handleTokenUsage = (usage) => {
   if (!usage) return;
   tokenUsage.value.prompt += usage.prompt_tokens || 0;
@@ -567,25 +634,34 @@ const chatTabRef = ref(null);
 <style>
 @import "@/styles/main.css";
 
+/* ═══════════════════════════════════════════════
+   APP LAYOUT — Space Flight Mission Control v2.0
+   ═══════════════════════════════════════════════ */
+
 .app-container {
   position: relative;
-  padding: 24px;
+  padding: 16px 20px 20px;
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 280px 1fr;
   grid-template-rows: auto 1fr;
-  gap: 20px;
+  gap: 16px;
   min-height: 100vh;
-  background: var(--gradient-bg);
+  background: var(--bg-primary);
+  z-index: 1;
 }
+
+/* ═══════════════════════════════════════════════
+   SIDEBAR (Left Panel — Telemetry & Controls)
+   ═══════════════════════════════════════════════ */
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: 100%;
+  max-height: calc(100vh - 90px);
   scrollbar-width: thin;
 }
 
@@ -596,159 +672,118 @@ const chatTabRef = ref(null);
   right: -1px;
   width: 1px;
   height: 100%;
-  background: var(--gradient-accent);
-  opacity: 0.2;
+  background: linear-gradient(180deg, transparent, var(--accent), transparent);
+  opacity: 0.15;
 }
 
-.sidebar-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  transition: var(--transition);
-  backdrop-filter: blur(10px);
-}
-
-.sidebar-card:hover {
-  border-color: var(--border-hover);
-  transform: translateX(2px);
-}
+/* ═══════════════════════════════════════════════
+   MAIN CONTENT (Right Panel)
+   ═══════════════════════════════════════════════ */
 
 .main-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  min-height: 0;
 }
+
+/* ═══════════════════════════════════════════════
+   TAB BAR — Orbital Mode Selector
+   ═══════════════════════════════════════════════ */
 
 .tabs {
   display: flex;
-  gap: 3px;
+  gap: 2px;
   padding: 3px;
-  background: var(--bg-card);
-  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
+  clip-path: polygon(
+    0 4px, 4px 0,
+    calc(100% - 4px) 0, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    4px 100%, 0 calc(100% - 4px)
+  );
   flex-wrap: wrap;
-  backdrop-filter: blur(10px);
   position: relative;
 }
 
-.tabs::before {
+/* Акцентная нижняя черта */
+.tabs::after {
   content: "";
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: -1px;
+  left: 4px;
+  right: 4px;
   height: 1px;
-  background: var(--gradient-accent);
-  opacity: 0.3;
+  background: var(--accent);
+  opacity: 0.2;
 }
 
 .tab {
-  padding: 9px 16px;
+  padding: 7px 14px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: var(--transition);
-  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.tab::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 2px;
-  background: var(--accent-primary);
-  border-radius: 2px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0;
+  clip-path: polygon(
+    0 2px, 2px 0,
+    calc(100% - 2px) 0, 100% 2px,
+    100% calc(100% - 2px), calc(100% - 2px) 100%,
+    2px 100%, 0 calc(100% - 2px)
+  );
 }
 
 .tab:hover:not(.active) {
   color: var(--text-secondary);
-  background: var(--bg-hover);
-}
-
-.tab:hover:not(.active)::before {
-  width: 30%;
-  opacity: 0.5;
+  background: rgba(42, 127, 255, 0.05);
 }
 
 .tab.active {
-  background: var(--gradient-accent);
-  color: white;
-  box-shadow: 0 2px 12px var(--accent-glow);
-  position: relative;
-  overflow: hidden;
+  background: rgba(42, 127, 255, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(42, 127, 255, 0.2);
+  box-shadow: 0 0 6px rgba(42, 127, 255, 0.06);
 }
 
-.tab.active::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 60%;
-  height: 2px;
-  background: var(--text-primary);
-  border-radius: 2px;
+/* Индикатор активного таба (символ в начале) */
+.tab__indicator {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.tab.active .tab__indicator {
   opacity: 1;
+  color: var(--accent);
 }
 
-.tab.active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
-  animation: shimmer 2s infinite;
-}
-
-.tab-icon {
-  font-size: 14px;
-}
-
-.tab-badge {
-  background: var(--error);
-  color: white;
-  font-size: 9px;
-  padding: 2px 5px;
-  border-radius: 10px;
-  min-width: 16px;
-  text-align: center;
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════ */
 
 @media (max-width: 1024px) {
   .app-container {
     grid-template-columns: 1fr;
-    padding: 16px;
+    padding: 14px;
   }
   .sidebar {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 14px;
+    gap: 12px;
+    max-height: none;
   }
   .sidebar::before {
     display: none;
@@ -756,16 +791,13 @@ const chatTabRef = ref(null);
 }
 
 @media (max-width: 640px) {
+  .app-container {
+    padding: 10px;
+    gap: 10px;
+  }
   .sidebar {
     grid-template-columns: 1fr;
-  }
-  .header {
-    flex-direction: column;
     gap: 10px;
-    text-align: center;
-  }
-  .header-left {
-    flex-direction: column;
   }
   .tabs {
     overflow-x: auto;
@@ -773,27 +805,9 @@ const chatTabRef = ref(null);
     -webkit-overflow-scrolling: touch;
   }
   .tab {
-    padding: 8px 12px;
-    font-size: 11px;
-  }
-}
-
-.btn-loading {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
+    padding: 6px 10px;
+    font-size: 0.6rem;
+    flex-shrink: 0;
   }
 }
 </style>

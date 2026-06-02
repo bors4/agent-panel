@@ -33,7 +33,7 @@ const BASE_RECONNECT_DELAY = 1000; // 1 секунда старт
   // Перехватываем ошибки "send was called before connect"
   const originalOnError = window.onerror;
   window.onerror = function (message, source, _lineno, _colno, _error) {
-    if (message?.includes?.("send was called before connect") && source?.includes("client:")) {
+    if (message?.includes?.("send was called before connect") && source?.includes("client.js")) {
       const now = Date.now();
       if (now < suppressUntil) {
         return true;
@@ -77,6 +77,17 @@ function resetReconnectState() {
 // ─────────────────────────────────────────────────────
 // 🔌 Основная функция запроса с повторными попытками
 // ─────────────────────────────────────────────────────
+/**
+ * Базовый HTTP-запрос к API с экспоненциальной задержкой при потере соединения.
+ * Автоматически добавляет Content-Type: application/json и x-api-key.
+ * При ошибке ответа пытается извлечь тело ошибки JSON (body.error) для лучшего сообщения.
+ * При потере соединения включает повторные попытки с экспоненциальной задержкой (до 5с).
+ * @param {string} endpoint - Путь API (например, "/status")
+ * @param {Object} [options] - Опции fetch (method, body, headers)
+ * @param {boolean} [retry=true] - Включить автоматические повторные попытки
+ * @returns {Promise<Response>} Ответ fetch
+ * @throws {Error} С сообщением из body.error или статусом HTTP
+ */
 async function apiFetch(endpoint, options = {}, retry = true) {
   const url = `${BASE_URL}${endpoint}`;
   const headers = {
@@ -100,11 +111,21 @@ async function apiFetch(endpoint, options = {}, retry = true) {
     }
 
     if (!response.ok) {
-      throw new Error(`API error ${response.status}: ${response.statusText}`);
+      let errorMsg = `API error ${response.status}: ${response.statusText}`;
+      try {
+        const body = await response.json();
+        if (body.error) errorMsg = body.error;
+      } catch {}
+      throw new Error(errorMsg);
     }
 
     return response;
   } catch (error) {
+    // 🚫 AbortError — пользователь отменил запрос, никогда не повторяем
+    if (error.name === "AbortError") {
+      throw error;
+    }
+
     // 🚫 При первой ошибке — включаем короткое подавление "шума"
     if (isConnected) {
       window.__apiConnectionLost = true;
@@ -177,11 +198,12 @@ export async function restartBot() {
   return response.json();
 }
 
-export async function directChat(options) {
+export async function directChat(options, signal = null) {
   const body = typeof options === "string" ? { message: options } : options;
   const response = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify(body),
+    signal,
   });
   return response.json();
 }
@@ -190,16 +212,19 @@ export async function directChat(options) {
  * Потоковый чат с AI (SSE). Принимает колбэки для real-time обновлений.
  * @param {Object|string} options - Опции запроса или строка сообщения
  * @param {Object} callbacks - Колбэки
+ * @param {Function} [callbacks.onReasoning] - Вызывается при чанке reasoning (chunk, accumulated)
+ * @param {Function} [callbacks.onReasoningDone] - Вызывается при завершении reasoning
  * @param {Function} [callbacks.onContent] - Вызывается при каждом чанке (chunk, accumulated)
  * @param {Function} [callbacks.onDone] - Вызывается при завершении (usage)
  * @param {Function} [callbacks.onError] - Вызывается при ошибке (error)
  * @returns {Promise<string>} Полный накопленный текст
  */
-export async function directChatStream(options, callbacks = {}) {
+export async function directChatStream(options, callbacks = {}, signal = null) {
   const body = { ...(typeof options === "string" ? { message: options } : options), stream: true };
   const response = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {
@@ -211,6 +236,18 @@ export async function directChatStream(options, callbacks = {}) {
   const decoder = new TextDecoder();
   let buffer = "";
   let fullContent = "";
+  let fullReasoning = "";
+
+  // При отмене — закрываем reader
+  if (signal) {
+    if (signal.aborted) {
+      reader.cancel().catch(() => {});
+    } else {
+      signal.addEventListener("abort", () => {
+        reader.cancel().catch(() => {});
+      }, { once: true });
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read();
@@ -239,6 +276,13 @@ export async function directChatStream(options, callbacks = {}) {
         callbacks.onError?.(parsed.error);
         throw new Error(parsed.error);
       }
+      if (parsed.reasoning) {
+        fullReasoning += parsed.reasoning;
+        callbacks.onReasoning?.(parsed.reasoning, fullReasoning);
+      }
+      if (parsed.reasoningDone) {
+        callbacks.onReasoningDone?.();
+      }
       if (parsed.reply) {
         fullContent += parsed.reply;
         callbacks.onContent?.(parsed.reply, fullContent);
@@ -257,6 +301,7 @@ export async function directChatStream(options, callbacks = {}) {
       if (raw !== "[DONE]") {
         try {
           const data = JSON.parse(raw);
+          if (data.reasoning) fullReasoning += data.reasoning;
           if (data.reply) fullContent += data.reply;
           if (data.done) callbacks.onDone?.(data.usage || null, fullContent);
         } catch {}
@@ -325,7 +370,7 @@ export async function executeTool(toolCall) {
  * @param {boolean} [options.useAgentLoop=true] - Флаг agent loop
  * @returns {Promise<Object>} Ответ с toolCalls, toolResults и reply
  */
-export async function agentChat(options) {
+export async function agentChat(options, signal = null, abortId = null) {
   const response = await apiFetch("/chat", {
     method: "POST",
     body: JSON.stringify({
@@ -337,7 +382,9 @@ export async function agentChat(options) {
       serverUrl: options.serverUrl,
       modelName: options.modelName,
       systemPrompt: options.systemPrompt,
+      abortId,
     }),
+    signal,
   });
   return response.json();
 }
@@ -350,14 +397,16 @@ export async function agentChat(options) {
  * @param {string} [options.accountName] - Имя аккаунта
  * @returns {Promise<Object>}
  */
-export async function agentChatContinue(options) {
+export async function agentChatContinue(options, signal = null) {
   const response = await apiFetch("/chat/continue", {
     method: "POST",
     body: JSON.stringify({
       messages: options.messages,
       approvalDecision: options.approvalDecision,
       accountName: options.accountName || "",
+      abortId: options.abortId,
     }),
+    signal,
   });
   return response.json();
 }
@@ -388,13 +437,47 @@ export async function postImportAccounts(payload) {
   return response.json();
 }
 
-export async function getModels(serverUrl) {
-  const response = await apiFetch(`/models?serverUrl=${encodeURIComponent(serverUrl)}`);
+/**
+ * Получить список доступных моделей с AI сервера.
+ * Для OpenRouter опционально передаётся apiKey, который отправляется
+ * как заголовок x-openrouter-key (не query-параметр).
+ * @param {string} serverUrl - URL AI сервера (например, "http://192.168.1.101:8080/v1")
+ * @param {string} [apiKey] - API ключ для OpenRouter (отправляется в заголовке x-openrouter-key)
+ * @returns {Promise<{success: boolean, models: Array, source: "openrouter"|"local"}>}
+ */
+export async function getModels(serverUrl, apiKey) {
+  const url = `/models?serverUrl=${encodeURIComponent(serverUrl)}`;
+  const options = {};
+  if (apiKey) options.headers = { "x-openrouter-key": apiKey };
+  const response = await apiFetch(url, options);
   return response.json();
 }
 
 export async function checkPath(path) {
   const response = await apiFetch(`/validate-path?path=${encodeURIComponent(path)}`);
+  return response.json();
+}
+
+export async function getDirectories(dirPath) {
+  const response = await apiFetch(`/directories?path=${encodeURIComponent(dirPath || "")}`);
+  return response.json();
+}
+
+export async function browseFolder() {
+  const response = await apiFetch("/browse-folder");
+  return response.json();
+}
+
+/**
+ * Отменить выполняющийся agent loop запрос.
+ * @param {string} abortId - ID запроса из ответа agentChat
+ * @returns {Promise<Object>}
+ */
+export async function cancelChat(abortId) {
+  const response = await apiFetch("/chat/cancel", {
+    method: "POST",
+    body: JSON.stringify({ abortId }),
+  });
   return response.json();
 }
 

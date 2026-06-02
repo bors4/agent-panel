@@ -4,13 +4,13 @@
 > **Приоритеты:** `P0` 🔴 High · `P1` 🟡 Medium · `P2` 🟢 Low · `P3` 🔵 Low-UI · `P4` ⚪ Wishlist
 > Номер — `#1`… (отдельно в каждой группе).
 
-> **Прогресс: 49 / 57** | `P0: 0/4` · `P1: 11/13` · `P2: 20/22` · `P3: 13/13` · `P4: 5/5`
+> **Прогресс: 57 / 57** | `P0: 4/4` · `P1: 13/13` · `P2: 22/22` · `P3: 13/13` · `P4: 5/5`
 
 ---
 
 ## 🔴 High Priority (P0)
 
-- [ ] #1 `[bug][backend]` Ошибка `AI API error: 400` в `continueAfterApproval` после нескольких запросов к модели
+- [x] #1 `[bug][backend]` Ошибка `AI API error: 400` в `continueAfterApproval` после нескольких запросов к модели
   - **Симптом:** После выполнения инструмента `execute` и отправки результата обратно в AI, сервер возвращает 400
   - **Лог:** `finishReason: 'tool_calls', hasToolCalls: true, contentLen: 91` — модель возвращает одновременно `tool_calls` и `content`
   - **Возможные причины:**
@@ -20,16 +20,16 @@
     - Повторная отправка `tools` в запросе после того как модель уже решила вызвать инструмент
   - **Что делать:** добавить логирование request body, валидацию max_tokens/temperature, не отправлять `tools` повторно при tool_calls
 
-- [ ] #2 `[security][infra]` **Секреты в открытом виде в `.env`**
+- [x] #2 `[security][infra]` **Секреты в открытом виде в `.env`**
   - Файл содержит живой `GITHUB_PERSONAL_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `API_KEY`
   - **Немедленно:** отозвать GitHub PAT, ротировать Telegram токен
   - **Постоянно:** зашифровать `.env` через dotenvx или вынести в переменные окружения ОС
 
-- [ ] #3 `[security][backend]` **Command injection в `execute`**
+- [x] #3 `[security][backend]` **Command injection в `execute`**
   - На Windows `spawn` использует `cmd.exe` с shell-интерпретацией; PowerShell команды тоже исполняются через shell
   - Добавить allowlist разрешённых команд, валидацию, блокировку опасных паттернов (`rm -rf`, `del /f`, `format` и т.д.)
 
-- [ ] #4 `[security][backend]` **Path traversal в `checkAccountToolPermission` через `include_paths`**
+- [x] #4 `[security][backend]` **Path traversal в `checkAccountToolPermission` через `include_paths`**
   - `accounts.js:73-89`: `path.resolve(projectPath, "../../../Windows")` обходит проверку
   - `include_paths` с корнем диска (`E:\`) пропускает любой путь на этом диске
   - **Фикс:** добавить проверку вхождения пути в `projectPath` через `path.relative()`
@@ -70,7 +70,7 @@
   - Улучшен `catch (e)` с логированием через `logError`
   - Возвращаются осмысленные сообщения об ошибках вместо краша
 
-- [ ] #9 `[feature][backend]` **Режим "простого чата" без проектного контекста**
+- [x] #9 `[feature][backend]` **Режим "простого чата" без проектного контекста**
   - Возможность отключить проектный контекст — агент работает как обычный чат-бот
   - Системный промпт не отправляется (или заменяется на минимальный)
   - `projectPath` игнорируется, доступ к инструментам через `include_paths` аккаунта
@@ -86,7 +86,7 @@
   - `executeTool.js:446`: `console.log(\`[executeTool] name=${name}, args=${JSON.stringify(args)}...\`)` — args могут содержать секреты
   - **Фикс:** заменить на `logInfo()`, маскировать `args`
 
-- [ ] #12 `[feature][backend][frontend]` **Поддержка моделей через OpenRouter**
+- [x] #12 `[feature][backend][frontend]` **Поддержка моделей через OpenRouter**
   - OpenRouter предоставляет единый API к 300+ моделям (Claude, Gemini, GPT, DeepSeek, Mistral и др.)
   - **Бэкенд:** добавить в `config` поле `openrouterApiKey`; в `agentLoop.js` определить провайдера по URL (если `serverUrl` содержит `openrouter` → использовать OpenRouter-формат запроса)
   - **Фронтенд:** добавить кнопку "Загрузить модели из OpenRouter" рядом с полем Model_Name (аналогично кнопке обновления моделей для LM Studio)

@@ -1,34 +1,54 @@
 <!--
-  Шапка приложения с логотипом, статусом и навигацией.
+  Header — Mission Control Panel
+  Верхняя панель управления с брендингом, статусом, поиском и настройками.
 -->
 <template>
   <header class="header">
-    <div class="header-left">
-      <div class="logo">🤖</div>
-      <div class="header-title">
-        <h1>AI Agent Control Panel</h1>
-        <span>Управление Telegram-ботом и AI-агентом</span>
+    <div class="header__left">
+      <div class="header__logo" aria-label="Mission Control">
+        <span class="header__logo-icon">🚀</span>
       </div>
+      <div class="header__brand">
+        <h1 class="header__title">AI Agent Control Panel</h1>
+        <span class="header__subtitle">{{ subtitle }}</span>
+      </div>
+      <span class="header__ship-designation" aria-hidden="true">NCC-AGNT</span>
     </div>
-    <div class="header-right">
+
+    <div class="header__right">
       <StatusBadge :status="status" />
       <GlobalSearch :active-tab="activeTab" @navigate="$emit('navigate', $event)" />
       <ThemeToggle />
     </div>
+
+    <!-- Декоративный орбитальный элемент -->
+    <div class="header__orbit" aria-hidden="true" />
   </header>
 </template>
 
 <script setup>
+import { computed } from "vue";
 import StatusBadge from "./StatusBadge.vue";
 import ThemeToggle from "../ui/ThemeToggle.vue";
 import GlobalSearch from "../ui/GlobalSearch.vue";
 
-defineProps({
+const props = defineProps({
   status: { type: String, default: "stopped" },
   activeTab: { type: String, default: "prompt" },
 });
 
 defineEmits(["navigate"]);
+
+const subtitle = computed(() => {
+  const labels = {
+    running: "SYS://ONLINE · GALAXY LINK ESTABLISHED · TELEMETRY ACTIVE",
+    stopped: "SYS://STANDBY · STARSHIP DOCKED · AWAITING COMMAND",
+    error: "SYS://ALERT · NAVIGATION MALFUNCTION · SHIELDS UP",
+    checking: "SYS://DIAGNOSTICS · SCANNING SECTOR · INITIALIZING",
+    idle: "SYS://IDLE · DRIFTING IN ORBIT · MONITORING",
+  };
+  return labels[props.status] || "SYS://MISSION CONTROL";
+});
 </script>
 
 <style scoped>
@@ -37,85 +57,169 @@ defineEmits(["navigate"]);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--bg-card);
+  padding: 10px 20px;
+  min-height: 56px;
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  backdrop-filter: blur(10px);
+  clip-path: polygon(
+    0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%,
+    6px 100%, 0 calc(100% - 6px)
+  );
   position: relative;
   z-index: 50;
 }
 
+/* Верхняя акцентная линия */
 .header::before {
   content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: -1px;
+  left: 6px;
+  right: 6px;
   height: 2px;
-  background: var(--gradient-accent);
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow), 0 0 20px var(--accent-glow);
   opacity: 0.8;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  position: relative;
-  z-index: 1;
-}
-
-.header-right {
+.header__left {
   display: flex;
   align-items: center;
   gap: 12px;
   position: relative;
+  z-index: 1;
 }
 
-.logo {
-  width: 42px;
-  height: 42px;
-  background: var(--gradient-accent);
-  border-radius: var(--radius-sm);
+.header__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Логотип ─── */
+.header__logo {
+  width: 36px;
+  height: 36px;
+  background: var(--glass-bg);
+  border: 1px solid rgba(42, 127, 255, 0.25);
+  clip-path: polygon(
+    0 3px, 3px 0,
+    calc(100% - 3px) 0, 100% 3px,
+    100% calc(100% - 3px), calc(100% - 3px) 100%,
+    3px 100%, 0 calc(100% - 3px)
+  );
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  position: relative;
-  overflow: hidden;
+  font-size: 1.125rem;
+  flex-shrink: 0;
+  transition: var(--transition);
 }
 
-.logo::after {
+.header__logo:hover {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent-sm);
+}
+
+/* ─── Бренд ─── */
+.header__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.header__title {
+  font-family: "Orbitron", "Space Grotesk", monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.header__subtitle {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+}
+
+/* ─── Корабельное обозначение ─── */
+.header__ship-designation {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5rem;
+  color: var(--text-muted);
+  letter-spacing: 0.25em;
+  opacity: 0.4;
+  margin-left: 4px;
+  align-self: flex-end;
+  padding-bottom: 1px;
+}
+
+/* ─── Орбитальный декоративный элемент ─── */
+.header__orbit {
+  position: absolute;
+  right: 25%;
+  top: 50%;
+  width: 120px;
+  height: 120px;
+  border: 1px solid rgba(42, 127, 255, 0.05);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.header__orbit::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0.15;
+  animation: orbitSpin 12s linear infinite;
+}
+
+.header__orbit::after {
   content: "";
   position: absolute;
   top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: rgba(255, 255, 255, 0.2);
+  left: -4px;
+  width: 4px;
+  height: 4px;
+  background: var(--accent-tertiary);
   border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: all 0.6s ease-out;
+  opacity: 0.1;
+  animation: orbitSpin 8s linear infinite reverse;
 }
 
-.logo:hover::after {
-  width: 100%;
-  height: 100%;
+@keyframes orbitSpin {
+  from { transform: rotate(0deg) translateX(60px); }
+  to { transform: rotate(360deg) translateX(60px); }
 }
 
-.header-title h1 {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  background: var(--gradient-accent);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-bottom: 2px;
-}
-
-.header-title span {
-  font-size: 12px;
-  color: var(--text-muted);
+/* ─── Responsive ─── */
+@media (max-width: 768px) {
+  .header {
+    padding: 8px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .header__title {
+    font-size: 0.75rem;
+  }
+  .header__subtitle {
+    display: none;
+  }
+  .header__orbit {
+    display: none;
+  }
 }
 </style>

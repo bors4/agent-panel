@@ -1,9 +1,9 @@
 <template>
-  <div class="settings-tab">
+<div class="settings-tab">
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Основные параметры</h2>
+        <h3 class="mono-label">CFG://CONFIG</h3>
       </div>
     </template>
     <div class="form-group">
@@ -19,11 +19,11 @@
           placeholder="123456789:AAH..."
         />
         <button class="token-toggle" @click="tokenVisible = !tokenVisible">
-          {{ tokenVisible ? "🔒" : "👁️" }}
+          {{ tokenVisible ? "HIDE" : "SHOW" }}
         </button>
       </div>
-      <span v-if="hasToken" class="token-ok">✅ Токен задан</span>
-      <span v-else class="token-missing">❌ Токен не задан</span>
+      <span v-if="hasToken" class="token-ok">[TOKEN SET]</span>
+      <span v-else class="token-missing">[NO TOKEN]</span>
     </div>
     <div class="form-group">
       <div class="form-label">
@@ -32,7 +32,8 @@
       </div>
       <div class="project-path-row">
         <input v-model="projectPathDraft" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
-        <Button @click="handleSaveProjectPath">💾 Сохранить путь</Button>
+        <Button variant="ghost" @click="browseDirectory">BROWSE</Button>
+        <Button @click="handleSaveProjectPath">SAVE PATH</Button>
       </div>
       <p v-if="pathError" class="path-error">{{ pathError }}</p>
     </div>
@@ -67,30 +68,70 @@
         <label>MODEL_NAME</label>
         <span class="hint">Выберите модель</span>
       </div>
+      <input
+        v-model="modelFilter"
+        type="text"
+        class="form-input"
+        placeholder="Фильтр моделей..."
+        style="margin-bottom: 6px"
+      />
       <div class="model-name-row">
         <select v-model="modelNameCopy" class="form-input">
           <option value="" disabled>Выберите модель</option>
-          <option v-for="model in availableModels" :key="model.id" :value="model.id">
+          <option v-for="model in filteredModels" :key="model.id" :value="model.id">
             {{ model.id }} ({{ model.source }})
           </option>
         </select>
         <Button
           class="btn-refresh-models"
           :disabled="loadingStates.models"
+          :loading="loadingStates.models"
           @click="handleRefreshModels"
         >
-          <span v-if="loadingStates.models" class="btn-loading" />
-          <span v-else>🔄 Обновить список</span>
+          REFRESH
         </Button>
       </div>
       <p v-if="availableModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>OPENROUTER_API_KEY</label>
+        <span class="hint">Ключ API OpenRouter (опционально)</span>
+      </div>
+      <div class="token-input-wrapper">
+        <input
+          v-model="configCopy.openrouterApiKey"
+          :type="orKeyVisible ? 'text' : 'password'"
+          class="form-input"
+          placeholder="sk-or-v1-..."
+        />
+        <button class="token-toggle" @click="orKeyVisible = !orKeyVisible">
+          {{ orKeyVisible ? "HIDE" : "SHOW" }}
+        </button>
+      </div>
+    </div>
+    <div v-if="configCopy.openrouterApiKey" class="form-group">
+      <div class="form-label">
+        <label>OpenRouter модели</label>
+        <span class="hint">Загрузить модели из OpenRouter</span>
+      </div>
+      <div class="openrouter-row">
+        <Button
+          class="btn-refresh-models"
+          :disabled="loadingStates.openrouterModels"
+          :loading="loadingStates.openrouterModels"
+          @click="handleLoadOpenRouterModels"
+        >
+          LOAD OPENROUTER
+        </Button>
+      </div>
     </div>
   </Card>
 
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Лимиты и производительность</h2>
+        <h3 class="mono-label">CFG://LIMITS</h3>
       </div>
     </template>
     <div class="form-group">
@@ -196,13 +237,13 @@
   <Card>
     <template #header>
       <div class="header-row">
-        <h2>Потоковый вывод</h2>
+        <h3 class="mono-label">CFG://BEHAVIOR</h3>
       </div>
     </template>
     <div class="form-group">
       <div class="form-label">
         <label>Потоковый вывод (SSE)</label>
-        <span class="hint">Реального времени ответ модели</span>
+        <span class="hint">Token-by-token вывод ответа</span>
       </div>
       <div class="toggle-control">
         <label class="toggle-switch">
@@ -214,7 +255,7 @@
     <div class="form-group">
       <div class="form-label">
         <label>insertUserAfterTool</label>
-        <span class="hint">Для Jinja-шаблонов qwen (user после tool)</span>
+        <span class="hint">В Jinja-шаблонах user после tool</span>
       </div>
       <div class="toggle-control">
         <label class="toggle-switch">
@@ -223,16 +264,106 @@
         </label>
       </div>
     </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>CHAT MODE</label>
+        <span class="hint">Отключить проектный контекст</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.chatMode" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>AUTO SAVE</label>
+        <span class="hint">Автосохранение изменений</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.autoSave" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>VERBOSE</label>
+        <span class="hint">Детализация логов</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.verbose" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>AUTO START</label>
+        <span class="hint">Автозапуск бота при загрузке</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.autoStart" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+  </Card>
+
+  <Card>
+    <template #header>
+      <div class="header-row">
+        <h3 class="mono-label">CFG://DISPLAY</h3>
+      </div>
+    </template>
+    <div class="form-group">
+      <div class="form-label">
+        <label>SHOW TOKENS</label>
+        <span class="hint">Показывать счётчик токенов</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.showTokens" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>SOUND</label>
+        <span class="hint">Звуковые уведомления</span>
+      </div>
+      <div class="toggle-control">
+        <label class="toggle-switch">
+          <input v-model="configCopy.soundEnabled" type="checkbox" />
+          <span class="toggle-slider" />
+        </label>
+      </div>
+    </div>
+    <div v-if="configCopy.soundEnabled" class="form-group">
+      <div class="form-label">
+        <label>VOLUME</label>
+        <span class="hint">{{ configCopy.soundVolume }}%</span>
+      </div>
+      <input v-model.number="configCopy.soundVolume" type="range" min="0" max="100" step="5" class="range-input" />
+      <div class="range-labels">
+        <span>0</span>
+        <span class="range-value">{{ configCopy.soundVolume }}%</span>
+        <span>100</span>
+      </div>
+    </div>
   </Card>
 
   <div class="settings-actions">
-    <Button variant="primary" :disabled="loadingStates.save" style="flex: 1" @click="handleSave">
-      <span v-if="loadingStates.save" class="btn-loading" />
-      <span v-else>💾 Сохранить настройки</span>
+    <Button variant="primary" :disabled="loadingStates.save" @click="handleSave">
+      SAVE ALL
     </Button>
-    <Button :disabled="loadingStates.reset" @click="handleReset">
-      <span v-if="loadingStates.reset" class="btn-loading" />
-      <span v-else>↩️ Сброс</span>
+    <Button variant="ghost" :disabled="loadingStates.reset" @click="handleReset">
+      RESET
     </Button>
   </div>
   </div>
@@ -243,8 +374,18 @@ import { ref, reactive, watch, computed } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
-import { checkPath } from "@/api/client";
+import { checkPath, browseFolder } from "@/api/client";
 
+/**
+ * @typedef {Object} SettingsTabProps
+ * @property {Object} config - Текущая конфигурация (token, projectPath, maxTokens, и т.д.)
+ * @property {Array} apiBases - Список API-баз [{ url, connected }]
+ * @property {Array} availableModels - Доступные модели [{ id, source, maxContextLength }]
+ * @property {string} modelName - Выбранная модель
+ * @property {string} serverUrl - URL текущего сервера
+ */
+
+/** @type {SettingsTabProps} */
 const props = defineProps({
   config: { type: Object, default: () => ({}) },
   apiBases: { type: Array, default: () => [] },
@@ -253,6 +394,13 @@ const props = defineProps({
   serverUrl: { type: String, default: "" },
 });
 
+/**
+ * События компонента SettingsTab:
+ * @event save - Сохранить настройки. Payload: { config, apiBases, modelName, serverUrl }
+ * @event reset - Сбросить настройки
+ * @event models-updated - Обновить список моделей. Payload: (openrouterUrl?, openrouterApiKey?)
+ * @event save-path - Сохранить путь проекта. Payload: { projectPath }
+ */
 const emit = defineEmits(["save", "reset", "models-updated", "save-path"]);
 
 // Копии для редактирования
@@ -269,11 +417,34 @@ const configCopy = reactive({
   temperature: props.config.temperature ?? configDefaults.temperature,
   stream: props.config.stream ?? configDefaults.stream,
   insertUserAfterTool: props.config.insertUserAfterTool ?? configDefaults.insertUserAfterTool,
+  chatMode: props.config.chatMode ?? configDefaults.chatMode,
+  openrouterApiKey: props.config.openrouterApiKey || "",
+  autoSave: props.config.autoSave !== false,
+  verbose: props.config.verbose === true,
+  autoStart: props.config.autoStart === true,
+  showTokens: props.config.showTokens !== false,
+  soundEnabled: props.config.soundEnabled !== false,
+  soundVolume: props.config.soundVolume ?? 50,
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
+const modelFilter = ref("");
+
+/**
+ * Отфильтрованные модели по тексту в modelFilter.
+ * Фильтрация по id модели или source (URL сервера), регистронезависимая.
+ * @type {import('vue').ComputedRef<Array>}
+ */
+const filteredModels = computed(() => {
+  if (!modelFilter.value) return props.availableModels;
+  const q = modelFilter.value.toLowerCase();
+  return props.availableModels.filter(
+    (m) => m.id.toLowerCase().includes(q) || (m.source || "").toLowerCase().includes(q)
+  );
+});
 // Состояния
 const tokenVisible = ref(false);
+const orKeyVisible = ref(false);
 const pathError = ref("");
 const hasToken = computed(() => !!(configCopy.token || configBackendHasToken.value));
 const configBackendHasToken = ref(false);
@@ -282,6 +453,7 @@ const loadingStates = ref({
   save: false,
   reset: false,
   models: false,
+  openrouterModels: false,
 });
 
 // Debounce and save state management
@@ -290,15 +462,19 @@ let pendingSave = false;
 let isSaving = false;
 let ignoreNextWatch = false;
 
+/**
+ * Сохранение с debounce (300 мс). Предотвращает множественные одновременные сохранения.
+ * Использует флаги pendingSave / isSaving для защиты от гонок.
+ */
 const debouncedSave = async () => {
   if (pendingSave || isSaving) return;
-  
+
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
       isSaving = true;
       pendingSave = true;
-      
+
       const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
       emit("save", {
         config: { ...configCopy },
@@ -317,6 +493,9 @@ const debouncedSave = async () => {
   }, 300);
 };
 
+/**
+ * Автосохранение при изменении полей. Вызывает debouncedSave.
+ */
 const autoSave = () => {
   debouncedSave();
 };
@@ -329,7 +508,7 @@ watch(
       ignoreNextWatch = false;
       return;
     }
-    
+
     ignoreNextWatch = true;
     configCopy.token = val.token || "";
     projectPathDraft.value = val.projectPath || "";
@@ -344,7 +523,15 @@ watch(
     configCopy.temperature = val.temperature ?? configDefaults.temperature;
     configCopy.stream = val.stream ?? configDefaults.stream;
     configCopy.insertUserAfterTool = val.insertUserAfterTool ?? configDefaults.insertUserAfterTool;
-    
+    configCopy.chatMode = val.chatMode ?? configDefaults.chatMode;
+    configCopy.openrouterApiKey = val.openrouterApiKey || "";
+    configCopy.autoSave = val.autoSave !== false;
+    configCopy.verbose = val.verbose === true;
+    configCopy.autoStart = val.autoStart === true;
+    configCopy.showTokens = val.showTokens !== false;
+    configCopy.soundEnabled = val.soundEnabled !== false;
+    configCopy.soundVolume = val.soundVolume ?? 50;
+
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -376,7 +563,26 @@ watch(() => configCopy.projectPath, () => {
   pathError.value = "";
 });
 
-// Обработчики с loading states
+/**
+ * Открыть системное окно выбора директории через backend.
+ * Backend вызывает нативный OS диалог (PowerShell/Zenity) и возвращает полный путь.
+ */
+const browseDirectory = async () => {
+  try {
+    const data = await browseFolder();
+    if (data.path) {
+      projectPathDraft.value = data.path;
+      pathError.value = "";
+    }
+  } catch {
+    pathError.value = "⚠️ Failed to open folder picker";
+  }
+};
+
+/**
+ * Проверить существование директории через API /api/validate-path.
+ * Устанавливает pathError при ошибке.
+ */
 async function checkProjectPath() {
   const p = projectPathDraft.value;
   if (!p) { pathError.value = ""; return; }
@@ -391,12 +597,18 @@ async function checkProjectPath() {
   }
 }
 
+/**
+ * Сохранить настройки вручную (кнопка "Сохранить настройки").
+ * Перед сохранением проверяет путь проекта.
+ * Эмитит событие "save" с полной конфигурацией.
+ */
 const handleSave = async () => {
   if (isSaving) return;
   configCopy.projectPath = projectPathDraft.value;
   await checkProjectPath();
   if (pathError.value) return;
-  
+
+  pendingSave = true;
   loadingStates.value.save = true;
   try {
     const model = props.availableModels.find((m) => m.id === modelNameCopy.value);
@@ -418,6 +630,11 @@ const handleSave = async () => {
   }
 };
 
+/**
+ * Сохранить путь к проекту (кнопка "Сохранить путь").
+ * Проверяет существование директории перед сохранением.
+ * Эмитит событие "save-path" с { projectPath }.
+ */
 async function handleSaveProjectPath() {
   await checkProjectPath();
   if (pathError.value) return;
@@ -425,6 +642,9 @@ async function handleSaveProjectPath() {
   emit("save-path", { projectPath: projectPathDraft.value });
 }
 
+/**
+ * Сбросить настройки (кнопка "Сброс"). Эмитит событие "reset".
+ */
 const handleReset = () => {
   loadingStates.value.reset = true;
   emit("reset");
@@ -433,6 +653,10 @@ const handleReset = () => {
   }, 500);
 };
 
+/**
+ * Обновить список моделей (кнопка "Обновить список").
+ * Эмитит событие "models-updated" без параметров — для локальных API баз.
+ */
 const handleRefreshModels = async () => {
   loadingStates.value.models = true;
   try {
@@ -444,48 +668,93 @@ const handleRefreshModels = async () => {
   }
 };
 
+/**
+ * Загрузить модели из OpenRouter (кнопка "Загрузить модели OpenRouter").
+ * Эмитит событие "models-updated" с URL OpenRouter и API-ключом.
+ */
+const handleLoadOpenRouterModels = async () => {
+  loadingStates.value.openrouterModels = true;
+  try {
+    emit("models-updated", "https://openrouter.ai/api/v1", configCopy.openrouterApiKey);
+  } finally {
+    setTimeout(() => {
+      loadingStates.value.openrouterModels = false;
+    }, 1000);
+  }
+};
+
+/**
+ * Добавить новую пустую API-базу в список.
+ */
 const addApiBase = () => {
   apiBasesCopy.value.push({ url: "", connected: false });
   autoSave();
 };
 
+/**
+ * Удалить API-базу по индексу.
+ * @param {number} index - Индекс элемента в apiBasesCopy
+ */
 const removeApiBase = (index) => {
   apiBasesCopy.value.splice(index, 1);
   autoSave();
 };
 
+/**
+ * Синхронизировать API-базы: автосохранение + обновление моделей.
+ */
 const syncApiBases = () => {
   autoSave();
   emit("models-updated");
 };
 
+/**
+ * Скорректировать maxTokens на указанную дельту (с ограничением 256–65536).
+ * @param {number} delta - Изменение (положительное или отрицательное, кратно 4096 в UI)
+ */
 const adjustTokens = (delta) => {
   configCopy.maxTokens = Math.max(256, Math.min(65536, configCopy.maxTokens + delta));
 };
 </script>
 
 <style scoped>
-.settings-tab {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
 }
 
-.header-row h2 {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  font-weight: 500;
-  background: none;
-  background-clip: unset;
-  -webkit-background-clip: unset;
-  -webkit-text-fill-color: unset;
+.settings-tab {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .settings-tab {
+    grid-template-columns: 1fr 1fr;
+  }
+  .settings-actions {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .settings-tab {
+    grid-template-columns: 1fr;
+  }
+  .settings-actions {
+    grid-column: 1;
+  }
 }
 
 .api-base-table {
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
   overflow: hidden;
 }
 .table-header {
@@ -493,9 +762,12 @@ const adjustTokens = (delta) => {
   align-items: center;
   padding: 6px 8px;
   background: var(--bg-card);
-  font-size: 10px;
-  font-weight: 600;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   gap: 6px;
 }
 .table-row {
@@ -519,7 +791,7 @@ const adjustTokens = (delta) => {
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   cursor: pointer;
   font-size: 14px;
   display: flex;
@@ -529,9 +801,9 @@ const adjustTokens = (delta) => {
 }
 .btn-add:hover,
 .btn-remove:hover {
-  background: var(--accent-primary);
-  color: white;
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  color: var(--space-black);
+  border-color: var(--accent);
 }
 .form-group {
   margin-bottom: 10px;
@@ -550,6 +822,10 @@ const adjustTokens = (delta) => {
 .btn-refresh-models {
   flex-shrink: 0;
 }
+.openrouter-row {
+  display: flex;
+  justify-content: flex-end;
+}
 .form-label {
   display: flex;
   align-items: center;
@@ -557,14 +833,14 @@ const adjustTokens = (delta) => {
   margin-bottom: 4px;
 }
 .form-label label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .form-label .hint {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 .form-input {
@@ -572,16 +848,16 @@ const adjustTokens = (delta) => {
   padding: 6px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-family: "JetBrains Mono", monospace;
   transition: var(--transition);
 }
 .form-input:focus {
   outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent-sm);
 }
 .form-input::placeholder {
   color: var(--text-muted);
@@ -599,6 +875,9 @@ select.form-input {
   display: flex;
   align-items: center;
 }
+.form-number-wrapper :deep(.btn) {
+  clip-path: none !important;
+}
 .token-input-wrapper {
   position: relative;
 }
@@ -607,32 +886,35 @@ select.form-input {
 }
 .token-toggle {
   position: absolute;
-  right: 6px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-muted);
   cursor: pointer;
-  padding: 2px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
   transition: var(--transition);
 }
 .range-input {
   width: 100%;
-  accent-color: var(--accent-primary);
+  accent-color: var(--accent);
   background: var(--bg-card);
 }
 .range-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 9px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
   color: var(--text-muted);
   margin-top: 2px;
 }
 .range-value {
-  color: var(--accent-primary);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -678,8 +960,8 @@ select.form-input {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
@@ -689,27 +971,17 @@ select.form-input {
 
 .settings-actions {
   display: flex;
-  gap: 8px;
-  padding: 10px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  grid-column: 1 / -1;
-}
-
-.btn-loading {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+  gap: 12px;
+  padding: 8px 0;
+  justify-content: center;
+  grid-column: 4;
+  align-self: end;
 }
 
 .model-error {
-  color: #e74c3c;
-  font-size: 11px;
+  color: var(--error);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
   margin-top: 6px;
 }
 
@@ -723,26 +995,24 @@ select.form-input {
 }
 
 .path-error {
-  color: #e74c3c;
-  font-size: 12px;
+  color: var(--error);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
   margin-top: 4px;
 }
 
 .token-ok {
   color: var(--success);
-  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
   margin-top: 4px;
   display: block;
 }
 .token-missing {
   color: var(--text-muted);
-  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
   margin-top: 4px;
   display: block;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 </style>

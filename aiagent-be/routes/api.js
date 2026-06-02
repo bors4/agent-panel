@@ -25,6 +25,9 @@ import { parseStreamedResponse } from "../lib/parseSSE.js";
  * @param {Function} deps.resetStats - Сброс статистики
  * @param {Function} deps.resetTokenUsage - Сброс счётчика токенов
  * @param {Function} deps.wsBroadcast - WebSocket рассылка событий
+ * @param {Function} deps.initBot - Фабрика создания GrammY Bot с хендлерами (token => Bot|null)
+ * @param {Object} deps.bot - Геттер/сеттер для экземпляра GrammY Bot (может быть null)
+ * @param {Function} deps.updateStatus - Обновление статуса бота (status, message)
  * @returns {Router} Express Router
  */
 export function createApiRouter(deps) {
@@ -32,9 +35,16 @@ export function createApiRouter(deps) {
   const { config, stats, chatHistories, pendingApprovals, addLog, wsBroadcast } =
     deps;
 
+  /** @type {Map<string, AbortController>} — реестр активных agent loop запросов для отмены */
+  const activeChatControllers = new Map();
+
   // ─── Auth middleware ─────────────────────────────────────────────────────
   router.use((req, res, next) => {
     if (req.path === "/health") return next();
+    if (!config.apiKey) {
+      addLog("API key not configured — auth disabled", "warning");
+      return next();
+    }
     const apiKey = req.headers["x-api-key"];
     if (!apiKey || apiKey !== config.apiKey) {
       addLog(`API auth failed: ${req.method} ${req.path} from ${req.ip}`, "warning");
@@ -155,11 +165,17 @@ export function createApiRouter(deps) {
 
   /**
    * GET /api/config — Получить текущую конфигурацию.
+   * Секретные поля (apiKey, openrouterApiKey, telegramToken) удаляются из ответа.
+   * Вместо них возвращается поле token (из config.telegramToken или process.env.TELEGRAM_BOT_TOKEN)
+   * и hasToken: boolean.
    */
   router.get("/config", (req, res) => {
+    const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    // eslint-disable-next-line no-unused-vars
+    const { apiKey, openrouterApiKey, telegramToken, ...safeConfig } = config;
     res.json({
       success: true,
-      config: { ...config, hasToken: !!process.env.TELEGRAM_BOT_TOKEN },
+      config: { ...safeConfig, token, hasToken: !!token },
     });
   });
 
@@ -171,6 +187,16 @@ export function createApiRouter(deps) {
     const checkPath = req.query.path;
     if (!checkPath) return res.status(400).json({ valid: false, error: "Path parameter required" });
     try {
+      const projectRoot = config.projectPath;
+      if (projectRoot) {
+        const resolved = path.resolve(checkPath);
+        const normalizedResolved = resolved.replace(/\\/g, "/").toLowerCase();
+        const normalizedRoot = path.resolve(projectRoot).replace(/\\/g, "/").toLowerCase();
+        const rootPrefix = normalizedRoot === "/" ? "/" : normalizedRoot.endsWith("/") ? normalizedRoot : normalizedRoot + "/";
+        if (normalizedResolved !== normalizedRoot && !normalizedResolved.startsWith(rootPrefix)) {
+          return res.status(403).json({ valid: false, error: "Path outside project directory" });
+        }
+      }
       const stat = await fs.promises.stat(path.resolve(checkPath));
       res.json({ valid: stat.isDirectory() });
     } catch {
@@ -179,10 +205,87 @@ export function createApiRouter(deps) {
   });
 
   /**
-   * POST /api/config — Обновить конфигурацию.
-   * Body: { serverUrl?, modelName?, projectPath?, systemPrompt?, maxTokens?, temperature?, timeout?, token? }
+   * GET /api/directories — Список поддиректорий по пути.
+   * Query: ?path=C:\Users (по умолчанию корень диска или home)
+   * Возвращает { path, directories: [{ name, path }] }
    */
-  router.post("/config", (req, res) => {
+  router.get("/directories", async (req, res) => {
+    const targetPath = req.query.path || "";
+    try {
+      let resolved = targetPath;
+      if (!resolved) {
+        resolved = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\" : "/");
+      }
+      const stat = await fs.promises.stat(resolved);
+      if (!stat.isDirectory()) {
+        return res.json({ path: resolved, directories: [] });
+      }
+      const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
+      const directories = entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+        .map((e) => ({ name: e.name, path: path.join(resolved, e.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      res.json({ path: resolved, directories });
+    } catch {
+      res.json({ path: targetPath, directories: [] });
+    }
+  });
+
+  /**
+   * GET /api/browse-folder — Открыть нативный OS диалог выбора папки.
+   * Возвращает { path: "полный/путь/к/папке" } или { path: null } при отмене.
+   */
+  router.get("/browse-folder", async (_req, res) => {
+    const { execFile } = await import("child_process");
+    const { promisify } = await import("util");
+    const execFileAsync = promisify(execFile);
+
+    try {
+      let selectedPath = null;
+
+      if (process.platform === "win32") {
+        const ps = [
+          "Add-Type -AssemblyName System.Windows.Forms;",
+          "$f = New-Object System.Windows.Forms.FolderBrowserDialog;",
+          "$f.Description = 'Select project directory';",
+          "$f.ShowNewFolderButton = $true;",
+          "if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }"
+        ].join(" ");
+        const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", ps], { timeout: 120000 });
+        selectedPath = stdout.trim();
+      } else if (process.platform === "darwin") {
+        const script = 'tell application "Finder" to set p to POSIX path of (choose folder)\nreturn p';
+        const { stdout } = await execFileAsync("osascript", ["-e", script], { timeout: 120000 });
+        selectedPath = stdout.trim();
+      } else {
+        const { stdout } = await execFileAsync("zenity", ["--file-selection", "--directory", "--title=Select project directory"], { timeout: 120000 });
+        selectedPath = stdout.trim();
+      }
+
+      if (selectedPath) {
+        res.json({ path: selectedPath });
+      } else {
+        res.json({ path: null });
+      }
+    } catch (e) {
+      if (e.killed || e.signal === "SIGTERM" || e.code === 1) {
+        res.json({ path: null });
+      } else {
+        res.status(500).json({ error: "Failed to open folder picker: " + e.message });
+      }
+    }
+  });
+
+  /**
+   * POST /api/config — Обновить конфигурацию.
+   * Body: { serverUrl?, modelName?, projectPath?, systemPrompt?, maxTokens?, temperature?,
+   *         timeout?, token?, openrouterApiKey?, stream?, insertUserAfterTool?, chatMode?,
+   *         maxFileChars?, maxHistoryPairs?, maxSearchResults?, maxFilesInPrompt?, maxSearchFileSize? }
+   * Если token изменён — старый бот останавливается, создаётся новый через deps.initBot(token).
+   * Валидирует projectPath (существование, директория, права r/w).
+   * Защита от prototype pollution.
+   */
+  router.post("/config", async (req, res) => {
     const body = req.body || {};
     const blockedKeys = ["__proto__", "constructor", "prototype"];
     const hasPrototypePollution = Object.keys(body).some((k) => blockedKeys.includes(k));
@@ -220,7 +323,7 @@ export function createApiRouter(deps) {
     }
     if (body.systemPrompt !== undefined) config.systemPrompt = body.systemPrompt;
     if (body.maxTokens !== undefined) config.maxTokens = parseInt(body.maxTokens) || configDefaults.maxTokens;
-    if (body.temperature !== undefined) config.temperature = parseFloat(body.temperature);
+    if (body.temperature !== undefined) { const t = parseFloat(body.temperature); config.temperature = isNaN(t) ? configDefaults.temperature : t; }
     if (body.timeout !== undefined) config.timeout = parseInt(body.timeout);
     if (body.maxFileChars !== undefined) config.maxFileChars = parseInt(body.maxFileChars);
     if (body.maxHistoryPairs !== undefined) config.maxHistoryPairs = parseInt(body.maxHistoryPairs);
@@ -229,10 +332,20 @@ export function createApiRouter(deps) {
     if (body.maxSearchFileSize !== undefined) config.maxSearchFileSize = parseInt(body.maxSearchFileSize);
     if (body.stream !== undefined) config.stream = !!body.stream;
     if (body.insertUserAfterTool !== undefined) config.insertUserAfterTool = !!body.insertUserAfterTool;
-    if (body.token && body.token !== process.env.TELEGRAM_BOT_TOKEN) {
+    if (body.chatMode !== undefined) config.chatMode = !!body.chatMode;
+    if (body.openrouterApiKey !== undefined) config.openrouterApiKey = body.openrouterApiKey;
+    if (body.token !== undefined && body.token !== (config.telegramToken || "")) {
+      config.telegramToken = body.token;
       process.env.TELEGRAM_BOT_TOKEN = body.token;
+      if (deps.bot) {
+        try { await deps.bot.stop(); } catch {}
+        deps.bot = null;
+      }
+      if (body.token) {
+        deps.bot = deps.initBot(body.token);
+        addLog("Telegram bot reinitialized with new token", "success");
+      }
       tokenChanged = true;
-      addLog("Token changed — restart bot to apply", "warning");
     }
     addLog(`Config updated: ${config.modelName}, projectPath=${config.projectPath}`, "info");
     res.json({ success: true, config, tokenChanged });
@@ -243,14 +356,29 @@ export function createApiRouter(deps) {
   /**
    * GET /api/models — Получить доступные модели с AI сервера.
    * Query: ?serverUrl=... (опционально, для прокси с фронтенда)
+   * Header: x-openrouter-key (опционально, для OpenRouter; fallback config.openrouterApiKey)
+   * Для OpenRouter: автодетект по наличию "openrouter.ai" в URL, добавляет HTTP-Referer и X-OpenRouter-Title.
+   * Таймаут: 10с. Ответ: { models: [{ id, name, object, owned_by, max_context_length, pricing }], source: "openrouter"|"local" }
    */
   router.get("/models", async (req, res) => {
     try {
       const serverUrl = req.query.serverUrl || config.serverUrl;
+      const isOpenRouter = serverUrl.includes("openrouter.ai");
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      const headers = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        const apiKey = req.headers["x-openrouter-key"] || config.openrouterApiKey;
+        headers["Authorization"] = `Bearer ${apiKey || ""}`;
+        headers["HTTP-Referer"] = "https://agent-panel.local";
+        headers["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        headers["Authorization"] = `Bearer ${config.apiKey}`;
+      }
+
       const response = await fetch(`${serverUrl}/models`, {
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+        headers,
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -258,11 +386,13 @@ export function createApiRouter(deps) {
       const data = await response.json();
       const models = (data.data || []).map((m) => ({
         id: m.id,
-        object: m.object,
-        owned_by: m.owned_by,
-        max_context_length: m.max_context_length || null,
+        name: m.name || m.id,
+        object: m.object || "model",
+        owned_by: m.owned_by || "",
+        max_context_length: m.max_context_length || m.context_length || null,
+        pricing: m.pricing || null,
       }));
-      res.json({ success: true, models });
+      res.json({ success: true, models, source: isOpenRouter ? "openrouter" : "local" });
     } catch (error) {
       addLog(`Failed to fetch models: ${error.message}`, "error");
       res.status(500).json({ error: "Failed to fetch models" });
@@ -322,12 +452,20 @@ export function createApiRouter(deps) {
 
   /**
    * POST /api/start — Запустить Telegram бота.
+   * Проверяет наличие токена (config.telegramToken или TELEGRAM_BOT_TOKEN env).
+   * Если deps.bot === null — создаёт новый экземпляр через deps.initBot(token).
+   * Ждёт deps.bot.start() перед установкой статуса "running".
    */
   router.post("/start", async (req, res) => {
     try {
       if (deps.state.botStatus === "running") return res.json({ success: true, message: "Bot already running" });
+      const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) return res.status(400).json({ error: "Telegram token not configured. Set it in Settings or TELEGRAM_BOT_TOKEN env var." });
+      if (!deps.bot) {
+        deps.bot = deps.initBot(token);
+      }
+      await deps.bot.start();
       deps.updateStatus("running", "Работает");
-      deps.bot.start();
       addLog("Telegram connected", "success");
       res.json({ success: true, message: "Starting..." });
     } catch (error) {
@@ -361,9 +499,16 @@ export function createApiRouter(deps) {
 
   /**
    * POST /api/restart — Перезапустить Telegram бота.
+   * Аналогично /start: проверяет токен, лениво инициализирует bot если null.
+   * Останавливает бота (если running), перезагружает аккаунты, запускает заново.
    */
   router.post("/restart", async (req, res) => {
     try {
+      const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) return res.status(400).json({ error: "Telegram token not configured" });
+      if (!deps.bot) {
+        deps.bot = deps.initBot(token);
+      }
       if (deps.state.botStatus === "running") {
         await deps.bot.stop();
         await new Promise((r) => setTimeout(r, 1000));
@@ -383,8 +528,11 @@ export function createApiRouter(deps) {
   // ─── Direct Chat ─────────────────────────────────────────────────────────
 
   /**
-   * POST /api/chat — Прямой чат с AI (без agent loop).
-   * Body: { message, modelName?, serverUrl?, projectPath?, systemPrompt? }
+   * POST /api/chat — Прямой чат с AI (без agent loop) или с agent loop (useAgentLoop).
+   * Body: { message, modelName?, serverUrl?, projectPath?, systemPrompt?, stream?, useAgentLoop?, accountName?, messages? }
+   * Для OpenRouter: автодетект по URL, использует config.openrouterApiKey с кастомными заголовками.
+   * Поддерживает SSE потоковый режим и JSON-режим.
+   * В режиме agent loop возвращает toolCalls, toolResults, requiresApproval.
    */
   router.post("/chat", async (req, res) => {
     try {
@@ -413,10 +561,22 @@ export function createApiRouter(deps) {
         };
 
         const messages = req.body.messages || [];
-        const result = await agentLoopStep(message, "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account);
 
-        if (result.error) {
-          return res.json({ success: false, error: result.error, messages: result.messages || messages });
+        // Регистрируем AbortController для отмены через /chat/cancel
+        // Фронтенд может передать abortId в теле запроса (иначе генерируем сами)
+        const abortId = req.body.abortId || crypto.randomUUID();
+        const abortController = new AbortController();
+        activeChatControllers.set(abortId, abortController);
+
+        let result;
+        try {
+          result = await agentLoopStep(message, "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account, null, abortController.signal);
+        } finally {
+          activeChatControllers.delete(abortId);
+        }
+
+        if (result.error && !result.cancelled) {
+          return res.json({ success: false, error: result.error, messages: result.messages || messages, abortId });
         }
 
         // Извлекаем tool_calls и tool_results из сообщений для удобства фронтенда
@@ -470,6 +630,7 @@ export function createApiRouter(deps) {
         return res.json({
           success: true,
           reply: result.response || "",
+          reasoning: result.reasoning || "",
           messages: result.messages || [],
           toolCalls,
           toolResults,
@@ -479,6 +640,8 @@ export function createApiRouter(deps) {
           approvalToolCallId: result.toolCallId,
           pendingToolCalls: result.pendingToolCalls || null,
           tokenUsage: result.tokenUsage || null,
+          cancelled: result.cancelled || false,
+          abortId,
         });
       }
 
@@ -488,14 +651,20 @@ export function createApiRouter(deps) {
       const controller = new AbortController();
       const timeout = config.timeout ?? configDefaults.timeout;
       const timeoutId = setTimeout(() => controller.abort(), timeout);
+      const isOpenRouter = actualServerUrl.includes("openrouter.ai");
+      const chatHeaders = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        chatHeaders["Authorization"] = `Bearer ${config.openrouterApiKey || ""}`;
+        chatHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        chatHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        chatHeaders["Authorization"] = `Bearer ${config.apiKey}`;
+      }
       let response;
       try {
         response = await fetch(`${actualServerUrl}/chat/completions`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.apiKey}`,
-          },
+          headers: chatHeaders,
           body: JSON.stringify({
             model: model,
             messages: [
@@ -532,6 +701,13 @@ export function createApiRouter(deps) {
         let fullContent = "";
         let perfStatsSent = false;
         const { usage: sseUsage, timings: sseTimings, tokensCached } = await parseStreamedResponse(response, {
+          onReasoning: (chunk, _accumulated) => {
+            if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+            res.write(`data: ${JSON.stringify({ reasoning: chunk })}\n\n`);
+          },
+          onReasoningDone: () => {
+            res.write(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`);
+          },
           onContent: (chunk, accumulated) => {
             if (!firstTokenMs) firstTokenMs = performance.now() - t0;
             fullContent += chunk;
@@ -640,6 +816,7 @@ export function createApiRouter(deps) {
         const data = await response.json();
         const msg = data.choices?.[0]?.message || {};
         const reply = msg.content || msg.reasoning_content || "Пустой ответ от модели";
+        const reasoning = msg.reasoning_content || "";
         const usage = data.usage || null;
 
         // Извлекаем tokens_cached (общий размер KV-кэша) и встраиваем в timings
@@ -682,7 +859,7 @@ export function createApiRouter(deps) {
           });
         }
         wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
-        res.json({ success: true, reply, usage, timings });
+        res.json({ success: true, reply, reasoning, usage, timings });
       }
     } catch (error) {
       stats.errors++;
@@ -697,11 +874,31 @@ export function createApiRouter(deps) {
     }
   });
 
+  // ─── Chat Cancel ─────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/chat/cancel — Отменить выполняющийся agent loop запрос.
+   * Body: { abortId }
+   * Ищет AbortController в реестре и вызывает abort().
+   */
+  router.post("/chat/cancel", (req, res) => {
+    const { abortId } = req.body;
+    if (!abortId) return res.status(400).json({ error: "abortId required" });
+    const controller = activeChatControllers.get(abortId);
+    if (!controller) return res.json({ success: false, error: "No active request found for this abortId" });
+    if (!controller.signal.aborted) controller.abort();
+    activeChatControllers.delete(abortId);
+    res.json({ success: true, cancelled: true });
+  });
+
   // ─── Agent Loop Approval ─────────────────────────────────────────────────
 
   /**
    * POST /api/chat/continue — Продолжить agent loop после одобрения/отклонения инструмента.
-   * Body: { messages, approvalDecision: { approved, toolName, args, toolCallId } }
+   * Body: { messages, approvalDecision: { approved, toolName, args, toolCallId }, accountName? }
+   * При approved: выполняет инструмент и добавляет результат в историю.
+   * При отклонении: добавляет сообщение об отказе.
+   * Вызывает agentLoopStep для следующего шага.
    */
   router.post("/chat/continue", async (req, res) => {
     try {
@@ -748,10 +945,28 @@ export function createApiRouter(deps) {
         systemPrompt: config.systemPrompt,
       };
 
-      const result = await agentLoopStep("", "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account);
+      // Регистрируем AbortController для отмены
+      const abortId = crypto.randomUUID();
+      const abortController = new AbortController();
+      activeChatControllers.set(abortId, abortController);
 
-      if (result.error) {
-        return res.json({ success: false, error: result.error, messages: result.messages || messages });
+      // При отключении клиента — прерываем запрос
+      req.on("close", () => {
+        if (!res.writableEnded && activeChatControllers.has(abortId)) {
+          abortController.abort();
+          activeChatControllers.delete(abortId);
+        }
+      });
+
+      let result;
+      try {
+        result = await agentLoopStep("", "web-chat", messages, agentCfg, MAX_AGENT_ITERATIONS, account, null, abortController.signal);
+      } finally {
+        activeChatControllers.delete(abortId);
+      }
+
+      if (result.error && !result.cancelled) {
+        return res.json({ success: false, error: result.error, messages: result.messages || messages, abortId });
       }
 
       const toolCalls = [];
@@ -780,6 +995,7 @@ export function createApiRouter(deps) {
       res.json({
         success: true,
         reply: result.response || "",
+        reasoning: result.reasoning || "",
         messages: result.messages || [],
         toolCalls,
         toolResults,
@@ -788,6 +1004,8 @@ export function createApiRouter(deps) {
         approvalArgs: result.args,
         approvalToolCallId: result.toolCallId,
         tokenUsage: result.tokenUsage || null,
+        cancelled: result.cancelled || false,
+        abortId,
       });
     } catch (error) {
       stats.errors++;
@@ -801,6 +1019,8 @@ export function createApiRouter(deps) {
   /**
    * GET /api/health — Health check endpoint for monitoring.
    * Returns bot status and AI server reachability.
+   * Для OpenRouter: автодетект по URL, использует config.openrouterApiKey с кастомными заголовками.
+   * Ответ: { status: "healthy"|"degraded"|"unhealthy", bot: {...}, aiServer: { reachable }, timestamp }
    */
   router.get("/health", async (req, res) => {
     const uptimeMs = deps.state.startTime ? Date.now() - deps.state.startTime : 0;
@@ -810,9 +1030,18 @@ export function createApiRouter(deps) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const isOpenRouter = config.serverUrl.includes("openrouter.ai");
+      const healthHeaders = {};
+      if (isOpenRouter) {
+        healthHeaders["Authorization"] = `Bearer ${config.openrouterApiKey || ""}`;
+        healthHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        healthHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        healthHeaders["Authorization"] = `Bearer ${config.apiKey}`;
+      }
       const aiResp = await fetch(`${config.serverUrl}/models`, {
         signal: controller.signal,
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+        headers: healthHeaders,
       });
       clearTimeout(timeoutId);
       aiReachable = aiResp.ok;

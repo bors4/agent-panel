@@ -4,17 +4,17 @@
       <template #header>
         <div class="header-row">
           <div class="header-left">
-            <h2>Инструменты агента</h2>
+            <h3 class="mono-label">TLS://TOOLS</h3>
             <AppTooltip>
               <template #trigger>
                 <span class="info-trigger">?</span>
               </template>
-              <b>enabled</b> — вкл/выкл<br>
-              <b>permission</b>: ask (подтверждение), always (авто), deny (запрет)<br>
-              <b>exclude_paths</b> — пути без доступа (node_modules, .git)
+              <b>enabled</b> — toggle on/off<br>
+              <b>permission</b>: ask / always / deny<br>
+              <b>exclude_paths</b> — restricted paths
             </AppTooltip>
           </div>
-          <span class="badge">{{ enabledCount }} / {{ toolsCount }} активны</span>
+          <span class="badge">{{ enabledCount }}/{{ toolsCount }}</span>
         </div>
       </template>
 
@@ -73,7 +73,7 @@
       <template #header>
         <div class="header-row">
           <div class="header-left">
-            <h2>Управление аккаунтами</h2>
+            <h3 class="mono-label">ACT://ACCOUNTS</h3>
           </div>
         </div>
       </template>
@@ -169,7 +169,7 @@
       <template #header>
         <div class="header-row">
           <div class="header-left">
-            <h2>Настройки</h2>
+            <h3 class="mono-label">CFG://FUTURE</h3>
           </div>
         </div>
       </template>
@@ -397,22 +397,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.mono-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
 .tools-tab {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.header-row h2 {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  font-weight: 500;
-  background: none;
-  background-clip: unset;
-  -webkit-background-clip: unset;
-  -webkit-text-fill-color: unset;
+  gap: 14px;
 }
 
 .header-row {
@@ -505,7 +502,7 @@ onMounted(async () => {
 }
 
 .badge {
-  background: var(--accent-primary);
+  background: var(--accent);
   color: white;
   padding: 4px 10px;
   border-radius: 12px;
@@ -546,7 +543,7 @@ onMounted(async () => {
 }
 
 .tool-item:hover {
-  border-color: var(--border-focus);
+  border-color: var(--accent);
 }
 
 .tool-header {
@@ -626,8 +623,8 @@ onMounted(async () => {
 }
 
 .toggle input:checked + .slider {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .toggle input:checked + .slider::before {
@@ -806,7 +803,7 @@ onMounted(async () => {
 }
 
 .perm-check input[type="checkbox"] {
-  accent-color: var(--accent-primary);
+  accent-color: var(--accent);
 }
 
 .account-paths {
@@ -847,9 +844,9 @@ onMounted(async () => {
 }
 
 .btn-primary {
-  background: var(--accent-primary);
+  background: var(--accent);
   color: white;
-  border-color: var(--accent-primary);
+  border-color: var(--accent);
 }
 
 .btn-primary:hover {

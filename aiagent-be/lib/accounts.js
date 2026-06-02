@@ -95,8 +95,6 @@ export function getRoleDefaultPermissions(role) {
  *   Проверяет:
  *   1. Явный запрет инструмента в account.permissions
  *   2. include_paths — если заданы, путь инструмента должен быть внутри одной из директорий
- *      - Корневые пути дисков (E:\) разрешают доступ ко всему на этом диске
- *      - Обычные пути (E:\Git) ограничивают доступ этой директорией и вложенными
  *   3. Для инструмента "execute" проверка include_paths не применяется
  */
 export function checkAccountToolPermission(account, toolName, args, projectPath) {
@@ -110,14 +108,17 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
     const toolPath = args.filePath || args.path || args.source || args.destination || "";
     if (toolPath) {
       const resolved = path.resolve(projectPath, toolPath);
+      const isWindows = process.platform === "win32";
+      const normalize = (p) => isWindows ? p.toLowerCase().replace(/\\/g, "/") : p.replace(/\\/g, "/");
+      const normalizedResolved = normalize(resolved);
+
       const allowed = account.include_paths.some((p) => {
         const norm = path.resolve(p);
-        // For root drive paths (E:\) — allow everything on that drive
-        const isRootDrive = norm.length === 3 && norm[1] === ":" && norm[2] === path.sep;
-        if (isRootDrive) {
-          return resolved.startsWith(norm);
-        }
-        return resolved === norm || resolved.startsWith(norm + path.sep);
+        const normalizedNorm = normalize(norm);
+
+        // Containment check: resolved must be inside norm
+        const rootPrefix = normalizedNorm.endsWith("/") ? normalizedNorm : normalizedNorm + "/";
+        return normalizedResolved === normalizedNorm || normalizedResolved.startsWith(rootPrefix);
       });
       if (!allowed) {
         return { allowed: false, reason: "Path not in allowed directories" };

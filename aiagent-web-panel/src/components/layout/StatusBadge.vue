@@ -1,7 +1,7 @@
 <template>
-  <div :class="['status-badge', status]">
-    <span class="status-dot" />
-    <span>{{ text }}</span>
+  <div :class="['sbadge', `sbadge--${status}`]">
+    <span class="sbadge__dot" />
+    <span class="sbadge__label">{{ label }}</span>
   </div>
 </template>
 
@@ -12,150 +12,131 @@ const props = defineProps({
   status: { type: String, default: "stopped" },
 });
 
-const text = computed(() => {
+const label = computed(() => {
   const map = {
-    stopped: "Остановлен",
-    idle: "Отключен",
-    running: "Работает",
-    checking: "Проверка...",
-    error: "Ошибка",
+    stopped: "OFFLINE",
+    idle: "STANDBY",
+    running: "ONLINE",
+    checking: "DIAGNOSIS",
+    error: "CRITICAL",
   };
-  return map[props.status] || props.status;
+  return map[props.status] || props.status.toUpperCase();
 });
 </script>
 
 <style scoped>
-.status-badge {
-  display: flex;
+.sbadge {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  font-weight: 600;
+  gap: 7px;
+  padding: 5px 12px;
+  min-height: 30px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  clip-path: polygon(
+    0 3px, 3px 0,
+    calc(100% - 3px) 0, 100% 3px,
+    100% calc(100% - 3px), calc(100% - 3px) 100%,
+    3px 100%, 0 calc(100% - 3px)
+  );
   transition: var(--transition);
-  position: relative;
-  overflow: hidden;
+  user-select: none;
 }
 
-.status-badge::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at center, transparent 0%, rgba(255, 255, 255, 0.1) 100%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
+/* ─── Dot ─── */
+.sbadge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  flex-shrink: 0;
+  transition: all 0.3s ease;
 }
 
-.status-badge:hover::before {
-  opacity: 1;
-}
+/* ═══════════════════════════════════
+   STATUS VARIANTS
+   ═══════════════════════════════════ */
 
-.status-badge.stopped {
-  background: var(--error-bg);
-  color: var(--error);
-  border: 1px solid var(--error-border);
-  position: relative;
-}
-
-.status-badge.running {
-  background: linear-gradient(135deg, var(--success-bg), var(--glass-bg));
+/* ONLINE (running) — зелёный */
+.sbadge--running {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
   color: var(--success);
-  border: 1px solid var(--success-border);
-  position: relative;
 }
 
-.status-badge.running::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
+.sbadge--running .sbadge__dot {
   background: var(--success);
-  animation: pulse 2s infinite;
+  box-shadow: 0 0 6px var(--success);
+  animation: dotPulse 2s ease-in-out infinite;
 }
 
-.status-badge.checking {
-  background: linear-gradient(135deg, var(--warning-bg), var(--glass-bg));
-  color: var(--warning);
-  border: 1px solid var(--warning-border);
-  position: relative;
-}
-
-.status-badge.checking::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--warning);
-  animation: shimmer 1.5s infinite;
-}
-
-.status-badge.error {
-  background: linear-gradient(135deg, var(--error-bg), rgba(239, 68, 68, 0.05));
+/* OFFLINE (stopped) — красный */
+.sbadge--stopped {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
   color: var(--error);
-  border: 1px solid var(--error-border);
-  position: relative;
 }
 
-.status-badge.error::after {
-  content: "⚠️";
-  margin-left: 4px;
-  animation: shake 0.5s ease-in-out infinite;
+.sbadge--stopped .sbadge__dot {
+  background: var(--error);
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  transition: var(--transition);
-  position: relative;
+/* CRITICAL (error) — красный с анимацией */
+.sbadge--error {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--error);
 }
 
-.status-badge.running .status-dot,
-.status-badge.checking .status-dot {
-  animation: pulse-dot 2s infinite;
-  box-shadow: 0 0 8px currentColor;
+.sbadge--error .sbadge__dot {
+  background: var(--error);
+  box-shadow: 0 0 6px var(--error);
+  animation: dotBlink 0.8s step-end infinite;
 }
 
-.status-badge.idle {
-  background: var(--bg-card);
+/* DIAGNOSIS (checking) — жёлтый */
+.sbadge--checking {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--warning);
+}
+
+.sbadge--checking .sbadge__dot {
+  background: var(--warning);
+  box-shadow: 0 0 6px var(--warning);
+  animation: dotPulse 1s ease-in-out infinite;
+}
+
+/* STANDBY (idle) — серый */
+.sbadge--idle {
+  background: rgba(107, 125, 158, 0.08);
+  border: 1px solid rgba(107, 125, 158, 0.2);
   color: var(--text-muted);
-  border: 1px solid var(--border);
-  backdrop-filter: blur(5px);
 }
 
-@keyframes pulse-dot {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 0 8px currentColor;
-  }
-  50% {
-    opacity: 0.4;
-    transform: scale(0.7);
-    box-shadow: none;
-  }
+.sbadge--idle .sbadge__dot {
+  background: var(--text-muted);
 }
 
-@keyframes shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-1px);
-  }
-  75% {
-    transform: translateX(1px);
+/* ─── Animations ─── */
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.75); }
+}
+
+@keyframes dotBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 640px) {
+  .sbadge {
+    padding: 4px 10px;
+    font-size: 0.6rem;
   }
 }
 </style>
