@@ -39,4 +39,6 @@ export const configDefaults = {
   insertUserAfterTool: true, // Для моделей с проблемным jinja (qwen и др.). Вставляет {role:"user", content:"Continue"} после tool-сообщений, чтобы шаблон не падал с "No user query found". Безопасно для OpenAI-совместимых моделей.
   chatMode: false, // Режим простого чата без проектного контекста
   openrouterApiKey: "", // API ключ OpenRouter (опционально)
+  asrServerUrl: "", // URL ASR сервера (whisper.cpp / faster-whisper), опционально
+  asrLanguage: "ru", // Язык распознавания (ISO 639-1, напр. "ru", "en", "de")
 };

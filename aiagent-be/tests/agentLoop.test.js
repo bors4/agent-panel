@@ -137,3 +137,118 @@ describe("agentLoopStep OpenRouter headers", () => {
     expect(callArgs[1].headers["X-OpenRouter-Title"]).toBeUndefined();
   });
 });
+
+// ═════════════════════════════════════════════════════════════════
+// agentLoopStep — Result shape contract (regression for voice handler crash)
+// ═════════════════════════════════════════════════════════════════
+describe("agentLoopStep result shape contract", () => {
+  const baseCfg = {
+    serverUrl: "http://localhost:8080/v1",
+    modelName: "test-model",
+    apiKey: "local-key",
+    openrouterApiKey: "",
+    maxTokens: 1024,
+    temperature: 0.1,
+    timeout: 30000,
+    stream: false,
+    projectPath: "/tmp/test",
+    systemPrompt: "",
+    chatMode: false,
+    maxHistoryPairs: 5,
+    insertUserAfterTool: false,
+  };
+
+  /** @type {import("vitest").MockInstance} */
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = vi.spyOn(global, "fetch");
+  });
+
+  afterEach(() => {
+    fetchMock.mockRestore();
+  });
+
+  it("returns { requiresApproval, toolName, args, messages } WITHOUT response when tool needs approval (default permission is 'ask')", async () => {
+    // Mock fetch to return a tool_call. Default tool permission is "ask" → returns requiresApproval
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "tc_1",
+                  type: "function",
+                  function: { name: "read", arguments: JSON.stringify({ path: "test.txt" }) },
+                },
+              ],
+            },
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+
+    const result = await agentLoopStep("read the file", "test-chat", [], baseCfg, 1);
+
+    // Critical assertions — the bug was crashing on result.response.replace() when undefined
+    expect(result.requiresApproval).toBe(true);
+    expect(result.toolName).toBe("read");
+    expect(result.args).toEqual({ path: "test.txt" });
+    expect(result.messages).toBeDefined();
+    expect(Array.isArray(result.messages)).toBe(true);
+
+    // The crash trigger: result.response MUST be undefined
+    expect(result.response).toBeUndefined();
+    // And result.error MUST be undefined (not an error path)
+    expect(result.error).toBeUndefined();
+  });
+
+  it("returns { response } on successful content response (no tool call)", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { role: "assistant", content: "Hello there!", tool_calls: null } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      }),
+    });
+
+    const result = await agentLoopStep("greet me", "test-chat", [], baseCfg, 1);
+
+    expect(typeof result.response).toBe("string");
+    expect(result.response).toBe("Hello there!");
+    expect(result.error).toBeUndefined();
+    expect(result.requiresApproval).toBeFalsy();
+  });
+
+  it("returns { error } on fetch network failure WITHOUT response field", async () => {
+    fetchMock.mockRejectedValue(new Error("Network unreachable"));
+
+    const result = await agentLoopStep("hello", "test-chat", [], baseCfg, 1);
+
+    expect(result.error).toBeDefined();
+    expect(result.error).toContain("Network unreachable");
+    // Critical: error path must not include response
+    expect(result.response).toBeUndefined();
+    expect(result.requiresApproval).toBeFalsy();
+  });
+
+  it("returns { error } on non-2xx response WITHOUT response field", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => ({ error: { message: "Internal server error" } }),
+    });
+
+    const result = await agentLoopStep("hello", "test-chat", [], baseCfg, 1);
+
+    expect(result.error).toBeDefined();
+    expect(result.error).toMatch(/AI error|500/);
+    expect(result.response).toBeUndefined();
+  });
+});

@@ -83,6 +83,9 @@
                 {{ msg.content }}
                 <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
               </div>
+              <div v-if="msg.role === 'user' && !isTyping && !isStreaming" class="msg-actions">
+                <button class="msg-action-btn" title="Resend message" @click="resendMessage(msg, index)">↻</button>
+              </div>
               <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
                 <span>⚡ {{ msg.usage.total }} tokens</span>
                 <span class="token-detail">(p:{{ msg.usage.prompt }}, c:{{ msg.usage.completion }})</span>
@@ -111,6 +114,16 @@
           :placeholder="isActive ? 'Введите сообщение...' : 'Сначала запустите агента'"
           @keypress="handleKeypress"
         />
+        <button
+          v-if="voiceSupported"
+          class="chat-mic"
+          :class="{ recording: isRecording, processing: isVoiceProcessing }"
+          :disabled="isVoiceProcessing || isTyping || isStreaming"
+          :title="isRecording ? 'Остановить запись' : isVoiceProcessing ? 'Очистка текста...' : 'Голосовой ввод'"
+          @click="toggleRecording"
+        >
+          {{ isVoiceProcessing ? '⏳' : isRecording ? '⏹' : '🎙' }}
+        </button>
         <button class="chat-send" :disabled="!isActive || !inputMessage.trim() || isCancelling || isTyping" @click="sendMessage">➤</button>
         <button v-if="isTyping || isStreaming" class="chat-stop" title="Отменить запрос" @click="handleStop">■</button>
         <button
@@ -122,6 +135,11 @@
           🗑
         </button>
       </div>
+      <div v-if="isRecording || isVoiceProcessing" class="voice-status">
+        <span v-if="isRecording" class="voice-pulse"></span>
+        <span class="voice-status-text">{{ isVoiceProcessing ? 'Очистка текста...' : interimTranscript || voiceTranscript || 'Говорите...' }}</span>
+      </div>
+      <div v-if="voiceError" class="voice-error">{{ voiceError }}</div>
     </div>
     <Transition name="contextmenu-fade">
       <div
@@ -157,6 +175,7 @@ import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
 import Card from "../ui/Card.vue";
 import { directChat, directChatStream, agentChat, agentChatContinue, cancelChat } from "@/api/client";
 import { useSound } from "@/composables/useSound";
+import { useVoiceInput } from "@/composables/useVoiceInput";
 
 const props = defineProps({
   isActive: Boolean,
@@ -183,6 +202,21 @@ const reasoningDone = ref(false);
 const chatContainer = ref(null);
 
 const { send: playSend, receive: playReceive, setVolume } = useSound({ volume: props.soundVolume });
+
+const {
+  isRecording,
+  isProcessing: isVoiceProcessing,
+  transcript: voiceTranscript,
+  interimTranscript,
+  error: voiceError,
+  isSupported: voiceSupported,
+  toggleRecording,
+  cancel: cancelVoice,
+} = useVoiceInput({
+  onResult: (cleanedText) => {
+    inputMessage.value = cleanedText;
+  },
+});
 
 // Отмена запросов
 const abortController = ref(null);
@@ -563,9 +597,36 @@ async function handleToolDecision(msg, approved) {
 function approveTool(msg) { return handleToolDecision(msg, true); }
 function rejectTool(msg) { return handleToolDecision(msg, false); }
 
+async function resendMessage(msg, index) {
+  // 1. Cancel active request (если есть)
+  if (abortController.value) {
+    handleStop();
+    // Ждём полной отмены (макс 2 сек). isCancelling сбрасывается когда abort завершён.
+    let w = 0;
+    while ((isTyping.value || isStreaming.value) && w < 40) {
+      await new Promise((r) => setTimeout(r, 50));
+      w++;
+    }
+  }
+
+  // 2. Remove all messages after this user message
+  messages.value.splice(index + 1);
+
+  // 3. Remove this user message and save its text
+  const text = msg.content;
+  messages.value.splice(index, 1);
+
+  // 4. Re-send via existing sendMessage flow
+  inputMessage.value = text;
+  await sendMessage();
+}
+
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return;
   if (isTyping.value || isStreaming.value) return; // guard against double-send
+
+  // Stop voice recording if active
+  if (isRecording.value) cancelVoice();
 
   const text = inputMessage.value.trim();
   inputMessage.value = "";
@@ -1259,6 +1320,82 @@ defineExpose({ clearChatHistory });
   cursor: not-allowed;
 }
 
+.chat-mic {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: var(--transition);
+}
+
+.chat-mic:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-focus);
+}
+
+.chat-mic.recording {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.chat-mic.processing {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.chat-mic:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+.voice-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.voice-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.voice-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-error {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
+}
+
 .chat-stop {
   width: 36px;
   height: 36px;
@@ -1526,6 +1663,34 @@ defineExpose({ clearChatHistory });
 
 .approval-btn.reject:hover {
   background: rgba(239, 68, 68, 0.2);
+}
+
+/* Resend button on user messages */
+.msg-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+.msg-action-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.chat-msg:hover .msg-action-btn {
+  opacity: 1;
+}
+
+.msg-action-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* Reasoning block */

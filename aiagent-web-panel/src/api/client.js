@@ -469,6 +469,52 @@ export async function browseFolder() {
 }
 
 /**
+ * Очистить текст от слов-паразитов через LLM.
+ * @param {string} text - Исходный текст (после распознавания речи)
+ * @param {AbortSignal} [signal] - Signal для отмены
+ * @returns {Promise<{cleaned: string}>}
+ */
+export async function cleanText(text, signal) {
+  const response = await apiFetch("/chat/clean-text", {
+    method: "POST",
+    body: JSON.stringify({ text }),
+    signal,
+  });
+  return response.json();
+}
+
+/**
+ * Отправить аудио на ASR сервер для транскрипции (whisper.cpp / faster-whisper).
+ * @param {File|Blob} audioBlob - Аудио данные (WAV, OGG, WebM, etc.)
+ * @param {string} [language="ru-RU"] - Код языка
+ * @param {AbortSignal} [signal] - Signal для отмены
+ * @returns {Promise<{text: string}>}
+ */
+export async function transcribeAudio(audioBlob, language = "ru-RU", signal) {
+  const formData = new FormData();
+  // Используем реальный MIME/extension от blob (audio/webm/ogg/wav)
+  const mime = audioBlob.type || "audio/wav";
+  const ext = mime.includes("webm") ? "webm" : mime.includes("ogg") ? "ogg" : "wav";
+  formData.append("file", audioBlob, `audio.${ext}`);
+  formData.append("language", language);
+  const response = await apiFetch("/asr/transcribe", {
+    method: "POST",
+    body: formData,
+    signal,
+  });
+  return response.json();
+}
+
+/**
+ * Проверить доступность ASR сервера.
+ * @returns {Promise<{configured: boolean, reachable: boolean, url: string, status?: number}>}
+ */
+export async function testAsrConnection() {
+  const response = await apiFetch("/asr/status");
+  return response.json();
+}
+
+/**
  * Отменить выполняющийся agent loop запрос.
  * @param {string} abortId - ID запроса из ответа agentChat
  * @returns {Promise<Object>}
