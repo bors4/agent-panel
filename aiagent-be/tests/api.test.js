@@ -19,6 +19,8 @@ function createMockDeps() {
     maxSearchResults: 15,
     maxFilesInPrompt: 2,
     telegramToken: "test-token",
+    asrServerUrl: "",
+    asrLanguage: "ru",
   };
   const stats = { requests: 0, tools: 0, errors: 0 };
   return {
@@ -129,6 +131,64 @@ describe("API Routes", () => {
       const res = await authPost("/api/config").send({ openrouterApiKey: "sk-or-v1-test" });
       expect(res.status).toBe(200);
       expect(deps.config.openrouterApiKey).toBe("sk-or-v1-test");
+    });
+
+    it("accepts valid asrServerUrl (public hostname)", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "https://asr.example.com:8081" });
+      expect(res.status).toBe(200);
+      expect(deps.config.asrServerUrl).toBe("https://asr.example.com:8081");
+    });
+
+    it("accepts private LAN IP asrServerUrl", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "http://192.168.1.103:8081" });
+      expect(res.status).toBe(200);
+      expect(deps.config.asrServerUrl).toBe("http://192.168.1.103:8081");
+    });
+
+    it("rejects asrServerUrl pointing to localhost (SSRF)", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "http://localhost:8081" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid asrServerUrl/);
+      expect(deps.config.asrServerUrl).toBe(""); // unchanged
+    });
+
+    it("rejects asrServerUrl with 127.0.0.1 (SSRF)", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "http://127.0.0.1:8081" });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects asrServerUrl with AWS metadata IP 169.254.169.254 (SSRF)", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "http://169.254.169.254/latest" });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects asrServerUrl with credentials (SSRF)", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "https://user:pass@asr.example.com" });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects asrServerUrl with non-http(s) protocol", async () => {
+      const res = await authPost("/api/config").send({ asrServerUrl: "ftp://asr.example.com" });
+      expect(res.status).toBe(400);
+    });
+
+    it("clears asrServerUrl when set to empty string", async () => {
+      deps.config.asrServerUrl = "http://previous:8081";
+      const res = await authPost("/api/config").send({ asrServerUrl: "" });
+      expect(res.status).toBe(200);
+      expect(deps.config.asrServerUrl).toBeNull();
+    });
+
+    it("accepts asrLanguage field", async () => {
+      const res = await authPost("/api/config").send({ asrLanguage: "en-US" });
+      expect(res.status).toBe(200);
+      expect(deps.config.asrLanguage).toBe("en-US");
+    });
+
+    it("sanitizes invalid asrLanguage to 'ru'", async () => {
+      const res = await authPost("/api/config").send({ asrLanguage: "../../etc" });
+      expect(res.status).toBe(200);
+      expect(deps.config.asrLanguage).toBe("ru");
     });
 
     it("rejects empty projectPath", async () => {
@@ -551,10 +611,115 @@ describe("API Routes", () => {
       deps.state.startTime = Date.now();
       fetchMock.mockResolvedValue({ ok: true });
       const res = await supertest(app).get("/api/health");
+      expect(res.status).toBe(200);
       expect(res.body.status).toBe("healthy");
       expect(res.body.bot.isRunning).toBe(true);
       expect(res.body.aiServer.reachable).toBe(true);
       expect(res.body.bot.uptime).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe("POST /api/asr/transcribe", () => {
+    let fetchMock;
+    beforeEach(() => {
+      fetchMock = vi.spyOn(global, "fetch");
+    });
+    afterEach(() => {
+      fetchMock.mockRestore();
+    });
+
+    it("returns 400 when asrServerUrl is not configured", async () => {
+      deps.config.asrServerUrl = "";
+      const res = await authPost("/api/asr/transcribe")
+        .attach("file", Buffer.from("fake"), "audio.wav");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not configured/);
+    });
+
+    it("returns 400 when no file is provided", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      const res = await authPost("/api/asr/transcribe").field("language", "ru");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/file/i);
+    });
+
+    it("forwards audio to ASR server and returns transcribed text", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ text: "привет" }) });
+      const res = await authPost("/api/asr/transcribe")
+        .attach("file", Buffer.from("RIFFfake"), "test.wav")
+        .field("language", "ru");
+      expect(res.status).toBe(200);
+      expect(res.body.text).toBe("привет");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://asr:8081/inference",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+
+    it("returns 502 when ASR server returns non-ok", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => "err" });
+      const res = await authPost("/api/asr/transcribe")
+        .attach("file", Buffer.from("x"), "a.wav");
+      expect(res.status).toBe(502);
+    });
+
+    it("returns 500 on network error", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+      const res = await authPost("/api/asr/transcribe")
+        .attach("file", Buffer.from("x"), "a.wav");
+      expect(res.status).toBe(500);
+    });
+
+    it("returns empty text when ASR response has no text field", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
+      const res = await authPost("/api/asr/transcribe")
+        .attach("file", Buffer.from("x"), "a.wav");
+      expect(res.status).toBe(200);
+      expect(res.body.text).toBe("");
+    });
+  });
+
+  describe("GET /api/asr/status", () => {
+    let fetchMock;
+    beforeEach(() => {
+      fetchMock = vi.spyOn(global, "fetch");
+    });
+    afterEach(() => {
+      fetchMock.mockRestore();
+    });
+
+    it("returns not-configured when URL is empty", async () => {
+      deps.config.asrServerUrl = "";
+      const res = await authGet("/api/asr/status");
+      expect(res.body.configured).toBe(false);
+      expect(res.body.reachable).toBe(false);
+      expect(res.body.url).toBe("");
+    });
+
+    it("reports reachable=true on 200 response", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockResolvedValue({ ok: true, status: 200 });
+      const res = await authGet("/api/asr/status");
+      expect(res.body.configured).toBe(true);
+      expect(res.body.reachable).toBe(true);
+    });
+
+    it("reports reachable=false on 500 (no false positives)", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockResolvedValue({ ok: false, status: 500 });
+      const res = await authGet("/api/asr/status");
+      expect(res.body.reachable).toBe(false);
+    });
+
+    it("reports reachable=false on network error", async () => {
+      deps.config.asrServerUrl = "http://asr:8081";
+      fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+      const res = await authGet("/api/asr/status");
+      expect(res.body.reachable).toBe(false);
     });
   });
 });

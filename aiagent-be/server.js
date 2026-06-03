@@ -9,11 +9,15 @@ import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import fs from "fs";
+import path from "path";
+import os from "os";
+import crypto from "node:crypto";
 import { Bot, InlineKeyboard } from "grammy";
 import { stream } from "@grammyjs/stream";
 import { autoRetry } from "@grammyjs/auto-retry";
 import dotenv from "dotenv";
 import { configDefaults } from "./lib/configDefaults.js";
+import { transcribeViaAsrServer as transcribeAsr } from "./lib/asrClient.js";
 
 dotenv.config();
 
@@ -27,6 +31,38 @@ const app = express();
  * @type {Bot|null}
  */
 let bot = null;
+
+/**
+ * Найти ffmpeg в системном PATH или стандартных путях.
+ * @returns {string|null} Путь к ffmpeg или null
+ */
+async function findFfmpeg() {
+  // 1. Переменная среды FFMPEG_PATH (приоритет)
+  const envPath = process.env.FFMPEG_PATH;
+  if (envPath && fs.existsSync(envPath)) {
+    return envPath;
+  }
+  // 2. Поиск в PATH
+  const { execSync } = await import("node:child_process");
+  const isWin = os.platform() === "win32";
+  try {
+    const cmd = isWin ? "where ffmpeg" : "which ffmpeg";
+    const result = execSync(cmd, { encoding: "utf-8", timeout: 5000, stdio: "pipe" });
+    return result.trim().split("\n")[0].trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Безопасно удалить временные файлы.
+ * @param  {...string} files
+ */
+function cleanupTmp(...files) {
+  for (const f of files) {
+    try { if (f && fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+  }
+}
 
 /**
  * Фабрика создания GrammY Bot с полным набором хендлеров.
@@ -167,6 +203,217 @@ function initBot(token) {
         `Current mode: <b>${config.chatMode ? "chat" : "project"}</b>\n\nUsage: /mode chat | /mode project`,
         REPLY_OPTS
       );
+    }
+  });
+
+  // ─── Voice Message Handler ─────────────────────────────────────────────
+  b.on("message:voice", async (ctx) => {
+    const voice = ctx.message?.voice;
+    if (!voice) return;
+
+    if (!config.projectPath) {
+      await replyMsg(ctx, "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env");
+      return;
+    }
+
+    // Жёсткий лимит: Telegram voice ≤ 30 мин, но 5 мин — разумный предел (≈50 МБ OGG → 1.7 МБ/мин WAV).
+    const MAX_VOICE_DURATION = 300; // секунд
+    if (voice.duration && voice.duration > MAX_VOICE_DURATION) {
+      await replyMsg(ctx, `⚠️ Слишком длинное голосовое (макс. ${MAX_VOICE_DURATION / 60} мин).`);
+      return;
+    }
+    if (voice.file_size && voice.file_size > 25 * 1024 * 1024) {
+      await replyMsg(ctx, "⚠️ Файл слишком большой (макс. 25 МБ).");
+      return;
+    }
+    if (voice.mime_type && voice.mime_type !== "audio/ogg") {
+      await replyMsg(ctx, "⚠️ Поддерживается только OGG формат.");
+      return;
+    }
+
+    const account = ctx.account;
+    const chatId = ctx.chat.id.toString();
+    if (!recordAndCheckRateLimit(chatId)) {
+      await replyMsg(ctx, "⏳ Too many requests. Please wait and try again.");
+      return;
+    }
+
+    addLog(`Voice message from ${ctx.chat.username || chatId}`, "info");
+    stats.requests++;
+    wsBroadcast("stats", { requests: stats.requests, tools: stats.tools, errors: stats.errors });
+
+    await sendTyping(ctx);
+    const draftMsgId = await sendDraft(ctx, "🎤 Распознавание речи...");
+
+    // Уникальные ID для tmp файлов (защита от race conditions при concurrent messages)
+    const fileId = `${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    const tmpDir = os.tmpdir();
+    const oggPath = path.join(tmpDir, `voice_${fileId}.ogg`);
+    const wavPath = path.join(tmpDir, `voice_${fileId}.wav`);
+
+    try {
+      // 1. Download voice file from Telegram
+      const fileInfo = await ctx.api.getFile(voice.file_id);
+      const fileUrl = `https://api.telegram.org/file/bot${bot.token}/${fileInfo.file_path}`;
+      const resp = await fetch(fileUrl);
+      if (!resp.ok) throw new Error(`Failed to download voice: ${resp.status}`);
+
+      const arrayBuf = await resp.arrayBuffer();
+      await fs.promises.writeFile(oggPath, Buffer.from(arrayBuf));
+
+      // 2. Convert OGG → WAV 16kHz mono via ffmpeg (async, no shell)
+      const ffmpegPath = await findFfmpeg();
+      if (!ffmpegPath) {
+        await editDraftMessage(ctx, draftMsgId, "❌ ffmpeg не найден. Установите ffmpeg для обработки голосовых.");
+        return;
+      }
+
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+
+      try {
+        await execFileAsync(
+          ffmpegPath,
+          ["-y", "-i", oggPath, "-ar", "16000", "-ac", "1", "-f", "wav", wavPath],
+          { timeout: 15000, windowsHide: true }
+        );
+      } catch (_e) {
+        await editDraftMessage(ctx, draftMsgId, "❌ Ошибка конвертации аудио.");
+        return;
+      }
+
+      // 3. Transcribe with Whisper
+      await editDraftMessage(ctx, draftMsgId, "🎤 Распознавание...");
+      let transcript;
+      try {
+        if (config.asrServerUrl) {
+          // Remote ASR server (whisper.cpp / faster-whisper)
+          transcript = await transcribeAsr({
+            wavPath,
+            asrServerUrl: config.asrServerUrl,
+            language: config.asrLanguage,
+          });
+        } else {
+          // Local whisper-cpp-node fallback
+          const { transcribeFile } = await import("./lib/whisper.js");
+          transcript = await transcribeFile(wavPath, "large-v3-turbo", config.asrLanguage);
+        }
+      } catch (e) {
+        addLog(`Whisper error: ${e.message}`, "error");
+        // Не показываем полный текст ошибки (м.б. пути/токены) — generic сообщение
+        const safeMsg = String(e.message || "unknown").slice(0, 100);
+        await editDraftMessage(ctx, draftMsgId, `❌ Ошибка распознавания. Попробуйте ещё раз или укоротите сообщение.`);
+        addLog(`Whisper error detail: ${safeMsg}`, "error");
+        return;
+      }
+
+      if (!transcript || transcript.trim().length === 0) {
+        await editDraftMessage(ctx, draftMsgId, "🎤 Речь не распознана. Попробуйте ещё раз.");
+        return;
+      }
+
+      addLog(`Voice transcript: ${transcript.substring(0, 100)}`, "info");
+
+      // 4. Process through agent loop (same as text message)
+      await editDraftMessage(ctx, draftMsgId, `🎤 "${transcript}"\n\n⏳ Analyzing request...`);
+
+      const history = chatHistories.get(chatId) || [];
+      let accumulatedContent = "";
+      let lastEditTime = 0;
+      const MIN_EDIT_INTERVAL = 1000;
+
+      const prevController = activeAgentControllers.get(chatId);
+      if (prevController && !prevController.signal.aborted) prevController.abort();
+
+      const safeCleanup = (ctrl) => {
+        if (activeAgentControllers.get(chatId) === ctrl) {
+          activeAgentControllers.delete(chatId);
+        }
+      };
+
+      const abortController = new AbortController();
+      activeAgentControllers.set(chatId, abortController);
+
+      agentLoopStep(transcript, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
+        try {
+          if (progress.type === "reasoning") {
+            const now = Date.now();
+            if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
+              lastEditTime = now;
+              const snippet = progress.accumulated.length > 200
+                ? progress.accumulated.substring(0, 200) + "..."
+                : progress.accumulated;
+              await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+            }
+          } else if (progress.type === "reasoning_done") {
+            await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
+          } else if (progress.type === "content") {
+            accumulatedContent = progress.accumulated;
+            const now = Date.now();
+            if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
+              lastEditTime = now;
+              const display = accumulatedContent.length > 300
+                ? accumulatedContent.substring(0, 300) + "..."
+                : accumulatedContent;
+              await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
+            }
+          } else if (progress.type === "tool_start") {
+            await editDraftMessage(ctx, draftMsgId, `🔧 ${progress.toolName}...`);
+          } else if (progress.type === "tool_complete") {
+            await editDraftMessage(ctx, draftMsgId, `✅ ${progress.toolName} done`);
+          } else if (progress.type === "needs_approval") {
+            const keyboard = new InlineKeyboard()
+              .text("✅ YES", `approve_${progress.toolName}`)
+              .text("❌ NO", `deny_${progress.toolName}`);
+            await replyMsg(ctx, `⚠️ Tool <b>${progress.toolName}</b> needs approval:\n<pre>${JSON.stringify(progress.args, null, 2)}</pre>`, { ...REPLY_OPTS, reply_markup: keyboard });
+          }
+        } catch (e) {
+          addLog(`Voice progress callback error: ${e.message}`, "error");
+        }
+      }, abortController.signal).then((result) => {
+        safeCleanup(abortController);
+
+        if (result.tokenUsage) {
+          tokenUsage.prompt += result.tokenUsage.prompt || 0;
+          tokenUsage.completion += result.tokenUsage.completion || 0;
+          tokenUsage.total += result.tokenUsage.total || 0;
+          tokenUsage.cached += result.tokenUsage.cached || 0;
+          if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
+          wsBroadcast("tokenUsage", { ...tokenUsage });
+        }
+        if (result.timings) {
+          wsBroadcast("perfStats", buildPerfStats(result.timings));
+        }
+
+        if (result.cancelled) {
+          addLog("Voice agent loop cancelled by user", "warning");
+          return;
+        }
+
+        addLog(
+          `agentLoopStep (voice): requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
+          "info"
+        );
+
+        handleAgentResult(ctx, chatId, result, account, draftMsgId, abortController.signal).catch((err) => {
+          addLog(`Voice handleAgentResult error: ${err.message}`, "error");
+        });
+      }).catch((e) => {
+        safeCleanup(abortController);
+        if (e.name === "AbortError") return;
+        addLog(`Voice agent loop error: ${e.message}`, "error");
+        if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+        replyMsg(ctx, `❌ Error: ${e.message}`).catch(() => {});
+      });
+
+    } catch (e) {
+      addLog(`Voice message handler error: ${e.message}`, "error");
+      try { await editDraftMessage(ctx, draftMsgId, "❌ Ошибка обработки голосового сообщения."); } catch {}
+      try { await replyMsg(ctx, `❌ Error processing voice: ${e.message}`); } catch {}
+    } finally {
+      // Гарантированная очистка tmp файлов на ВСЕХ путях
+      cleanupTmp(oggPath, wavPath);
     }
   });
 
@@ -420,6 +667,8 @@ const config = {
   stream: configDefaults.stream,
   insertUserAfterTool: configDefaults.insertUserAfterTool,
   openrouterApiKey: process.env.OPENROUTER_API_KEY || configDefaults.openrouterApiKey,
+  asrServerUrl: process.env.ASR_SERVER_URL || configDefaults.asrServerUrl,
+  asrLanguage: configDefaults.asrLanguage,
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
 };
 

@@ -126,6 +126,31 @@
         </Button>
       </div>
     </div>
+    <div class="form-group">
+      <div class="form-label">
+        <label>ASR_SERVER_URL</label>
+        <span class="hint">URL ASR сервера (whisper.cpp / faster-whisper)</span>
+      </div>
+      <div class="asr-row">
+        <input
+          v-model="configCopy.asrServerUrl"
+          type="text"
+          class="form-input"
+          placeholder="http://192.168.1.103:8081"
+        />
+        <Button
+          :disabled="!configCopy.asrServerUrl || loadingStates.asrTest"
+          :loading="loadingStates.asrTest"
+          @click="testAsrServer"
+        >
+          TEST
+        </Button>
+      </div>
+      <span v-if="asrStatus" :class="asrStatus.reachable ? 'token-ok' : 'token-missing'">
+        {{ asrStatus.reachable ? '[CONNECTED]' : '[UNREACHABLE]' }}
+      </span>
+      <span class="hint">Для голосовых сообщений Telegram. Оставьте пустым для Web Speech API.</span>
+    </div>
   </Card>
 
   <Card>
@@ -374,7 +399,7 @@ import { ref, reactive, watch, computed } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
-import { checkPath, browseFolder } from "@/api/client";
+import { checkPath, browseFolder, testAsrConnection } from "@/api/client";
 
 /**
  * @typedef {Object} SettingsTabProps
@@ -425,6 +450,7 @@ const configCopy = reactive({
   showTokens: props.config.showTokens !== false,
   soundEnabled: props.config.soundEnabled !== false,
   soundVolume: props.config.soundVolume ?? 50,
+  asrServerUrl: props.config.asrServerUrl || "",
 });
 const apiBasesCopy = ref(JSON.parse(JSON.stringify(props.apiBases)));
 const modelNameCopy = ref(props.modelName);
@@ -454,7 +480,9 @@ const loadingStates = ref({
   reset: false,
   models: false,
   openrouterModels: false,
+  asrTest: false,
 });
+const asrStatus = ref(null);
 
 // Debounce and save state management
 let saveTimer = null;
@@ -531,6 +559,7 @@ watch(
     configCopy.showTokens = val.showTokens !== false;
     configCopy.soundEnabled = val.soundEnabled !== false;
     configCopy.soundVolume = val.soundVolume ?? 50;
+    configCopy.asrServerUrl = val.asrServerUrl || "";
 
     // Use setTimeout to reset ignoreNextWatch after debounce period
     clearTimeout(saveTimer);
@@ -684,6 +713,21 @@ const handleLoadOpenRouterModels = async () => {
 };
 
 /**
+ * Проверить соединение с ASR сервером.
+ */
+const testAsrServer = async () => {
+  loadingStates.value.asrTest = true;
+  asrStatus.value = null;
+  try {
+    asrStatus.value = await testAsrConnection();
+  } catch {
+    asrStatus.value = { configured: true, reachable: false, url: configCopy.asrServerUrl };
+  } finally {
+    loadingStates.value.asrTest = false;
+  }
+};
+
+/**
  * Добавить новую пустую API-базу в список.
  */
 const addApiBase = () => {
@@ -825,6 +869,14 @@ const adjustTokens = (delta) => {
 .openrouter-row {
   display: flex;
   justify-content: flex-end;
+}
+.asr-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.asr-row .form-input {
+  flex: 1;
 }
 .form-label {
   display: flex;

@@ -6,11 +6,14 @@
 import { Router } from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
+import multer from "multer";
 import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, updateToolConfig, TOOLS } from "../lib/agent/executeTool.js";
 import { agentLoopStep, MAX_AGENT_ITERATIONS } from "../lib/agent/agentLoop.js";
 import { loadAccounts, saveAccounts, getAccounts, getAccountByUsername } from "../lib/accounts.js";
 import { configDefaults } from "../lib/configDefaults.js";
 import { parseStreamedResponse } from "../lib/parseSSE.js";
+import { validateAsrUrl, sanitizeLanguage, transcribeViaAsrServer as transcribeAsr, probeAsrServer } from "../lib/asrClient.js";
 
 /**
  * Создаёт Express Router с API маршрутами.
@@ -334,6 +337,16 @@ export function createApiRouter(deps) {
     if (body.insertUserAfterTool !== undefined) config.insertUserAfterTool = !!body.insertUserAfterTool;
     if (body.chatMode !== undefined) config.chatMode = !!body.chatMode;
     if (body.openrouterApiKey !== undefined) config.openrouterApiKey = body.openrouterApiKey;
+    if (body.asrServerUrl !== undefined) {
+      try {
+        config.asrServerUrl = validateAsrUrl(body.asrServerUrl);
+      } catch (e) {
+        return res.status(400).json({ error: `Invalid asrServerUrl: ${e.message}` });
+      }
+    }
+    if (body.asrLanguage !== undefined) {
+      config.asrLanguage = sanitizeLanguage(body.asrLanguage);
+    }
     if (body.token !== undefined && body.token !== (config.telegramToken || "")) {
       config.telegramToken = body.token;
       process.env.TELEGRAM_BOT_TOKEN = body.token;
@@ -1011,6 +1024,157 @@ export function createApiRouter(deps) {
       stats.errors++;
       addLog(`Chat continue error: ${error.message}`, "error");
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── ASR Transcribe ─────────────────────────────────────────────────────
+
+  /**
+   * multer middleware для парсинга multipart/form-data (макс. 25 МБ аудио).
+   * Memory storage — файл попадает в req.file.buffer.
+   */
+  const asrUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 },
+  });
+
+  /**
+   * POST /api/asr/transcribe — Прокси транскрипции на внешний ASR сервер (whisper.cpp / faster-whisper).
+   * Принимает multipart/form-data с полем "file" (аудио) и опционально "language".
+   * Пересылает на config.asrServerUrl/inference и возвращает { text }.
+   */
+  router.post("/asr/transcribe", asrUpload.single("file"), async (req, res) => {
+    try {
+      const asrUrl = config.asrServerUrl;
+      if (!asrUrl) {
+        return res.status(400).json({ error: "ASR server URL not configured" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No audio file provided (field 'file' missing)" });
+      }
+
+      const language = sanitizeLanguage(req.body?.language || config.asrLanguage);
+
+      // Сохраняем во временный файл (transcribeViaAsrServer ожидает путь)
+      const tmpFile = path.join(os.tmpdir(), `asr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
+      await fs.promises.writeFile(tmpFile, req.file.buffer);
+
+      let text;
+      try {
+        text = await transcribeAsr({
+          wavPath: tmpFile,
+          asrServerUrl: asrUrl,
+          language,
+        });
+      } finally {
+        try { await fs.promises.unlink(tmpFile); } catch {}
+      }
+
+      res.json({ text });
+    } catch (error) {
+      addLog(`ASR transcribe error: ${error.message}`, "error");
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "Audio file too large (max 25 MB)" });
+      }
+      // ASR server вернул ошибку (4xx/5xx) — отдаём 502
+      if (/^ASR server \d+/.test(error.message || "")) {
+        return res.status(502).json({ error: error.message });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/asr/status — Проверка доступности ASR сервера.
+   * Ответ: { configured: boolean, reachable: boolean, url: string, status?: number }
+   */
+  router.get("/asr/status", async (req, res) => {
+    const asrUrl = config.asrServerUrl;
+    if (!asrUrl) {
+      return res.json({ configured: false, reachable: false, url: "" });
+    }
+
+    const probe = await probeAsrServer(asrUrl, 5000);
+    res.json({ configured: true, reachable: probe.reachable, url: asrUrl, status: probe.status });
+  });
+
+  // ─── Clean Text ──────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/chat/clean-text — Очистка текста от слов-паразитов через LLM.
+   * Используется после распознавания речи (Whisper / Web Speech API).
+   * Body: { text: string }
+   * Response: { cleaned: string }
+   */
+  router.post("/chat/clean-text", async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text || typeof text !== "string") {
+        return res.status(400).json({ error: "Text required" });
+      }
+
+      if (text.trim().length === 0) {
+        return res.json({ cleaned: text });
+      }
+
+      const actualServerUrl = config.serverUrl;
+      const model = config.modelName;
+
+      const cleanPrompt = `Ты — редактор текста. Убери из текста слова-паразиты и воду: "ну", "эм", "ээм", "короче", "типа", "вот", "значит", "как бы", "это", "вообще", "просто", "даже", "пожалуй", "самое", "такое", "скажем", "допустим", "конечно", "блин", "то есть", "кстати", "видишь ли", "понимаешь", "типа того", "ну вот", "ну типа", "ну короче", "ну как бы", "это самое", "в общем", "короче говоря", повторы и лишние слова. Сохрани смысл и стиль. Верни ТОЛЬКО очищенный текст без кавычек и пояснений. Не добавляй ничего лишнего.`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const isOpenRouter = actualServerUrl.includes("openrouter.ai");
+      const cleanHeaders = { "Content-Type": "application/json" };
+      if (isOpenRouter) {
+        cleanHeaders["Authorization"] = `Bearer ${config.openrouterApiKey || ""}`;
+        cleanHeaders["HTTP-Referer"] = "https://agent-panel.local";
+        cleanHeaders["X-OpenRouter-Title"] = "AI Agent Panel";
+      } else {
+        cleanHeaders["Authorization"] = `Bearer ${config.apiKey}`;
+      }
+
+      let response;
+      try {
+        response = await fetch(`${actualServerUrl}/chat/completions`, {
+          method: "POST",
+          headers: cleanHeaders,
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: cleanPrompt },
+              { role: "user", content: text },
+            ],
+            max_tokens: Math.min(text.length + 200, 512),
+            temperature: 0.1,
+            stream: false,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!response || !response.ok) {
+        addLog(`Clean text: AI server error ${response?.status}`, "warn");
+        return res.json({ cleaned: text });
+      }
+
+      const data = await response.json();
+      const cleaned = data.choices?.[0]?.message?.content?.trim();
+
+      if (!cleaned) {
+        addLog("Clean text: empty LLM response, using original", "warn");
+        return res.json({ cleaned: text });
+      }
+
+      res.json({ cleaned });
+    } catch (error) {
+      addLog(`Clean text error: ${error.message}`, "warn");
+      // Fallback: return original text on any error
+      res.json({ cleaned: req.body?.text || "" });
     }
   });
 

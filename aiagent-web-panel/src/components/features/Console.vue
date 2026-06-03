@@ -93,7 +93,7 @@ watch(
       }
     });
   },
-  { deep: true }
+  { deep: true, immediate: true }
 );
 
 defineExpose({ clear: () => { logHistory.value = []; } });
