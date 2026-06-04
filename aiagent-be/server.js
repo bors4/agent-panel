@@ -363,10 +363,11 @@ function initBot(token) {
           } else if (progress.type === "tool_complete") {
             await editDraftMessage(ctx, draftMsgId, `✅ ${progress.toolName} done`);
           } else if (progress.type === "needs_approval") {
-            const keyboard = new InlineKeyboard()
-              .text("✅ YES", `approve_${progress.toolName}`)
-              .text("❌ NO", `deny_${progress.toolName}`);
-            await replyMsg(ctx, `⚠️ Tool <b>${progress.toolName}</b> needs approval:\n<pre>${JSON.stringify(progress.args, null, 2)}</pre>`, { ...REPLY_OPTS, reply_markup: keyboard });
+            await replyMsg(
+              ctx,
+              `⚠️ Tool <b>${progress.toolName}</b> needs approval:\n<pre>${JSON.stringify(progress.args, null, 2)}</pre>`,
+              { ...REPLY_OPTS, reply_markup: KEYBOARD_YES_NO(progress.toolName) }
+            );
           }
         } catch (e) {
           addLog(`Voice progress callback error: ${e.message}`, "error");
