@@ -28,6 +28,7 @@ function createMockDeps() {
     stats,
     chatHistories: new Map(),
     pendingApprovals: new Map(),
+    activeAgentControllers: new Map(),
     agentLogs: [],
     tokenUsage: { prompt: 0, completion: 0, total: 0, cached: 0 },
     state: { botStatus: "idle", botStatusMessage: "", startTime: Date.now() },
@@ -102,16 +103,14 @@ describe("API Routes", () => {
 
   describe("POST /api/config", () => {
     it("updates config fields", async () => {
-      const res = await authPost("/api/config")
-        .send({ modelName: "new-model", serverUrl: "http://new:8080/v1" });
+      const res = await authPost("/api/config").send({ modelName: "new-model", serverUrl: "http://new:8080/v1" });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(deps.config.modelName).toBe("new-model");
     });
 
     it("resolves projectPath with path.resolve", async () => {
-      const res = await authPost("/api/config")
-        .send({ projectPath: process.cwd() });
+      const res = await authPost("/api/config").send({ projectPath: process.cwd() });
       expect(res.status).toBe(200);
       expect(deps.config.projectPath).toBe(path.resolve(process.cwd()));
     });
@@ -192,21 +191,18 @@ describe("API Routes", () => {
     });
 
     it("rejects empty projectPath", async () => {
-      await authPost("/api/config")
-        .send({ projectPath: "" });
+      await authPost("/api/config").send({ projectPath: "" });
       expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("skipped"), "warning");
     });
 
     it("blocks prototype pollution via constructor key", async () => {
-      const res = await authPost("/api/config")
-        .send({ constructor: { pollute: true } });
+      const res = await authPost("/api/config").send({ constructor: { pollute: true } });
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Invalid config keys");
     });
 
     it("blocks prototype pollution via prototype key", async () => {
-      const res = await authPost("/api/config")
-        .send({ prototype: { pollute: true } });
+      const res = await authPost("/api/config").send({ prototype: { pollute: true } });
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Invalid config keys");
     });
@@ -214,8 +210,7 @@ describe("API Routes", () => {
     it("reinitializes bot when token changes", async () => {
       const oldBot = { start: vi.fn(), stop: vi.fn(), use: vi.fn(), api: { config: { use: vi.fn() } } };
       deps.bot = oldBot;
-      const res = await authPost("/api/config")
-        .send({ token: "new-token" });
+      const res = await authPost("/api/config").send({ token: "new-token" });
       expect(res.status).toBe(200);
       expect(res.body.tokenChanged).toBe(true);
       expect(oldBot.stop).toHaveBeenCalled();
@@ -227,8 +222,7 @@ describe("API Routes", () => {
     it("clears bot when token set to empty", async () => {
       const oldBot = { start: vi.fn(), stop: vi.fn(), use: vi.fn(), api: { config: { use: vi.fn() } } };
       deps.bot = oldBot;
-      const res = await authPost("/api/config")
-        .send({ token: "" });
+      const res = await authPost("/api/config").send({ token: "" });
       expect(res.status).toBe(200);
       expect(oldBot.stop).toHaveBeenCalled();
       expect(deps.bot).toBeNull();
@@ -237,8 +231,7 @@ describe("API Routes", () => {
     it("does not reinit bot when token unchanged", async () => {
       const oldBot = { start: vi.fn(), stop: vi.fn() };
       deps.bot = oldBot;
-      const res = await authPost("/api/config")
-        .send({ token: "test-token" });
+      const res = await authPost("/api/config").send({ token: "test-token" });
       expect(res.status).toBe(200);
       expect(res.body.tokenChanged).toBe(false);
       expect(oldBot.stop).not.toHaveBeenCalled();
@@ -279,15 +272,13 @@ describe("API Routes", () => {
 
   describe("POST /api/tools", () => {
     it("updates tool config", async () => {
-      const res = await authPost("/api/tools")
-        .send({ name: "read", enabled: false });
+      const res = await authPost("/api/tools").send({ name: "read", enabled: false });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
     });
 
     it("rejects unknown tool name", async () => {
-      const res = await authPost("/api/tools")
-        .send({ name: "nonexistent" });
+      const res = await authPost("/api/tools").send({ name: "nonexistent" });
       expect(res.status).toBe(404);
     });
 
@@ -366,7 +357,7 @@ describe("API Routes", () => {
     it("returns logs up to limit", async () => {
       deps.agentLogs.push(
         { time: Date.now(), message: "test1", type: "info" },
-        { time: Date.now(), message: "test2", type: "info" },
+        { time: Date.now(), message: "test2", type: "info" }
       );
       const res = await authGet("/api/logs?limit=1");
       expect(res.body.logs.length).toBe(1);
@@ -405,8 +396,7 @@ describe("API Routes", () => {
 
   describe("POST /api/agent/tool", () => {
     it("requires toolCall.name", async () => {
-      const res = await authPost("/api/agent/tool")
-        .send({ toolCall: {} });
+      const res = await authPost("/api/agent/tool").send({ toolCall: {} });
       expect(res.status).toBe(400);
     });
   });
@@ -418,16 +408,14 @@ describe("API Routes", () => {
     });
 
     it("requires message to be non-empty", async () => {
-      const res = await authPost("/api/chat")
-        .send({ message: "" });
+      const res = await authPost("/api/chat").send({ message: "" });
       expect(res.status).toBe(400);
     });
 
     it("handles fetch error gracefully (not TypeError)", async () => {
       const origFetch = global.fetch;
       global.fetch = vi.fn().mockRejectedValue(new Error("fetch failed"));
-      const res = await authPost("/api/chat")
-        .send({ message: "hello" });
+      const res = await authPost("/api/chat").send({ message: "hello" });
       global.fetch = origFetch;
       expect(res.status).toBe(500);
       expect(res.body.error).not.toContain("undefined");
@@ -465,7 +453,7 @@ describe("API Routes", () => {
           headers: expect.objectContaining({
             Authorization: "Bearer test-key",
           }),
-        }),
+        })
       );
     });
 
@@ -475,10 +463,7 @@ describe("API Routes", () => {
         json: async () => ({ data: [] }),
       });
       await authGet("/api/models?serverUrl=http://custom:8080/v1");
-      expect(fetchMock).toHaveBeenCalledWith(
-        "http://custom:8080/v1/models",
-        expect.any(Object),
-      );
+      expect(fetchMock).toHaveBeenCalledWith("http://custom:8080/v1/models", expect.any(Object));
     });
 
     it("sends OpenRouter headers when URL contains openrouter.ai", async () => {
@@ -499,7 +484,7 @@ describe("API Routes", () => {
             "HTTP-Referer": "https://agent-panel.local",
             "X-OpenRouter-Title": "AI Agent Panel",
           }),
-        }),
+        })
       );
     });
 
@@ -510,8 +495,7 @@ describe("API Routes", () => {
       });
       deps.config.serverUrl = "https://openrouter.ai/api/v1";
       deps.config.openrouterApiKey = "config-key";
-      const res = await authGet("/api/models")
-        .set("x-openrouter-key", "header-key");
+      const res = await authGet("/api/models").set("x-openrouter-key", "header-key");
       expect(res.status).toBe(200);
       expect(fetchMock).toHaveBeenCalledWith(
         expect.any(String),
@@ -519,7 +503,7 @@ describe("API Routes", () => {
           headers: expect.objectContaining({
             Authorization: "Bearer header-key",
           }),
-        }),
+        })
       );
     });
 
@@ -630,8 +614,7 @@ describe("API Routes", () => {
 
     it("returns 400 when asrServerUrl is not configured", async () => {
       deps.config.asrServerUrl = "";
-      const res = await authPost("/api/asr/transcribe")
-        .attach("file", Buffer.from("fake"), "audio.wav");
+      const res = await authPost("/api/asr/transcribe").attach("file", Buffer.from("fake"), "audio.wav");
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/not configured/);
     });
@@ -651,33 +634,27 @@ describe("API Routes", () => {
         .field("language", "ru");
       expect(res.status).toBe(200);
       expect(res.body.text).toBe("привет");
-      expect(fetchMock).toHaveBeenCalledWith(
-        "http://asr:8081/inference",
-        expect.objectContaining({ method: "POST" })
-      );
+      expect(fetchMock).toHaveBeenCalledWith("http://asr:8081/inference", expect.objectContaining({ method: "POST" }));
     });
 
     it("returns 502 when ASR server returns non-ok", async () => {
       deps.config.asrServerUrl = "http://asr:8081";
       fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => "err" });
-      const res = await authPost("/api/asr/transcribe")
-        .attach("file", Buffer.from("x"), "a.wav");
+      const res = await authPost("/api/asr/transcribe").attach("file", Buffer.from("x"), "a.wav");
       expect(res.status).toBe(502);
     });
 
     it("returns 500 on network error", async () => {
       deps.config.asrServerUrl = "http://asr:8081";
       fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
-      const res = await authPost("/api/asr/transcribe")
-        .attach("file", Buffer.from("x"), "a.wav");
+      const res = await authPost("/api/asr/transcribe").attach("file", Buffer.from("x"), "a.wav");
       expect(res.status).toBe(500);
     });
 
     it("returns empty text when ASR response has no text field", async () => {
       deps.config.asrServerUrl = "http://asr:8081";
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
-      const res = await authPost("/api/asr/transcribe")
-        .attach("file", Buffer.from("x"), "a.wav");
+      const res = await authPost("/api/asr/transcribe").attach("file", Buffer.from("x"), "a.wav");
       expect(res.status).toBe(200);
       expect(res.body.text).toBe("");
     });

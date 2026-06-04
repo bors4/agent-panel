@@ -111,7 +111,7 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 262 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, and API endpoints
+- **Backend**: 345 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, API endpoints, and per-sub-router factory units (config/asr/chat/admin)
 - **Frontend**: 54 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket), API client, App, SettingsTab, ChatTab-related cards, and StatsCard
 
 ## Documentation
@@ -237,7 +237,18 @@ Stats reset when bot is stopped.
 aiagent-be/
 ├── server.js              # Express + GrammY entry point
 ├── routes/
-│   └── api.js             # API route handlers
+│   ├── api.js             # Thin API aggregator (mounts sub-routers, applies auth)
+│   ├── middleware.js      # x-api-key auth (excludes /health)
+│   ├── health.js          # GET /api/health (no auth)
+│   ├── status.js          # GET /api/status
+│   ├── logs.js            # GET/DELETE /api/logs
+│   ├── tools.js           # GET/POST /api/tools
+│   ├── accounts.js        # GET/POST /api/accounts, /api/accounts/import
+│   ├── paths.js           # GET /api/validate-path, /api/directories, /api/browse-folder
+│   ├── admin.js           # /api/start, /api/stop, /api/restart, /api/agent/tool, /api/tasks
+│   ├── config.js          # GET/POST /api/config, GET /api/models
+│   ├── asr.js             # POST /api/asr/transcribe, GET /api/asr/status
+│   └── chat.js            # POST /api/chat, /api/chat/cancel, /api/chat/continue, /api/chat/clean-text
 ├── lib/
 │   ├── agent/
 │   │   ├── agentLoop.js   # Agent loop with tool execution
@@ -247,7 +258,7 @@ aiagent-be/
 │   ├── accounts.js        # Account management
 │   ├── logger.js          # Structured logging with rotation
 │   └── utils.js           # Path safety and tool call parsing
-├── tests/                 # Backend tests (Vitest, 262 tests)
+├── tests/                 # Backend tests (Vitest, 345 tests)
 └── logs/                  # Application logs
 
 aiagent-web-panel/

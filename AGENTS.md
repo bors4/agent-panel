@@ -5,7 +5,8 @@
 **Monorepo (single root `package.json`):**
 
 - `aiagent-be/server.js` — Express + GrammY entry point, owns the mutable `config` object
-- `aiagent-be/routes/api.js` — API route factory, called from `server.js`
+- `aiagent-be/routes/api.js` — Thin API route aggregator (54 LoC), mounts 11 sub-routers from `routes/`
+- `aiagent-be/routes/{middleware,health,status,logs,tools,accounts,paths,admin,config,asr,chat}.js` — Sub-router factories, each takes `deps` (config, addLog, wsBroadcast, state, etc.) for testability
 - `aiagent-be/lib/agent/` — Agent loop (`agentLoop.js`) + tool execution (`executeTool.js`)
 - `aiagent-be/lib/asrClient.js` — SSRF-safe client for remote whisper.cpp ASR
 - `aiagent-be/lib/whisper.js` — Local `whisper-cpp-node` ESM wrapper (fallback)
@@ -19,7 +20,7 @@
 | `npm run dev` | Both frontend + backend (concurrently) |
 | `npm run backend:dev` | Backend only (port 3000) |
 | `npm run frontend:dev` | Frontend only (port 5173, `/api` → `127.0.0.1:3000`) |
-| `npm run test:all` | All tests (262 backend + 54 frontend = 316 total) |
+| `npm run test:all` | All tests (345 backend + 54 frontend = 399 total) |
 | `npm run backend:test` | Backend tests (Vitest, 7 files) |
 | `npm run frontend:test` | Frontend tests (Vitest, 6 files — must run from `aiagent-web-panel/`) |
 | `npm run lint` | ESLint flat config (0 errors, 0 warnings required) |
@@ -43,7 +44,7 @@
 
 **Single mutable config object** — `config` is declared at `aiagent-be/server.js:657` and passed **by reference** to:
 
-- The API router (`routes/api.js`) — reads + writes fields in `POST /api/config`
+- The API aggregator (`routes/api.js`) + 11 sub-routers — reads + writes fields in `POST /api/config`
 - `agentLoopStep(message, chatId, history, cfg, ...)` — `cfg` is the same reference
 - Bot handlers — read directly via closure
 
