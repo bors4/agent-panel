@@ -137,6 +137,21 @@ function initBot(token) {
     await next();
   });
 
+  // ─── Channel-agnostic result handler (extracted to lib/telegram/handleAgentResult.js) ─
+  const handleAgentResult = createHandleAgentResult({
+    config,
+    chatHistories,
+    pendingApprovals,
+    addLog,
+    replyMsg,
+    editDraftMessage,
+    sendLongMessage,
+    chunkText,
+    KEYBOARD_YES_NO,
+    agentLoopStep,
+    MAX_AGENT_ITERATIONS,
+  });
+
   // ─── Telegram Commands ─────────────────────────────────────────────────
   b.command("start", (ctx) => {
     if (config.modelName === "Имя модели") {
@@ -707,7 +722,7 @@ function initBot(token) {
       const approvalAbortController = new AbortController();
       activeAgentControllers.set(chatId, approvalAbortController);
 
-      continueAfterApproval(ctx, pending, 0, approvalAbortController.signal)
+      continueAfterApproval(ctx, pending, 0, approvalAbortController.signal, handleAgentResult)
         .catch((err) => {
           addLog(`continueAfterApproval (async) error: ${err.message}`, "error");
         })
@@ -927,6 +942,7 @@ import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, TO
 import { loadAccounts, getAccounts, getAccountByUsername } from "./lib/accounts.js";
 import { logInfo, logWarn, logError, requestLogger } from "./lib/logger.js";
 import { createApiRouter } from "./routes/api.js";
+import { createHandleAgentResult } from "./lib/telegram/handleAgentResult.js";
 
 // ─── Утилиты логирования ───────────────────────────────────────────────────
 
@@ -1222,132 +1238,10 @@ async function editDraftMessage(ctx, messageId, text) {
 }
 
 /**
- * Унифицированная обработка результата agent loop.
- * Избегает дублирования кода для первичного и повторного вызовов.
- *
- * Логика ветвления по полю `result`:
- * 1. `requiresApproval === true` — сохраняет в `pendingApprovals`, показывает
- *    inline-кнопки YES/NO, обновляет историю чата.
- * 2. `result.error` присутствует — показывает ошибку, очищает историю от
- *    tool-сообщений и маркеров подтверждения.
- * 3. `result.response` финальный (не "continue") — отправляет ответ пользователю
- *    (через editDraftMessage, replyWithStream или replyMsg), обновляет историю.
- * 4. `result.response === "continue"` — рекурсивно вызывает `agentLoopStep()` и
- *    снова обрабатывает результат (без черновика).
- * 5. Иначе — "Iteration limit reached".
- *
- * Побочные эффекты:
- * - Модифицирует `chatHistories` (очистка, обновление).
- * - Модифицирует `pendingApprovals` (сохранение для последующего подтверждения).
- * - Удаляет черновик через `ctx.api.deleteMessage()` при ошибке или лимите.
- *
- * @param {Object} ctx - GrammY контекст
- * @param {string} chatId - ID чата
- * @param {Object} result - Результат agentLoopStep
- * @param {boolean} result.requiresApproval - Требуется подтверждение пользователя
- * @param {string} [result.error] - Текст ошибки (если произошла)
- * @param {string} [result.response] - Финальный ответ модели или "continue"
- * @param {string} [result.toolName] - Имя инструмента (при requiresApproval)
- * @param {Object} [result.args] - Аргументы инструмента (при requiresApproval)
- * @param {string} [result.toolCallId] - ID вызова инструмента
- * @param {Array.<Object>} [result.messages] - Обновлённая история сообщений
- * @param {Object} [result.tokenUsage] - Счётчики токенов
- * @param {number} result.tokenUsage.prompt - Токены промпта
- * @param {number} result.tokenUsage.completion - Токены генерации
- * @param {number} result.tokenUsage.total - Всего токенов
- * @param {number} result.tokenUsage.cached - Кешированные токены
- * @param {Object} [result.timings] - Тайминги от llama.cpp
- * @param {Array.<Object>} [result.pendingToolCalls] - Очередь вызовов инструментов
- * @param {Object} account - Аккаунт пользователя (из getAccountByUsername)
- * @param {number} [draftMsgId] - ID черновика для обновления (streaming mode)
- * @returns {Promise<boolean>} true если обработка завершена (ответ отправлен пользователю)
+ * Унифицированная обработка результата agent loop извлечена в
+ * `lib/telegram/handleAgentResult.js` (channel-agnostic). Создаётся
+ * через `createHandleAgentResult(deps)` в `initBot` ниже.
  */
-async function handleAgentResult(ctx, chatId, result, account, draftMsgId, abortSignal) {
-  // Отменено пользователем
-  if (result.cancelled) {
-    addLog("Agent loop cancelled during continuation", "warning");
-    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-    return true;
-  }
-
-  // Требуется подтверждение
-  if (result.requiresApproval) {
-    pendingApprovals.set(chatId, {
-      toolName: result.toolName,
-      args: result.args,
-      toolCallId: result.toolCallId,
-      messages: result.messages,
-      account,
-      createdAt: Date.now(),
-      pendingToolCalls: result.pendingToolCalls || [],
-    });
-    chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")).slice(-(config.maxHistoryPairs * 2)));
-    const paramStr = JSON.stringify(result.args);
-    const displayParams =
-      result.toolName === "write" && result.args.content
-        ? JSON.stringify({
-            ...result.args,
-            content:
-              result.args.content.length > 200
-                ? result.args.content.substring(0, 200) +
-                  `… [content truncated: ${result.args.content.length} chars]`
-                : result.args.content,
-          })
-        : paramStr.length > 300
-          ? paramStr.substring(0, 300) + "… [truncated]"
-          : paramStr;
-    await replyMsg(
-      ctx,
-      `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${displayParams}</code>`,
-      { reply_markup: KEYBOARD_YES_NO(result.toolName) }
-    );
-    return true;
-  }
-
-  // Ошибка
-  if (result.error) {
-    const cleanHistory = (chatHistories.get(chatId) || []).filter(
-      (m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]") && m.role !== "tool" && m.role !== "system"
-    );
-    chatHistories.set(chatId, cleanHistory.slice(-(config.maxHistoryPairs * 2)));
-    if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-    await replyMsg(ctx, `❌ Error: ${result.error}`);
-    return true;
-  }
-
-  // Финальный ответ
-  if (result.response !== undefined && result.response !== "continue") {
-    if (result.messages) chatHistories.set(chatId, result.messages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
-    let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
-    if (!cleanResponse) cleanResponse = "✅ Done.";
-    const hasReasoning = result.reasoning && result.reasoning.length > 0;
-    const reasoningBlock = hasReasoning
-      ? `💭 Reasoning:\n\`\`\`\n${result.reasoning}\n\`\`\`\n\n`
-      : "";
-    if (typeof draftMsgId === "number") {
-      await editDraftMessage(ctx, draftMsgId, reasoningBlock + cleanResponse);
-    } else if (ctx.chat?.type === "private") {
-      const fullText = reasoningBlock + cleanResponse;
-      await ctx.replyWithStream(chunkText(fullText));
-    } else {
-      await sendLongMessage(ctx, reasoningBlock + cleanResponse);
-    }
-    return true;
-  }
-
-  // Продолжение (нужен ещё один шаг)
-  if (result.response === "continue") {
-    const history = result.messages || chatHistories.get(chatId) || [];
-    const retryResult = await agentLoopStep("", chatId, history, config, MAX_AGENT_ITERATIONS, account, null, abortSignal);
-    addLog(`agentLoopStep (retry): requiresApproval=${retryResult.requiresApproval}`, "info");
-    return await handleAgentResult(ctx, chatId, retryResult, account, undefined, abortSignal);
-  }
-
-  // Лимит итераций
-  if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-  await replyMsg(ctx, "Iteration limit reached");
-  return true;
-}
 
 // ─── Обработка подтверждений (callback queries) ─────────────────────────────
 
@@ -1390,11 +1284,13 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId, abort
  * @param {Array.<Object>} [pending.pendingToolCalls] - Очередь дополнительных
  *   вызовов инструментов от модели (multi-tool), обрабатывается последовательно
  * @param {number} [depth=0] - Текущая глубина рекурсии (для защиты от циклов)
+ * @param {AbortSignal} [abortSignal] - Сигнал отмены
+ * @param {Function} [handleAgentResult] - Channel-agnostic handler из lib/telegram/handleAgentResult.js
  * @returns {Promise<void>}
  */
 const MAX_APPROVAL_DEPTH = 10;
 
-async function continueAfterApproval(ctx, pending, depth = 0, abortSignal) {
+async function continueAfterApproval(ctx, pending, depth = 0, abortSignal, handleAgentResult) {
   if (depth >= MAX_APPROVAL_DEPTH) {
     addLog(`continueAfterApproval: depth limit (${MAX_APPROVAL_DEPTH}) reached`, "warning");
     await replyMsg(ctx, `⚠️ Reached tool call chain limit (${MAX_APPROVAL_DEPTH}).`);
