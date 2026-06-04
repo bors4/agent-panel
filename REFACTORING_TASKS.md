@@ -101,11 +101,11 @@
 ## T-012 — `client.js` (547 LoC) over 500-line threshold
 
 - **Source:** Refactorer file size audit
-- **Severity:** low
-- **Detail:** Single fat HTTP client
-- **Proposed solution:** Split into `client-http.js`, `client-agents.js`, `client-voice.js`, `client-admin.js`; re-export from `client.js`
-- **Effort:** S
-- **Status:** Deferred — low priority, not blocking
+- **Severity:** low (no longer applies)
+- **Detail:** File was 547 LoC at audit time. After PR 1 removed 5 orphan exports, file is now 472 LoC — under threshold.
+- **Proposed solution:** No action needed; track in PR 7 if other API splits happen.
+- **Effort:** none
+- **Status:** ✅ Resolved (no action needed — under threshold after PR 1)
 
 ## T-013 — `asrLanguage` config lacks UI hint
 

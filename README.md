@@ -111,8 +111,8 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 248 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), logger, and API endpoints
-- **Frontend**: 34 tests covering composables (useAgent, useToast, useVoiceInput), stores, API client, ControlsCard, ChatTab, SettingsTab, and StatsCard
+- **Backend**: 262 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, and API endpoints
+- **Frontend**: 54 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket), API client, App, SettingsTab, ChatTab-related cards, and StatsCard
 
 ## Documentation
 
@@ -247,7 +247,7 @@ aiagent-be/
 │   ├── accounts.js        # Account management
 │   ├── logger.js          # Structured logging with rotation
 │   └── utils.js           # Path safety and tool call parsing
-├── tests/                 # Backend tests (Vitest, 248 tests)
+├── tests/                 # Backend tests (Vitest, 262 tests)
 └── logs/                  # Application logs
 
 aiagent-web-panel/
