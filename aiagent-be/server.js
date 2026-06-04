@@ -65,6 +65,52 @@ function cleanupTmp(...files) {
 }
 
 /**
+ * Санитизировать ошибку для отправки пользователю.
+ * Никогда не отдаёт полный текст ошибки в Telegram (м.б. пути, токены, стек).
+ * Деталь всегда пишется в addLog с category "error".
+ *
+ * @param {Error|string|unknown} e - Исходная ошибка
+ * @param {string} userHint - Короткое, безопасное сообщение для пользователя (RU/EN, ≤120 chars)
+ * @returns {string} Текст для отправки в Telegram
+ */
+function safeErrorMessage(e, userHint) {
+  const detail = String(e?.message || e || "unknown").slice(0, 200);
+  addLog(`safeErrorMessage detail: ${detail}`, "error");
+  return userHint;
+}
+
+/**
+ * Отправить длинное сообщение в Telegram с автоматической разбивкой на чанки ≤ MAX_LEN.
+ * Telegram лимит: 4096 символов на сообщение. Использует существующий `chunkText` (мягкая
+ * разбивка по границе слова). Если текст короче лимита — отправляется одним сообщением.
+ *
+ * @param {Object} ctx - GrammY контекст
+ * @param {string} text - Полный текст
+ * @param {Object} [extra] - Доп. опции (например, reply_markup)
+ * @returns {Promise<number[]>} Массив message_id отправленных сообщений
+ */
+async function sendLongMessage(ctx, text, extra = {}) {
+  const MAX_LEN = 4096;
+  const ids = [];
+  if (!text) return ids;
+  if (text.length <= MAX_LEN) {
+    const sent = await replyMsg(ctx, text, extra);
+    if (sent?.message_id) ids.push(sent.message_id);
+    return ids;
+  }
+  for await (const chunk of chunkText(text)) {
+    if (!chunk) continue;
+    let part = chunk;
+    if (part.length > MAX_LEN) {
+      part = part.substring(0, MAX_LEN);
+    }
+    const sent = await replyMsg(ctx, part, extra);
+    if (sent?.message_id) ids.push(sent.message_id);
+  }
+  return ids;
+}
+
+/**
  * Фабрика создания GrammY Bot с полным набором хендлеров.
  * Создаёт экземпляр Bot, подключает middleware (autoRetry, stream), account check,
  * команды (/start, /help, /model, /clear, /tools, /tasks, /cancel, /mode),
@@ -98,23 +144,84 @@ function initBot(token) {
       return;
     }
     updateStatus("running", "Работает");
-    ctx.reply("🤖 AI Agent active!\nModel: " + config.modelName, REPLY_OPTS);
+    const asrInfo = config.asrServerUrl ? `🎤 ASR: ${config.asrServerUrl} (${config.asrLanguage || "ru"})` : "🎤 ASR: local whisper";
+    ctx.reply(
+      `🤖 <b>AI Agent active!</b>\n\n` +
+        `Model: <code>${config.modelName}</code>\n` +
+        `Server: <code>${config.serverUrl}</code>\n` +
+        `${asrInfo}\n` +
+        `Mode: <b>${config.chatMode ? "chat" : "project"}</b>\n\n` +
+        `Type /help for commands.`,
+      REPLY_OPTS
+    );
   });
 
   b.command("help", (ctx) => {
     ctx.reply(
-      "Commands:\n/start - Start\n/help - Help\n/model - Current model\n/clear - Clear history\n/tools - Tool list\n/tasks - Active tasks\n/cancel &lt;id&gt; - Cancel task\n/mode &lt;chat|project&gt; - Switch mode",
+      `📖 <b>Commands</b>\n\n` +
+        `/start — Welcome + current config\n` +
+        `/status — Bot state, model, tokens, tools\n` +
+        `/help — This message\n` +
+        `/model — Current model + server\n` +
+        `/tools — Tools available for you\n` +
+        `/tasks — Active background tasks\n` +
+        `/reset — Clear conversation history\n` +
+        `/cancel — Cancel current request\n` +
+        `/mode chat|project — Switch context mode\n\n` +
+        `💬 Text and 🎤 voice messages are both supported.`,
+      REPLY_OPTS
+    );
+  });
+
+  b.command("status", (ctx) => {
+    const uptime = stats.startTime ? Math.floor((Date.now() - stats.startTime) / 1000) : 0;
+    const hh = Math.floor(uptime / 3600);
+    const mm = Math.floor((uptime % 3600) / 60);
+    const ss = uptime % 60;
+    const uptimeStr = `${hh}h ${mm}m ${ss}s`;
+    const totalTools = Object.keys(TOOLS).length;
+    ctx.reply(
+      `🤖 <b>Agent Panel — Status</b>\n\n` +
+        `Bot: ${config.botStatus || "idle"}\n` +
+        `Model: <code>${config.modelName}</code>\n` +
+        `Mode: <b>${config.chatMode ? "chat" : "project"}</b>\n` +
+        `ASR: ${config.asrServerUrl ? `<code>${config.asrServerUrl}</code>` : "local whisper"}\n` +
+        `Tools: ${totalTools} available\n` +
+        `Stats: ${stats.requests} requests, ${stats.tools} tool calls, ${stats.errors} errors\n` +
+        `Tokens: ${tokenUsage.total} total (${tokenUsage.prompt} prompt, ${tokenUsage.completion} completion)\n` +
+        `Uptime: ${uptimeStr}`,
       REPLY_OPTS
     );
   });
 
   b.command("model", (ctx) => {
-    ctx.reply(`Model: ${config.modelName}\nServer: ${config.serverUrl}`, REPLY_OPTS);
+    ctx.reply(
+      `Model: <code>${config.modelName}</code>\nServer: <code>${config.serverUrl}</code>\nASR: <code>${config.asrServerUrl || "local whisper"}</code>`,
+      REPLY_OPTS
+    );
   });
 
   b.command("clear", (ctx) => {
     chatHistories.delete(ctx.chat.id.toString());
     ctx.reply("🗑️ History cleared!", REPLY_OPTS);
+  });
+
+  b.command("reset", (ctx) => {
+    const chatId = ctx.chat.id.toString();
+    const had = chatHistories.has(chatId);
+    chatHistories.delete(chatId);
+    const controller = activeAgentControllers.get(chatId);
+    if (controller && !controller.signal.aborted) {
+      controller.abort();
+      activeAgentControllers.delete(chatId);
+    }
+    const pending = pendingApprovals.get(chatId);
+    if (pending) pendingApprovals.delete(chatId);
+    if (!had) {
+      ctx.reply("ℹ️ Nothing to reset — history was already empty.", REPLY_OPTS);
+    } else {
+      ctx.reply("✅ <b>Reset complete.</b>\n• History cleared\n• Active request cancelled\n• Pending approval removed", REPLY_OPTS);
+    }
   });
 
   b.command("tools", async (ctx) => {
@@ -156,7 +263,11 @@ function initBot(token) {
       if (activeAgentControllers.get(chatId) === agentController) {
         activeAgentControllers.delete(chatId);
       }
-      await replyMsg(ctx, "❌ Cancelled.");
+      // Также убиваем активные subprocess-таски (если они есть)
+      const tasks = getActiveTasks();
+      const killed = tasks.filter((t) => cancelTask(t.taskId));
+      const tail = killed.length > 0 ? `\nKilled ${killed.length} subprocess task(s).` : "";
+      await replyMsg(ctx, `❌ Cancelled.${tail}`);
       return;
     }
 
@@ -219,15 +330,21 @@ function initBot(token) {
     // Жёсткий лимит: Telegram voice ≤ 30 мин, но 5 мин — разумный предел (≈50 МБ OGG → 1.7 МБ/мин WAV).
     const MAX_VOICE_DURATION = 300; // секунд
     if (voice.duration && voice.duration > MAX_VOICE_DURATION) {
-      await replyMsg(ctx, `⚠️ Слишком длинное голосовое (макс. ${MAX_VOICE_DURATION / 60} мин).`);
+      const got = Math.floor(voice.duration / 60);
+      const sec = voice.duration % 60;
+      await replyMsg(
+        ctx,
+        `⏱ <b>Voice too long</b>\n\nGot: ${got}m ${sec}s\nMax: ${MAX_VOICE_DURATION / 60} min\n\nPlease send a shorter clip.`,
+        REPLY_OPTS
+      );
       return;
     }
     if (voice.file_size && voice.file_size > 25 * 1024 * 1024) {
-      await replyMsg(ctx, "⚠️ Файл слишком большой (макс. 25 МБ).");
+      await replyMsg(ctx, "⏱ Файл слишком большой (макс. 25 МБ). Отправьте более короткое сообщение.", REPLY_OPTS);
       return;
     }
     if (voice.mime_type && voice.mime_type !== "audio/ogg") {
-      await replyMsg(ctx, "⚠️ Поддерживается только OGG формат.");
+      await replyMsg(ctx, "⚠️ Поддерживается только OGG формат. Отправьте как голосовое сообщение Telegram.", REPLY_OPTS);
       return;
     }
 
@@ -272,45 +389,57 @@ function initBot(token) {
       const { promisify } = await import("node:util");
       const execFileAsync = promisify(execFile);
 
-      try {
-        await execFileAsync(
-          ffmpegPath,
-          ["-y", "-i", oggPath, "-ar", "16000", "-ac", "1", "-f", "wav", wavPath],
-          { timeout: 15000, windowsHide: true }
-        );
-      } catch (_e) {
-        await editDraftMessage(ctx, draftMsgId, "❌ Ошибка конвертации аудио.");
-        return;
-      }
+      // Typing indicator — обновляется каждые 4с, пока ffmpeg + whisper работают.
+      // Telegram "typing…" badge пропадает через 5с, поэтому interval < 5с.
+      // .unref() — таймер не блокирует выход процесса. try/finally гарантирует очистку.
+      const typingTimer = setInterval(() => {
+        sendTyping(ctx).catch(() => {});
+      }, 4000);
+      typingTimer.unref();
+      let transcript = "";
 
-      // 3. Transcribe with Whisper
-      await editDraftMessage(ctx, draftMsgId, "🎤 Распознавание...");
-      let transcript;
       try {
-        if (config.asrServerUrl) {
-          // Remote ASR server (whisper.cpp / faster-whisper)
-          transcript = await transcribeAsr({
-            wavPath,
-            asrServerUrl: config.asrServerUrl,
-            language: config.asrLanguage,
-          });
-        } else {
-          // Local whisper-cpp-node fallback
-          const { transcribeFile } = await import("./lib/whisper.js");
-          transcript = await transcribeFile(wavPath, "large-v3-turbo", config.asrLanguage);
+        try {
+          await execFileAsync(
+            ffmpegPath,
+            ["-y", "-i", oggPath, "-ar", "16000", "-ac", "1", "-f", "wav", wavPath],
+            { timeout: 15000, windowsHide: true }
+          );
+        } catch (_e) {
+          await editDraftMessage(ctx, draftMsgId, "❌ Ошибка конвертации аудио.");
+          return;
         }
-      } catch (e) {
-        addLog(`Whisper error: ${e.message}`, "error");
-        // Не показываем полный текст ошибки (м.б. пути/токены) — generic сообщение
-        const safeMsg = String(e.message || "unknown").slice(0, 100);
-        await editDraftMessage(ctx, draftMsgId, `❌ Ошибка распознавания. Попробуйте ещё раз или укоротите сообщение.`);
-        addLog(`Whisper error detail: ${safeMsg}`, "error");
-        return;
-      }
 
-      if (!transcript || transcript.trim().length === 0) {
-        await editDraftMessage(ctx, draftMsgId, "🎤 Речь не распознана. Попробуйте ещё раз.");
-        return;
+        // 3. Transcribe with Whisper
+        await editDraftMessage(ctx, draftMsgId, "🎤 Распознавание...");
+        try {
+          if (config.asrServerUrl) {
+            // Remote ASR server (whisper.cpp / faster-whisper)
+            transcript = await transcribeAsr({
+              wavPath,
+              asrServerUrl: config.asrServerUrl,
+              language: config.asrLanguage,
+            });
+          } else {
+            // Local whisper-cpp-node fallback
+            const { transcribeFile } = await import("./lib/whisper.js");
+            transcript = await transcribeFile(wavPath, "large-v3-turbo", config.asrLanguage);
+          }
+        } catch (e) {
+          addLog(`Whisper error: ${e.message}`, "error");
+          // Не показываем полный текст ошибки (м.б. пути/токены) — generic сообщение
+          const safeMsg = String(e.message || "unknown").slice(0, 100);
+          await editDraftMessage(ctx, draftMsgId, `❌ Ошибка распознавания. Попробуйте ещё раз или укоротите сообщение.`);
+          addLog(`Whisper error detail: ${safeMsg}`, "error");
+          return;
+        }
+
+        if (!transcript || transcript.trim().length === 0) {
+          await editDraftMessage(ctx, draftMsgId, "🎤 Речь не распознана. Попробуйте ещё раз.");
+          return;
+        }
+      } finally {
+        clearInterval(typingTimer);
       }
 
       addLog(`Voice transcript: ${transcript.substring(0, 100)}`, "info");
@@ -405,13 +534,13 @@ function initBot(token) {
         if (e.name === "AbortError") return;
         addLog(`Voice agent loop error: ${e.message}`, "error");
         if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-        replyMsg(ctx, `❌ Error: ${e.message}`).catch(() => {});
+        replyMsg(ctx, safeErrorMessage(e, "❌ Ошибка при обработке запроса. Попробуйте позже.")).catch(() => {});
       });
 
     } catch (e) {
       addLog(`Voice message handler error: ${e.message}`, "error");
       try { await editDraftMessage(ctx, draftMsgId, "❌ Ошибка обработки голосового сообщения."); } catch {}
-      try { await replyMsg(ctx, `❌ Error processing voice: ${e.message}`); } catch {}
+      try { await replyMsg(ctx, safeErrorMessage(e, "❌ Не удалось обработать голосовое сообщение.")); } catch {}
     } finally {
       // Гарантированная очистка tmp файлов на ВСЕХ путях
       cleanupTmp(oggPath, wavPath);
@@ -538,14 +667,14 @@ function initBot(token) {
           safeCleanup(abortController);
           addLog(`Bot error: ${error.message}`, "error");
           if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-          replyMsg(ctx, `❌ Error: ${error.message}`).catch(() => {});
+          replyMsg(ctx, safeErrorMessage(error, "❌ Ошибка при обработке запроса. Попробуйте позже.")).catch(() => {});
         });
 
       // Возвращаемся — GrammY может обработать следующий апдейт (например, /cancel)
     } catch (error) {
       if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
       safeCleanup?.(abortController);
-      await replyMsg(ctx, `❌ Error: ${error.message}`);
+      await replyMsg(ctx, safeErrorMessage(error, "❌ Ошибка при обработке сообщения."));
       addLog(`Bot error: ${error.message}`, "error");
     }
   });
@@ -615,7 +744,7 @@ function initBot(token) {
   b.catch((err, ctx) => {
     addLog(`Bot error: ${err.message}`, "error");
     if (ctx) {
-      ctx.reply(`❌ Error: ${err.message}`, REPLY_OPTS).catch(() => {});
+      ctx.reply(safeErrorMessage(err, "❌ Внутренняя ошибка бота."), REPLY_OPTS).catch(() => {});
     }
   });
 
@@ -1201,7 +1330,7 @@ async function handleAgentResult(ctx, chatId, result, account, draftMsgId, abort
       const fullText = reasoningBlock + cleanResponse;
       await ctx.replyWithStream(chunkText(fullText));
     } else {
-      await replyMsg(ctx, reasoningBlock + cleanResponse);
+      await sendLongMessage(ctx, reasoningBlock + cleanResponse);
     }
     return true;
   }
@@ -1313,8 +1442,11 @@ async function continueAfterApproval(ctx, pending, depth = 0, abortSignal) {
       const newHistory = [...h, errorToolMessage].filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2));
       chatHistories.set(chatId, newHistory);
       const stderr = result.data?.stderr?.trim();
-      const errorMsg = result.error + (stderr ? `\n\nstderr:\n\`\`\`\n${stderr.slice(0, 500)}\n\`\`\`` : "");
-      await replyMsg(ctx, `❌ <b>${pending.toolName}</b> failed: ${errorMsg}`);
+      // Truncate to keep message size bounded: error ≤ 200 chars, stderr ≤ 300 chars.
+      const errorShort = String(result.error || "unknown").slice(0, 200);
+      const stderrShort = stderr ? stderr.slice(0, 300) : "";
+      const errorMsg = errorShort + (stderrShort ? `\n\nstderr:\n\`\`\`\n${stderrShort}\n\`\`\`` : "");
+      await sendLongMessage(ctx, `❌ <b>${pending.toolName}</b> failed: ${errorMsg}`);
       return;
     }
 
@@ -1384,7 +1516,7 @@ async function continueAfterApproval(ctx, pending, depth = 0, abortSignal) {
   } catch (error) {
     addLog(`continueAfterApproval error: ${error.message}`, "error");
     console.error("[continueAfterApproval] Full error:", error);
-    await replyMsg(ctx, `❌ Error continuing: ${error.message}`);
+    await replyMsg(ctx, safeErrorMessage(error, "❌ Не удалось продолжить выполнение. Попробуйте ещё раз."));
   }
 }
 
