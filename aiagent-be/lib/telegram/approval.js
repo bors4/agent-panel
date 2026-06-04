@@ -64,7 +64,9 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
       };
       const rawH = chatHistories.get(chatId) || pending.messages || [];
       const h = rawH.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
-      const newHistory = [...h, errorToolMessage].filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2));
+      const newHistory = [...h, errorToolMessage]
+        .filter((m) => m.role !== "system")
+        .slice(-(config.maxHistoryPairs * 2));
       chatHistories.set(chatId, newHistory);
       const stderr = result.data?.stderr?.trim();
       const errorShort = String(result.error || "unknown").slice(0, 200);
@@ -111,11 +113,17 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
         return;
       }
       stats.tools++;
-      let nextResult = await executeTool({ name: next.name, args: next.args }, { projectPath: config.projectPath, account });
+      let nextResult = await executeTool(
+        { name: next.name, args: next.args },
+        { projectPath: config.projectPath, account }
+      );
       if (nextResult.data?.taskId) {
         nextResult = await waitForTask(nextResult.data.taskId);
       }
-      addLog(`Tool executed (pending): ${next.name} = ${nextResult.success ? "OK" : "FAIL"}`, nextResult.success ? "success" : "error");
+      addLog(
+        `Tool executed (pending): ${next.name} = ${nextResult.success ? "OK" : "FAIL"}`,
+        nextResult.success ? "success" : "error"
+      );
       newHistory.push({
         role: "tool",
         tool_call_id: next.id,
@@ -125,7 +133,16 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
 
     chatHistories.set(chatId, newHistory);
 
-    const retryResult = await agentLoopStep("", chatId, newHistory, config, MAX_AGENT_ITERATIONS, account, null, abortSignal);
+    const retryResult = await agentLoopStep(
+      "",
+      chatId,
+      newHistory,
+      config,
+      MAX_AGENT_ITERATIONS,
+      account,
+      null,
+      abortSignal
+    );
     if (retryResult.tokenUsage) {
       tokenUsage.prompt += retryResult.tokenUsage.prompt || 0;
       tokenUsage.completion += retryResult.tokenUsage.completion || 0;

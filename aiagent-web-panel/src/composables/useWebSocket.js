@@ -86,9 +86,7 @@ export function useWebSocket() {
       status.value = statusData.status || "idle";
       isRunning.value = statusData.isRunning || false;
       stats.value = { ...statusData.stats, uptime: statusData.uptime || 0 };
-      startTime.value =
-        statusData.startTime ||
-        (statusData.uptime ? Date.now() - statusData.uptime * 1000 : null);
+      startTime.value = statusData.startTime || (statusData.uptime ? Date.now() - statusData.uptime * 1000 : null);
       if (statusData.tokenUsage) {
         tokenUsage.value = statusData.tokenUsage;
       }

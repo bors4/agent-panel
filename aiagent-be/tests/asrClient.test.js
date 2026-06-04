@@ -5,7 +5,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { validateAsrUrl, sanitizeLanguage, buildMultipartBody, transcribeViaAsrServer, probeAsrServer } from "../lib/asrClient.js";
+import {
+  validateAsrUrl,
+  sanitizeLanguage,
+  buildMultipartBody,
+  transcribeViaAsrServer,
+  probeAsrServer,
+} from "../lib/asrClient.js";
 
 describe("validateAsrUrl", () => {
   it("returns null for empty input", () => {
@@ -106,7 +112,7 @@ describe("buildMultipartBody", () => {
 
   it("sanitizes CRLF in filename (prevents header injection)", () => {
     const buffer = Buffer.from("data");
-    const { body } = buildMultipartBody(buffer, 'evil\r\nX-Injected: yes', "audio/wav", {});
+    const { body } = buildMultipartBody(buffer, "evil\r\nX-Injected: yes", "audio/wav", {});
     const str = body.toString();
     // CRLF should be replaced with underscores
     expect(str).not.toContain("evil\r\nX-Injected");
@@ -149,7 +155,9 @@ describe("transcribeViaAsrServer", () => {
 
   afterEach(() => {
     fetchMock.mockRestore();
-    try { fs.unlinkSync(tmpWav); } catch {}
+    try {
+      fs.unlinkSync(tmpWav);
+    } catch {}
   });
 
   it("throws when asrServerUrl is empty", async () => {
@@ -183,7 +191,12 @@ describe("transcribeViaAsrServer", () => {
   });
 
   it("returns empty string when response.json() throws", async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: async () => { throw new Error("bad json"); } });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => {
+        throw new Error("bad json");
+      },
+    });
     const result = await transcribeViaAsrServer({ wavPath: tmpWav, asrServerUrl: "http://asr:8081" });
     expect(result).toBe("");
   });
@@ -208,7 +221,13 @@ describe("transcribeViaAsrServer", () => {
   });
 
   it("uses empty body text when response.text() rejects", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 503, text: async () => { throw new Error("read fail"); } });
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => {
+        throw new Error("read fail");
+      },
+    });
     await expect(transcribeViaAsrServer({ wavPath: tmpWav, asrServerUrl: "http://asr:8081" })).rejects.toThrow(
       /ASR server 503: $/
     );
@@ -286,13 +305,16 @@ describe("probeAsrServer", () => {
   });
 
   it("returns reachable=false on abort/timeout", async () => {
-    fetchMock.mockImplementation(() => new Promise((_, reject) => {
-      setTimeout(() => {
-        const err = new Error("aborted");
-        err.name = "AbortError";
-        reject(err);
-      }, 100);
-    }));
+    fetchMock.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          setTimeout(() => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          }, 100);
+        })
+    );
     const result = await probeAsrServer("http://asr:8081", 50);
     expect(result.reachable).toBe(false);
   });

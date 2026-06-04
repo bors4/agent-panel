@@ -38,7 +38,9 @@ export function loadAccounts(projectPath) {
     }
     // Handle other errors (corrupted JSON, permissions, etc.)
     const backupPath = filePath + `.bak.${Date.now()}`;
-    try { fs.renameSync(filePath, backupPath); } catch {}
+    try {
+      fs.renameSync(filePath, backupPath);
+    } catch {}
     console.error(`[accounts] Corrupted ${filePath}, backed up to ${backupPath}:`, e.message);
     accounts = [];
   }
@@ -117,7 +119,7 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
     if (toolPath) {
       const resolved = path.resolve(projectPath, toolPath);
       const isWindows = process.platform === "win32";
-      const normalize = (p) => isWindows ? p.toLowerCase().replace(/\\/g, "/") : p.replace(/\\/g, "/");
+      const normalize = (p) => (isWindows ? p.toLowerCase().replace(/\\/g, "/") : p.replace(/\\/g, "/"));
       const normalizedResolved = normalize(resolved);
 
       const allowed = account.include_paths.some((p) => {

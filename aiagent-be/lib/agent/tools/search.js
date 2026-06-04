@@ -32,7 +32,17 @@ export async function search(args, projectPath, config = {}) {
   const maxSearchFileSize = config.maxSearchFileSize;
   const maxFileChars = config.maxFileChars;
 
-  await searchDirectory(projectPath, regex, results, 0, include, maxResults, projectPath, maxSearchFileSize, maxFileChars);
+  await searchDirectory(
+    projectPath,
+    regex,
+    results,
+    0,
+    include,
+    maxResults,
+    projectPath,
+    maxSearchFileSize,
+    maxFileChars
+  );
 
   return {
     success: true,

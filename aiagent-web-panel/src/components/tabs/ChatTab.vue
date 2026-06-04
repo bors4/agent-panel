@@ -32,7 +32,11 @@
             {{ isActive ? "Введите сообщение для начала диалога" : "Запустите агента для начала общения" }}
           </div>
         </div>
-        <div v-for="(msg, index) in messages" :key="index" :class="['chat-msg', msg.role, msg.type ? 'msg-' + msg.type : '']">
+        <div
+          v-for="(msg, index) in messages"
+          :key="index"
+          :class="['chat-msg', msg.role, msg.type ? 'msg-' + msg.type : '']"
+        >
           <div class="chat-avatar">
             <template v-if="msg.type === 'tool_call'">🔧</template>
             <template v-else-if="msg.type === 'tool_result'">📊</template>
@@ -62,7 +66,9 @@
             <!-- Approval request block -->
             <div v-else-if="msg.type === 'approval'" class="approval-block">
               <div class="approval-header">🔐 Требуется одобрение</div>
-              <div class="approval-tool">Инструмент: <strong>{{ msg.toolName }}</strong></div>
+              <div class="approval-tool">
+                Инструмент: <strong>{{ msg.toolName }}</strong>
+              </div>
               <pre class="approval-args">{{ msg.toolArgsPretty }}</pre>
               <div class="approval-buttons">
                 <button class="approval-btn approve" @click="approveTool(msg)">✅ Одобрить</button>
@@ -122,22 +128,25 @@
           :title="isRecording ? 'Остановить запись' : isVoiceProcessing ? 'Очистка текста...' : 'Голосовой ввод'"
           @click="toggleRecording"
         >
-          {{ isVoiceProcessing ? '⏳' : isRecording ? '⏹' : '🎙' }}
+          {{ isVoiceProcessing ? "⏳" : isRecording ? "⏹" : "🎙" }}
         </button>
-        <button class="chat-send" :disabled="!isActive || !inputMessage.trim() || isCancelling || isTyping" @click="sendMessage">➤</button>
-        <button v-if="isTyping || isStreaming" class="chat-stop" title="Отменить запрос" @click="handleStop">■</button>
         <button
-          class="chat-clear"
-          :disabled="messages.length === 0"
-          title="Очистить чат"
-          @click="handleClearChat"
+          class="chat-send"
+          :disabled="!isActive || !inputMessage.trim() || isCancelling || isTyping"
+          @click="sendMessage"
         >
+          ➤
+        </button>
+        <button v-if="isTyping || isStreaming" class="chat-stop" title="Отменить запрос" @click="handleStop">■</button>
+        <button class="chat-clear" :disabled="messages.length === 0" title="Очистить чат" @click="handleClearChat">
           🗑
         </button>
       </div>
       <div v-if="isRecording || isVoiceProcessing" class="voice-status">
         <span v-if="isRecording" class="voice-pulse"></span>
-        <span class="voice-status-text">{{ isVoiceProcessing ? 'Очистка текста...' : interimTranscript || voiceTranscript || 'Говорите...' }}</span>
+        <span class="voice-status-text">{{
+          isVoiceProcessing ? "Очистка текста..." : interimTranscript || voiceTranscript || "Говорите..."
+        }}</span>
       </div>
       <div v-if="voiceError" class="voice-error">{{ voiceError }}</div>
     </div>
@@ -223,7 +232,10 @@ const abortController = ref(null);
 const isCancelling = ref(false);
 const lastAbortId = ref(null);
 
-watch(() => props.soundVolume, (v) => setVolume(v));
+watch(
+  () => props.soundVolume,
+  (v) => setVolume(v)
+);
 
 // Agent mode state
 const AGENT_MODE_KEY = "agent-chat-mode";
@@ -407,11 +419,19 @@ function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolN
   if (toolCalls?.length > 0) {
     for (const tc of toolCalls) {
       let argsParsed;
-      try { argsParsed = JSON.parse(tc.args); } catch { argsParsed = tc.args; }
+      try {
+        argsParsed = JSON.parse(tc.args);
+      } catch {
+        argsParsed = tc.args;
+      }
       const argsStr = typeof argsParsed === "object" ? JSON.stringify(argsParsed, null, 2) : String(tc.args);
-      const shortStr = typeof argsParsed === "object"
-        ? Object.keys(argsParsed).slice(0, 3).map(k => `${k}=${String(argsParsed[k]).substring(0, 30)}`).join(", ") + (Object.keys(argsParsed).length > 3 ? "..." : "")
-        : String(tc.args).substring(0, 50);
+      const shortStr =
+        typeof argsParsed === "object"
+          ? Object.keys(argsParsed)
+              .slice(0, 3)
+              .map((k) => `${k}=${String(argsParsed[k]).substring(0, 30)}`)
+              .join(", ") + (Object.keys(argsParsed).length > 3 ? "..." : "")
+          : String(tc.args).substring(0, 50);
       messages.value.push({
         role: "system",
         type: "tool_call",
@@ -438,7 +458,11 @@ function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolN
 
   if (requiresApproval) {
     let argsParsed;
-    try { argsParsed = JSON.parse(approvalArgs); } catch { argsParsed = approvalArgs; }
+    try {
+      argsParsed = JSON.parse(approvalArgs);
+    } catch {
+      argsParsed = approvalArgs;
+    }
     const argsStr = typeof argsParsed === "object" ? JSON.stringify(argsParsed, null, 2) : String(approvalArgs);
     pendingApproval.value = {
       toolName: approvalToolName,
@@ -461,18 +485,22 @@ function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolN
 async function sendAgentMessage(text, signal = null, abortId = null) {
   // Собираем историю для отправки на бэкенд
   const historyMsgs = messages.value
-    .filter(m => !m.type) // только обычные сообщения
-    .map(m => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content }));
+    .filter((m) => !m.type) // только обычные сообщения
+    .map((m) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content }));
 
-  const result = await agentChat({
-    message: text,
-    messages: historyMsgs,
-    accountName: "",
-    projectPath: props.projectPath,
-    serverUrl: props.serverUrl,
-    modelName: props.modelName,
-    systemPrompt: props.systemPrompt,
-  }, signal, abortId);
+  const result = await agentChat(
+    {
+      message: text,
+      messages: historyMsgs,
+      accountName: "",
+      projectPath: props.projectPath,
+      serverUrl: props.serverUrl,
+      modelName: props.modelName,
+      systemPrompt: props.systemPrompt,
+    },
+    signal,
+    abortId
+  );
 
   isTyping.value = false;
   if (props.soundEnabled) playReceive();
@@ -532,7 +560,7 @@ async function handleToolDecision(msg, approved) {
     toolCallId: pendingApproval.value.toolCallId,
   };
 
-  messages.value = messages.value.filter(m => m !== msg);
+  messages.value = messages.value.filter((m) => m !== msg);
   isTyping.value = true;
   isCancelling.value = false;
   const controller = new AbortController();
@@ -545,12 +573,15 @@ async function handleToolDecision(msg, approved) {
   savePendingToolCalls([]);
 
   try {
-    const result = await agentChatContinue({
-      messages: approvalMessages.value,
-      approvalDecision: decision,
-      accountName: "",
-      abortId: continueAbortId,
-    }, controller.signal);
+    const result = await agentChatContinue(
+      {
+        messages: approvalMessages.value,
+        approvalDecision: decision,
+        accountName: "",
+        abortId: continueAbortId,
+      },
+      controller.signal
+    );
 
     isTyping.value = false;
 
@@ -594,8 +625,12 @@ async function handleToolDecision(msg, approved) {
   }
 }
 
-function approveTool(msg) { return handleToolDecision(msg, true); }
-function rejectTool(msg) { return handleToolDecision(msg, false); }
+function approveTool(msg) {
+  return handleToolDecision(msg, true);
+}
+function rejectTool(msg) {
+  return handleToolDecision(msg, false);
+}
 
 async function resendMessage(msg, index) {
   // 1. Cancel active request (если есть)
@@ -773,13 +808,16 @@ const sendMessage = async () => {
       }
     } else {
       // Обычный режим
-      const data = await directChat({
-        message: text,
-        modelName: props.modelName,
-        serverUrl: props.serverUrl,
-        projectPath: props.projectPath,
-        systemPrompt: props.systemPrompt,
-      }, controller.signal);
+      const data = await directChat(
+        {
+          message: text,
+          modelName: props.modelName,
+          serverUrl: props.serverUrl,
+          projectPath: props.projectPath,
+          systemPrompt: props.systemPrompt,
+        },
+        controller.signal
+      );
 
       const latency = Date.now() - startTime;
       isTyping.value = false;
@@ -815,9 +853,9 @@ const sendMessage = async () => {
       }
     }
   } catch (error) {
-      const latency = Date.now() - startTime;
-      isTyping.value = false;
-      if (props.soundEnabled) playReceive();
+    const latency = Date.now() - startTime;
+    isTyping.value = false;
+    if (props.soundEnabled) playReceive();
     isStreaming.value = false;
     if (error.name === "AbortError") {
       const lastIdx = messages.value.length - 1;
@@ -944,7 +982,16 @@ defineExpose({ clearChatHistory });
   background: rgba(212, 135, 74, 0.15);
   color: var(--accent-secondary);
   border: 1px solid rgba(212, 135, 74, 0.3);
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
 }
 
 .chat-status {
@@ -960,7 +1007,16 @@ defineExpose({ clearChatHistory });
   background: var(--bg-tertiary);
   color: var(--text-muted);
   border: 1px solid var(--border);
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
   transition: var(--transition);
 }
 
@@ -984,8 +1040,13 @@ defineExpose({ clearChatHistory });
 }
 
 @keyframes chatPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Chat clear button */
@@ -1245,8 +1306,14 @@ defineExpose({ clearChatHistory });
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .token-info {
@@ -1358,8 +1425,13 @@ defineExpose({ clearChatHistory });
 }
 
 @keyframes mic-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
 }
 
 .voice-status {
@@ -1420,8 +1492,13 @@ defineExpose({ clearChatHistory });
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .typing-indicator {
@@ -1681,7 +1758,9 @@ defineExpose({ clearChatHistory });
   padding: 2px 8px;
   border-radius: 8px;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
 }
 
 .chat-msg:hover .msg-action-btn {

@@ -70,38 +70,47 @@ export function registerTextHandler(b, handleAgentResult) {
       abortController = new AbortController();
       activeAgentControllers.set(chatId, abortController);
 
-      agentLoopStep(message, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
-        try {
-          if (progress.type === "reasoning") {
-            const now = Date.now();
-            if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
-              lastEditTime = now;
-              const snippet = progress.accumulated.length > 200
-                ? progress.accumulated.substring(0, 200) + "..."
-                : progress.accumulated;
-              await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+      agentLoopStep(
+        message,
+        chatId,
+        history,
+        config,
+        MAX_AGENT_ITERATIONS,
+        account,
+        async (progress) => {
+          try {
+            if (progress.type === "reasoning") {
+              const now = Date.now();
+              if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
+                lastEditTime = now;
+                const snippet =
+                  progress.accumulated.length > 200
+                    ? progress.accumulated.substring(0, 200) + "..."
+                    : progress.accumulated;
+                await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+              }
+            } else if (progress.type === "reasoning_done") {
+              await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
+            } else if (progress.type === "content") {
+              accumulatedContent = progress.accumulated;
+              const now = Date.now();
+              if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
+                lastEditTime = now;
+                const display =
+                  accumulatedContent.length > 300 ? accumulatedContent.substring(0, 300) + "..." : accumulatedContent;
+                await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
+              }
+            } else if (progress.type === "tool") {
+              await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
+            } else if (progress.type === "response") {
+              await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
             }
-          } else if (progress.type === "reasoning_done") {
-            await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
-          } else if (progress.type === "content") {
-            accumulatedContent = progress.accumulated;
-            const now = Date.now();
-            if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
-              lastEditTime = now;
-              const display = accumulatedContent.length > 300
-                ? accumulatedContent.substring(0, 300) + "..."
-                : accumulatedContent;
-              await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
-            }
-          } else if (progress.type === "tool") {
-            await editDraftMessage(ctx, draftMsgId, `🔧 Executing <b>${progress.toolName}</b>...`);
-          } else if (progress.type === "response") {
-            await editDraftMessage(ctx, draftMsgId, `💬 ${progress.response.substring(0, 200)}...`);
+          } catch (e) {
+            addLog(`Progress update error: ${e.message}`, "error");
           }
-        } catch (e) {
-          addLog(`Progress update error: ${e.message}`, "error");
-        }
-      }, abortController.signal)
+        },
+        abortController.signal
+      )
         .then((result) => {
           safeCleanup(abortController);
           if (result.tokenUsage) {
@@ -132,7 +141,6 @@ export function registerTextHandler(b, handleAgentResult) {
           if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
           replyMsg(ctx, safeErrorMessage(error, "❌ Ошибка при обработке запроса. Попробуйте позже.")).catch(() => {});
         });
-
     } catch (error) {
       if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
       safeCleanup?.(abortController);

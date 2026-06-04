@@ -15,16 +15,36 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { configDefaults } from "@backend/lib/configDefaults.js";
 
 // Mock child components to isolate App.vue logic
-vi.mock("@/components/layout/Header.vue", () => ({ default: { name: "HeaderStub", template: "<div data-stub='header' />" } }));
-vi.mock("@/components/features/ControlsCard.vue", () => ({ default: { name: "ControlsCardStub", template: "<div data-stub='controls' />" } }));
-vi.mock("@/components/features/StatsCard.vue", () => ({ default: { name: "StatsCardStub", template: "<div data-stub='stats' />" } }));
-vi.mock("@/components/features/BotCheckCard.vue", () => ({ default: { name: "BotCheckCardStub", template: "<div data-stub='botcheck' />" } }));
-vi.mock("@/components/tabs/PromptTab.vue", () => ({ default: { name: "PromptTabStub", template: "<div data-stub='prompt' />" } }));
-vi.mock("@/components/tabs/SettingsTab.vue", () => ({ default: { name: "SettingsTabStub", template: "<div data-stub='settings' />" } }));
-vi.mock("@/components/tabs/ChatTab.vue", () => ({ default: { name: "ChatTabStub", template: "<div data-stub='chat' />" } }));
-vi.mock("@/components/tabs/LogsTab.vue", () => ({ default: { name: "LogsTabStub", template: "<div data-stub='logs' />" } }));
-vi.mock("@/components/tabs/ToolsTab.vue", () => ({ default: { name: "ToolsTabStub", template: "<div data-stub='tools' />" } }));
-vi.mock("@/components/ui/ToastContainer.vue", () => ({ default: { name: "ToastContainerStub", template: "<div data-stub='toast' />" } }));
+vi.mock("@/components/layout/Header.vue", () => ({
+  default: { name: "HeaderStub", template: "<div data-stub='header' />" },
+}));
+vi.mock("@/components/features/ControlsCard.vue", () => ({
+  default: { name: "ControlsCardStub", template: "<div data-stub='controls' />" },
+}));
+vi.mock("@/components/features/StatsCard.vue", () => ({
+  default: { name: "StatsCardStub", template: "<div data-stub='stats' />" },
+}));
+vi.mock("@/components/features/BotCheckCard.vue", () => ({
+  default: { name: "BotCheckCardStub", template: "<div data-stub='botcheck' />" },
+}));
+vi.mock("@/components/tabs/PromptTab.vue", () => ({
+  default: { name: "PromptTabStub", template: "<div data-stub='prompt' />" },
+}));
+vi.mock("@/components/tabs/SettingsTab.vue", () => ({
+  default: { name: "SettingsTabStub", template: "<div data-stub='settings' />" },
+}));
+vi.mock("@/components/tabs/ChatTab.vue", () => ({
+  default: { name: "ChatTabStub", template: "<div data-stub='chat' />" },
+}));
+vi.mock("@/components/tabs/LogsTab.vue", () => ({
+  default: { name: "LogsTabStub", template: "<div data-stub='logs' />" },
+}));
+vi.mock("@/components/tabs/ToolsTab.vue", () => ({
+  default: { name: "ToolsTabStub", template: "<div data-stub='tools' />" },
+}));
+vi.mock("@/components/ui/ToastContainer.vue", () => ({
+  default: { name: "ToastContainerStub", template: "<div data-stub='toast' />" },
+}));
 
 // Mock useAgent to avoid WebSocket / fetch
 vi.mock("@/composables/useAgent", () => ({

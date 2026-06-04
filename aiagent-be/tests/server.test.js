@@ -7,7 +7,16 @@ import fs from "fs";
 import path from "path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { safePath, parseToolCall } from "../lib/utils.js";
-import { executeTool, waitForTask, cancelTask, getActiveTasks, getToolConfig, updateToolConfig, TOOLS, DEFAULT_TOOL_CONFIG } from "../lib/agent/executeTool.js";
+import {
+  executeTool,
+  waitForTask,
+  cancelTask,
+  getActiveTasks,
+  getToolConfig,
+  updateToolConfig,
+  TOOLS,
+  DEFAULT_TOOL_CONFIG,
+} from "../lib/agent/executeTool.js";
 import * as logger from "../lib/logger.js";
 
 // ─── Mock console ────────────────────────────────────────────────

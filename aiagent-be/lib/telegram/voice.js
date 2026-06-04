@@ -30,7 +30,10 @@ export function registerVoiceHandler(b, handleAgentResult) {
     if (!voice) return;
 
     if (!config.projectPath) {
-      await replyMsg(ctx, "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env");
+      await replyMsg(
+        ctx,
+        "⚠️ <b>Project path not configured</b>\n\nAsk the admin to set it in Settings or PROJECT_PATH in .env"
+      );
       return;
     }
 
@@ -49,7 +52,11 @@ export function registerVoiceHandler(b, handleAgentResult) {
       return;
     }
     if (voice.mime_type && voice.mime_type !== ALLOWED_MIME) {
-      await replyMsg(ctx, "⚠️ Поддерживается только OGG формат. Отправьте как голосовое сообщение Telegram.", REPLY_OPTS);
+      await replyMsg(
+        ctx,
+        "⚠️ Поддерживается только OGG формат. Отправьте как голосовое сообщение Telegram.",
+        REPLY_OPTS
+      );
       return;
     }
 
@@ -99,11 +106,10 @@ export function registerVoiceHandler(b, handleAgentResult) {
 
       try {
         try {
-          await execFileAsync(
-            ffmpegPath,
-            ["-y", "-i", oggPath, "-ar", "16000", "-ac", "1", "-f", "wav", wavPath],
-            { timeout: 15000, windowsHide: true }
-          );
+          await execFileAsync(ffmpegPath, ["-y", "-i", oggPath, "-ar", "16000", "-ac", "1", "-f", "wav", wavPath], {
+            timeout: 15000,
+            windowsHide: true,
+          });
         } catch (_e) {
           await editDraftMessage(ctx, draftMsgId, "❌ Ошибка конвертации аудио.");
           return;
@@ -124,7 +130,11 @@ export function registerVoiceHandler(b, handleAgentResult) {
         } catch (e) {
           addLog(`Whisper error: ${e.message}`, "error");
           const safeMsg = String(e.message || "unknown").slice(0, 100);
-          await editDraftMessage(ctx, draftMsgId, `❌ Ошибка распознавания. Попробуйте ещё раз или укоротите сообщение.`);
+          await editDraftMessage(
+            ctx,
+            draftMsgId,
+            `❌ Ошибка распознавания. Попробуйте ещё раз или укоротите сообщение.`
+          );
           addLog(`Whisper error detail: ${safeMsg}`, "error");
           return;
         }
@@ -156,83 +166,97 @@ export function registerVoiceHandler(b, handleAgentResult) {
       const abortController = new AbortController();
       activeAgentControllers.set(chatId, abortController);
 
-      agentLoopStep(transcript, chatId, history, config, MAX_AGENT_ITERATIONS, account, async (progress) => {
-        try {
-          if (progress.type === "reasoning") {
-            const now = Date.now();
-            if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
-              lastEditTime = now;
-              const snippet = progress.accumulated.length > 200
-                ? progress.accumulated.substring(0, 200) + "..."
-                : progress.accumulated;
-              await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+      agentLoopStep(
+        transcript,
+        chatId,
+        history,
+        config,
+        MAX_AGENT_ITERATIONS,
+        account,
+        async (progress) => {
+          try {
+            if (progress.type === "reasoning") {
+              const now = Date.now();
+              if (now - lastEditTime >= MIN_EDIT_INTERVAL) {
+                lastEditTime = now;
+                const snippet =
+                  progress.accumulated.length > 200
+                    ? progress.accumulated.substring(0, 200) + "..."
+                    : progress.accumulated;
+                await editDraftMessage(ctx, draftMsgId, `💭 ${snippet}`);
+              }
+            } else if (progress.type === "reasoning_done") {
+              await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
+            } else if (progress.type === "content") {
+              accumulatedContent = progress.accumulated;
+              const now = Date.now();
+              if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
+                lastEditTime = now;
+                const display =
+                  accumulatedContent.length > 300 ? accumulatedContent.substring(0, 300) + "..." : accumulatedContent;
+                await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
+              }
+            } else if (progress.type === "tool_start") {
+              await editDraftMessage(ctx, draftMsgId, `🔧 ${progress.toolName}...`);
+            } else if (progress.type === "tool_complete") {
+              await editDraftMessage(ctx, draftMsgId, `✅ ${progress.toolName} done`);
+            } else if (progress.type === "needs_approval") {
+              await replyMsg(
+                ctx,
+                `⚠️ Tool <b>${progress.toolName}</b> needs approval:\n<pre>${JSON.stringify(progress.args, null, 2)}</pre>`,
+                { ...REPLY_OPTS, reply_markup: KEYBOARD_YES_NO(progress.toolName) }
+              );
             }
-          } else if (progress.type === "reasoning_done") {
-            await editDraftMessage(ctx, draftMsgId, "💭 Reasoning complete");
-          } else if (progress.type === "content") {
-            accumulatedContent = progress.accumulated;
-            const now = Date.now();
-            if (now - lastEditTime >= MIN_EDIT_INTERVAL && accumulatedContent.length > 0) {
-              lastEditTime = now;
-              const display = accumulatedContent.length > 300
-                ? accumulatedContent.substring(0, 300) + "..."
-                : accumulatedContent;
-              await editDraftMessage(ctx, draftMsgId, `💬 ${display}`);
-            }
-          } else if (progress.type === "tool_start") {
-            await editDraftMessage(ctx, draftMsgId, `🔧 ${progress.toolName}...`);
-          } else if (progress.type === "tool_complete") {
-            await editDraftMessage(ctx, draftMsgId, `✅ ${progress.toolName} done`);
-          } else if (progress.type === "needs_approval") {
-            await replyMsg(
-              ctx,
-              `⚠️ Tool <b>${progress.toolName}</b> needs approval:\n<pre>${JSON.stringify(progress.args, null, 2)}</pre>`,
-              { ...REPLY_OPTS, reply_markup: KEYBOARD_YES_NO(progress.toolName) }
-            );
+          } catch (e) {
+            addLog(`Voice progress callback error: ${e.message}`, "error");
           }
-        } catch (e) {
-          addLog(`Voice progress callback error: ${e.message}`, "error");
-        }
-      }, abortController.signal).then((result) => {
-        safeCleanup(abortController);
+        },
+        abortController.signal
+      )
+        .then((result) => {
+          safeCleanup(abortController);
 
-        if (result.tokenUsage) {
-          tokenUsage.prompt += result.tokenUsage.prompt || 0;
-          tokenUsage.completion += result.tokenUsage.completion || 0;
-          tokenUsage.total += result.tokenUsage.total || 0;
-          tokenUsage.cached += result.tokenUsage.cached || 0;
-          if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
-          wsBroadcast("tokenUsage", { ...tokenUsage });
-        }
-        if (result.timings) {
-          wsBroadcast("perfStats", buildPerfStats(result.timings));
-        }
+          if (result.tokenUsage) {
+            tokenUsage.prompt += result.tokenUsage.prompt || 0;
+            tokenUsage.completion += result.tokenUsage.completion || 0;
+            tokenUsage.total += result.tokenUsage.total || 0;
+            tokenUsage.cached += result.tokenUsage.cached || 0;
+            if (result.timings?.tokens_cached) tokenUsage.tokensCached = result.timings.tokens_cached;
+            wsBroadcast("tokenUsage", { ...tokenUsage });
+          }
+          if (result.timings) {
+            wsBroadcast("perfStats", buildPerfStats(result.timings));
+          }
 
-        if (result.cancelled) {
-          addLog("Voice agent loop cancelled by user", "warning");
-          return;
-        }
+          if (result.cancelled) {
+            addLog("Voice agent loop cancelled by user", "warning");
+            return;
+          }
 
-        addLog(
-          `agentLoopStep (voice): requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
-          "info"
-        );
+          addLog(
+            `agentLoopStep (voice): requiresApproval=${result.requiresApproval}, error=${!!result.error}, response=${result.response?.substring?.(0, 30)}`,
+            "info"
+          );
 
-        handleAgentResult(ctx, chatId, result, account, draftMsgId, abortController.signal).catch((err) => {
-          addLog(`Voice handleAgentResult error: ${err.message}`, "error");
+          handleAgentResult(ctx, chatId, result, account, draftMsgId, abortController.signal).catch((err) => {
+            addLog(`Voice handleAgentResult error: ${err.message}`, "error");
+          });
+        })
+        .catch((e) => {
+          safeCleanup(abortController);
+          if (e.name === "AbortError") return;
+          addLog(`Voice agent loop error: ${e.message}`, "error");
+          if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
+          replyMsg(ctx, safeErrorMessage(e, "❌ Ошибка при обработке запроса. Попробуйте позже.")).catch(() => {});
         });
-      }).catch((e) => {
-        safeCleanup(abortController);
-        if (e.name === "AbortError") return;
-        addLog(`Voice agent loop error: ${e.message}`, "error");
-        if (typeof draftMsgId === "number") ctx.api.deleteMessage(ctx.chat.id, draftMsgId).catch(() => {});
-        replyMsg(ctx, safeErrorMessage(e, "❌ Ошибка при обработке запроса. Попробуйте позже.")).catch(() => {});
-      });
-
     } catch (e) {
       addLog(`Voice message handler error: ${e.message}`, "error");
-      try { await editDraftMessage(ctx, draftMsgId, "❌ Ошибка обработки голосового сообщения."); } catch {}
-      try { await replyMsg(ctx, safeErrorMessage(e, "❌ Не удалось обработать голосовое сообщение.")); } catch {}
+      try {
+        await editDraftMessage(ctx, draftMsgId, "❌ Ошибка обработки голосового сообщения.");
+      } catch {}
+      try {
+        await replyMsg(ctx, safeErrorMessage(e, "❌ Не удалось обработать голосовое сообщение."));
+      } catch {}
     } finally {
       cleanupTmp(oggPath, wavPath);
     }

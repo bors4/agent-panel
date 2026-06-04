@@ -209,9 +209,13 @@ export async function directChatStream(options, callbacks = {}, signal = null) {
     if (signal.aborted) {
       reader.cancel().catch(() => {});
     } else {
-      signal.addEventListener("abort", () => {
-        reader.cancel().catch(() => {});
-      }, { once: true });
+      signal.addEventListener(
+        "abort",
+        () => {
+          reader.cancel().catch(() => {});
+        },
+        { once: true }
+      );
     }
   }
 

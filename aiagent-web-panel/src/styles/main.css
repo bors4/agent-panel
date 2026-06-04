@@ -43,8 +43,9 @@
   --gradient-accent: linear-gradient(135deg, #2a7fff, #d44040);
   --gradient-warm: linear-gradient(135deg, #d4874a, #f59e0b);
   --gradient-bg: linear-gradient(180deg, var(--space-black) 0%, var(--space-deep) 100%);
-  --gradient-nebula: radial-gradient(ellipse at 20% 50%, rgba(212, 64, 64, 0.08) 0%, transparent 60%),
-                     radial-gradient(ellipse at 80% 20%, rgba(42, 127, 255, 0.06) 0%, transparent 50%);
+  --gradient-nebula:
+    radial-gradient(ellipse at 20% 50%, rgba(212, 64, 64, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(42, 127, 255, 0.06) 0%, transparent 50%);
 
   /* ─── Glass-эффект ─── */
   --glass-bg: rgba(42, 127, 255, 0.04);
@@ -158,7 +159,12 @@ html {
 }
 
 body {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   font-size: 0.9375rem;
   line-height: 1.6;
   background: var(--bg-primary);
@@ -185,8 +191,7 @@ body::before {
     radial-gradient(1px 1px at 80% 15%, rgba(255, 255, 255, 0.5), transparent),
     radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 255, 0.4), transparent),
     radial-gradient(1px 1px at 25% 35%, rgba(255, 255, 255, 0.6), transparent),
-    /* Туманность */
-    radial-gradient(ellipse at 20% 50%, rgba(212, 64, 64, 0.08) 0%, transparent 60%),
+    /* Туманность */ radial-gradient(ellipse at 20% 50%, rgba(212, 64, 64, 0.08) 0%, transparent 60%),
     radial-gradient(ellipse at 80% 20%, rgba(42, 127, 255, 0.06) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
@@ -226,7 +231,12 @@ body::after {
    ТИПОГРАФИКА
    ============================================================ */
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: "Orbitron", "Space Grotesk", monospace;
   font-weight: 700;
   text-transform: uppercase;
@@ -235,12 +245,26 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.2;
 }
 
-h1 { font-size: 2.5rem; letter-spacing: 0.08em; }
-h2 { font-size: 1.75rem; letter-spacing: 0.06em; }
-h3 { font-size: 1.25rem; letter-spacing: 0.04em; }
-h4 { font-size: 1rem; letter-spacing: 0.03em; }
+h1 {
+  font-size: 2.5rem;
+  letter-spacing: 0.08em;
+}
+h2 {
+  font-size: 1.75rem;
+  letter-spacing: 0.06em;
+}
+h3 {
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+}
+h4 {
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+}
 
-code, pre, .mono {
+code,
+pre,
+.mono {
   font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
 }
 
@@ -302,18 +326,26 @@ code, pre, .mono {
 
 /* Мерцание звёзд */
 @keyframes starTwinkle {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Пульс маячка */
 @keyframes beaconPulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 4px var(--glow-accent);
     opacity: 1;
   }
   50% {
-    box-shadow: 0 0 8px var(--glow-accent), 0 0 20px var(--glow-accent);
+    box-shadow:
+      0 0 8px var(--glow-accent),
+      0 0 20px var(--glow-accent);
     opacity: 0.8;
   }
 }
@@ -332,40 +364,72 @@ code, pre, .mono {
 
 /* Плавное появление */
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Вращение орбиты */
 @keyframes orbitSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Шиммер загрузки */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 /* Сканирующая линия (радар) */
 @keyframes radarSweep {
-  0% { transform: translateY(-10%); opacity: 0; }
-  10% { opacity: 0.4; }
-  90% { opacity: 0.4; }
-  100% { transform: translateY(110%); opacity: 0; }
+  0% {
+    transform: translateY(-10%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.4;
+  }
+  90% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(110%);
+    opacity: 0;
+  }
 }
 
 /* Пульс текста телеметрии */
 @keyframes telemetryPulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Мигание курсора */
 @keyframes cursorBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* ============================================================
@@ -375,20 +439,28 @@ code, pre, .mono {
 /* Chamfered corners (срезанные углы) — основной стиль карточек */
 .chamfer {
   clip-path: polygon(
-    0 8px, 8px 0,
-    calc(100% - 8px) 0, 100% 8px,
-    100% calc(100% - 8px), calc(100% - 8px) 100%,
-    8px 100%, 0 calc(100% - 8px)
+    0 8px,
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 calc(100% - 8px)
   );
 }
 
 /* Малый срез (для кнопок, инпутов) */
 .chamfer-sm {
   clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
+    0 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
   );
 }
 
@@ -473,11 +545,15 @@ code, pre, .mono {
 
 /* Обводка текста (glow) */
 .text-glow {
-  text-shadow: 0 0 10px var(--accent-glow), 0 0 30px var(--accent-glow);
+  text-shadow:
+    0 0 10px var(--accent-glow),
+    0 0 30px var(--accent-glow);
 }
 
 .text-glow-orange {
-  text-shadow: 0 0 10px var(--accent-secondary-glow), 0 0 30px var(--accent-secondary-glow);
+  text-shadow:
+    0 0 10px var(--accent-secondary-glow),
+    0 0 30px var(--accent-secondary-glow);
 }
 
 /* Курсор-печатная машинка */
@@ -499,7 +575,9 @@ code, pre, .mono {
 }
 .status-dot.running {
   background: var(--success);
-  box-shadow: 0 0 6px var(--success), 0 0 12px rgba(16, 185, 129, 0.4);
+  box-shadow:
+    0 0 6px var(--success),
+    0 0 12px rgba(16, 185, 129, 0.4);
 }
 .status-dot.stopped {
   background: var(--error);
@@ -517,10 +595,18 @@ code, pre, .mono {
    ============================================================ */
 
 @media (max-width: 640px) {
-  html { font-size: 14px; }
-  h1 { font-size: 1.75rem; }
-  h2 { font-size: 1.35rem; }
-  h3 { font-size: 1.1rem; }
+  html {
+    font-size: 14px;
+  }
+  h1 {
+    font-size: 1.75rem;
+  }
+  h2 {
+    font-size: 1.35rem;
+  }
+  h3 {
+    font-size: 1.1rem;
+  }
 }
 
 /* ============================================================

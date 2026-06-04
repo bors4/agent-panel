@@ -4,25 +4,13 @@
       <div class="header-row">
         <h3 class="mono-label">PRM://EDITOR</h3>
         <div class="header-actions">
-          <Button :disabled="loadingStates.reset" @click="handleReset">
-            RESET
-          </Button>
-          <Button :disabled="loadingStates.format" @click="handleFormat">
-            FORMAT
-          </Button>
-          <Button :disabled="loadingStates.copy" @click="handleCopy">
-            COPY
-          </Button>
+          <Button :disabled="loadingStates.reset" @click="handleReset"> RESET </Button>
+          <Button :disabled="loadingStates.format" @click="handleFormat"> FORMAT </Button>
+          <Button :disabled="loadingStates.copy" @click="handleCopy"> COPY </Button>
           <span class="header-sep" />
-          <Button variant="primary" :disabled="loadingStates.save" @click="handleSave">
-            SAVE
-          </Button>
-          <Button :disabled="loadingStates.export" @click="handleExport">
-            EXPORT
-          </Button>
-          <Button :disabled="loadingStates.import" @click="handleImport">
-            IMPORT
-          </Button>
+          <Button variant="primary" :disabled="loadingStates.save" @click="handleSave"> SAVE </Button>
+          <Button :disabled="loadingStates.export" @click="handleExport"> EXPORT </Button>
+          <Button :disabled="loadingStates.import" @click="handleImport"> IMPORT </Button>
         </div>
       </div>
     </template>
@@ -267,10 +255,14 @@ onMounted(() => {
   color: var(--text-primary);
   overflow-y: auto;
   clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
+    0 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
   );
 }
 
@@ -284,10 +276,14 @@ onMounted(() => {
   background: var(--bg-card);
   border: 1px solid var(--border);
   clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
+    0 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
   );
   display: flex;
   flex-direction: column;

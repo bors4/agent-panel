@@ -16,7 +16,7 @@ beforeAll(() => {
   testDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-tools-"));
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-work-"));
   fs.writeFileSync(path.join(workDir, "hello.txt"), "world");
-  fs.writeFileSync(path.join(workDir, "data.js"), 'const x = 42;');
+  fs.writeFileSync(path.join(workDir, "data.js"), "const x = 42;");
   fs.mkdirSync(path.join(workDir, "sub"), { recursive: true });
   fs.writeFileSync(path.join(workDir, "sub", "nested.txt"), "deep");
 });
@@ -54,7 +54,10 @@ describe("read tool", () => {
   });
 
   it("omits when maxFilesInPrompt reached", async () => {
-    const r = await executeTool({ name: "read", args: { filePath: "hello.txt" } }, { projectPath: workDir, maxFilesInPrompt: 0 });
+    const r = await executeTool(
+      { name: "read", args: { filePath: "hello.txt" } },
+      { projectPath: workDir, maxFilesInPrompt: 0 }
+    );
     expect(r.success).toBe(true);
     expect(r.data.content).toMatch(/omitted/i);
   });
@@ -62,13 +65,19 @@ describe("read tool", () => {
 
 describe("write tool", () => {
   it("creates a new file", async () => {
-    const r = await executeTool({ name: "write", args: { filePath: "new.txt", content: "abc" } }, { projectPath: workDir });
+    const r = await executeTool(
+      { name: "write", args: { filePath: "new.txt", content: "abc" } },
+      { projectPath: workDir }
+    );
     expect(r.success).toBe(true);
     expect(fs.readFileSync(path.join(workDir, "new.txt"), "utf-8")).toBe("abc");
   });
 
   it("creates parent directories", async () => {
-    const r = await executeTool({ name: "write", args: { filePath: "deep/nested/file.txt", content: "x" } }, { projectPath: workDir });
+    const r = await executeTool(
+      { name: "write", args: { filePath: "deep/nested/file.txt", content: "x" } },
+      { projectPath: workDir }
+    );
     expect(r.success).toBe(true);
     expect(fs.existsSync(path.join(workDir, "deep/nested/file.txt"))).toBe(true);
   });
@@ -172,14 +181,20 @@ describe("move tool", () => {
   it("moves a file", async () => {
     const src = path.join(workDir, "moveme.txt");
     fs.writeFileSync(src, "data");
-    const r = await executeTool({ name: "move", args: { source: "moveme.txt", destination: "moved.txt" } }, { projectPath: workDir });
+    const r = await executeTool(
+      { name: "move", args: { source: "moveme.txt", destination: "moved.txt" } },
+      { projectPath: workDir }
+    );
     expect(r.success).toBe(true);
     expect(fs.existsSync(path.join(workDir, "moved.txt"))).toBe(true);
     expect(fs.existsSync(src)).toBe(false);
   });
 
   it("errors on missing source", async () => {
-    const r = await executeTool({ name: "move", args: { source: "missing.txt", destination: "x.txt" } }, { projectPath: workDir });
+    const r = await executeTool(
+      { name: "move", args: { source: "missing.txt", destination: "x.txt" } },
+      { projectPath: workDir }
+    );
     expect(r.success).toBe(false);
     expect(r.error).toMatch(/not found/i);
   });
@@ -189,7 +204,10 @@ describe("copy tool", () => {
   it("copies a file", async () => {
     const src = path.join(workDir, "src.txt");
     fs.writeFileSync(src, "data");
-    const r = await executeTool({ name: "copy", args: { source: "src.txt", destination: "dst.txt" } }, { projectPath: workDir });
+    const r = await executeTool(
+      { name: "copy", args: { source: "src.txt", destination: "dst.txt" } },
+      { projectPath: workDir }
+    );
     expect(r.success).toBe(true);
     expect(fs.existsSync(path.join(workDir, "dst.txt"))).toBe(true);
     expect(fs.readFileSync(path.join(workDir, "dst.txt"), "utf-8")).toBe("data");

@@ -6,16 +6,15 @@
       <div class="logger__controls">
         <div class="logger__search">
           <span class="logger__prompt">&gt;</span>
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="FILTER..."
-            class="logger__input"
-          />
+          <input v-model="searchQuery" type="text" placeholder="FILTER..." class="logger__input" />
           <button v-if="searchQuery" class="logger__clear" @click="searchQuery = ''">×</button>
         </div>
         <span class="logger__count">{{ filteredLogs.length }}/{{ logHistory.length }}</span>
-        <Button variant="ghost" style="padding: 2px 8px; font-size: 0.55rem; min-height: 24px;" @click="showConfirm = true">
+        <Button
+          variant="ghost"
+          style="padding: 2px 8px; font-size: 0.55rem; min-height: 24px"
+          @click="showConfirm = true"
+        >
           CLEAR
         </Button>
       </div>
@@ -36,7 +35,7 @@
       <!-- Log output -->
       <div ref="logContainer" class="logger__output">
         <div v-if="filteredLogs.length === 0" class="logger__empty">
-          {{ searchQuery ? '// NO MATCHES' : '// LOG BUFFER EMPTY' }}
+          {{ searchQuery ? "// NO MATCHES" : "// LOG BUFFER EMPTY" }}
           <span class="cursor-blink" />
         </div>
         <div v-for="(log, index) in filteredLogs" :key="index" class="logger__line">
@@ -64,7 +63,7 @@ const showConfirm = ref(false);
 const filteredLogs = computed(() => {
   if (!searchQuery.value.trim()) return logHistory.value;
   const q = searchQuery.value.toLowerCase();
-  return logHistory.value.filter(l => l.message.toLowerCase().includes(q) || l.time.toLowerCase().includes(q));
+  return logHistory.value.filter((l) => l.message.toLowerCase().includes(q) || l.time.toLowerCase().includes(q));
 });
 
 const confirmClearLogs = () => {
@@ -96,7 +95,11 @@ watch(
   { deep: true, immediate: true }
 );
 
-defineExpose({ clear: () => { logHistory.value = []; } });
+defineExpose({
+  clear: () => {
+    logHistory.value = [];
+  },
+});
 </script>
 
 <style scoped>
@@ -121,7 +124,16 @@ defineExpose({ clear: () => { logHistory.value = []; } });
   flex: 1;
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
   padding: 3px 6px;
 }
 
@@ -159,7 +171,9 @@ defineExpose({ clear: () => { logHistory.value = []; } });
   padding: 0 2px;
   line-height: 1;
 }
-.logger__clear:hover { color: var(--text-primary); }
+.logger__clear:hover {
+  color: var(--text-primary);
+}
 
 .logger__count {
   font-family: "JetBrains Mono", monospace;
@@ -176,7 +190,16 @@ defineExpose({ clear: () => { logHistory.value = []; } });
   overflow-y: auto;
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+  clip-path: polygon(
+    0 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    0 calc(100% - 3px)
+  );
   font-family: "JetBrains Mono", monospace;
   font-size: 0.65rem;
   line-height: 1.6;
@@ -198,8 +221,14 @@ defineExpose({ clear: () => { logHistory.value = []; } });
 }
 
 @keyframes logFadeIn {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .logger__time {
@@ -213,17 +242,36 @@ defineExpose({ clear: () => { logHistory.value = []; } });
   word-break: break-all;
   font-size: 0.75rem;
 }
-.logger__msg--info    { color: var(--text-secondary); }
-.logger__msg--success { color: var(--success); }
-.logger__msg--warning { color: var(--warning); }
-.logger__msg--error   { color: var(--error); }
-.logger__msg--system  { color: var(--accent); }
+.logger__msg--info {
+  color: var(--text-secondary);
+}
+.logger__msg--success {
+  color: var(--success);
+}
+.logger__msg--warning {
+  color: var(--warning);
+}
+.logger__msg--error {
+  color: var(--error);
+}
+.logger__msg--system {
+  color: var(--accent);
+}
 
 /* Scrollbar inside output */
-.logger__output::-webkit-scrollbar { width: 4px; }
-.logger__output::-webkit-scrollbar-track { background: transparent; }
-.logger__output::-webkit-scrollbar-thumb { background: var(--space-border); border-radius: 2px; }
-.logger__output::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+.logger__output::-webkit-scrollbar {
+  width: 4px;
+}
+.logger__output::-webkit-scrollbar-track {
+  background: transparent;
+}
+.logger__output::-webkit-scrollbar-thumb {
+  background: var(--space-border);
+  border-radius: 2px;
+}
+.logger__output::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
 
 /* ─── Confirm dialog ─── */
 .confirm-overlay {
@@ -294,8 +342,12 @@ defineExpose({ clear: () => { logHistory.value = []; } });
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes dialogIn {

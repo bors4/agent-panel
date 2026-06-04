@@ -67,7 +67,10 @@ export function registerCallbackHandler(b, handleAgentResult) {
           },
         ];
         deniedMessages.push({ role: "assistant", content: "" });
-        chatHistories.set(chatId, deniedMessages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2)));
+        chatHistories.set(
+          chatId,
+          deniedMessages.filter((m) => m.role !== "system").slice(-(config.maxHistoryPairs * 2))
+        );
       }
 
       await replyMsg(ctx, `❌ <b>${toolName}</b> cancelled. The tool was not executed.`);

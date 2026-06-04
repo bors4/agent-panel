@@ -42,7 +42,16 @@ onMounted(() => {
   padding: 4px 10px;
   background: var(--glass-bg);
   border: 1px solid var(--border);
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
   cursor: pointer;
   user-select: none;
   transition: var(--transition);

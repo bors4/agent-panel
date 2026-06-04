@@ -20,15 +20,26 @@ function makeDeps(overrides = {}) {
   const replyMsg = overrides.replyMsg || vi.fn(async () => ({ message_id: 1 }));
   const editDraftMessage = overrides.editDraftMessage || vi.fn(async () => {});
   const sendLongMessage = overrides.sendLongMessage || vi.fn(async () => [2, 3]);
-  const chunkText = overrides.chunkText || (async function* () {
-    yield "chunk1";
-  });
+  const chunkText =
+    overrides.chunkText ||
+    async function* () {
+      yield "chunk1";
+    };
   const KEYBOARD_YES_NO = overrides.KEYBOARD_YES_NO || vi.fn(() => ({ row: "mock" }));
   const agentLoopStep = overrides.agentLoopStep || vi.fn(async () => ({ response: "done" }));
   const MAX_AGENT_ITERATIONS = 10;
   return {
-    config, chatHistories, pendingApprovals, addLog, replyMsg, editDraftMessage,
-    sendLongMessage, chunkText, KEYBOARD_YES_NO, agentLoopStep, MAX_AGENT_ITERATIONS,
+    config,
+    chatHistories,
+    pendingApprovals,
+    addLog,
+    replyMsg,
+    editDraftMessage,
+    sendLongMessage,
+    chunkText,
+    KEYBOARD_YES_NO,
+    agentLoopStep,
+    MAX_AGENT_ITERATIONS,
   };
 }
 
@@ -123,7 +134,10 @@ describe("createHandleAgentResult", () => {
     const ctx = makeCtx();
     const result = {
       response: "Hello there",
-      messages: [{ role: "user", content: "u" }, { role: "assistant", content: "Hello there" }],
+      messages: [
+        { role: "user", content: "u" },
+        { role: "assistant", content: "Hello there" },
+      ],
     };
     await handleAgentResult(ctx, "123", result, {}, 999);
     expect(deps.editDraftMessage).toHaveBeenCalledWith(ctx, 999, "Hello there");

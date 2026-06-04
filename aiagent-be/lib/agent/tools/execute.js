@@ -51,9 +51,14 @@ function resolveShell(command, isWin) {
 export async function execute(args, projectPath, config = {}) {
   const taskId = crypto.randomUUID();
   const defaultTimeout = config.executeTimeout ?? configDefaults.executeTimeout;
-  const timeoutSec = args.timeout !== undefined
-    ? (args.timeout > 0 ? Math.min(args.timeout, 3600) : (args.timeout === 0 ? 0 : 1))
-    : defaultTimeout;
+  const timeoutSec =
+    args.timeout !== undefined
+      ? args.timeout > 0
+        ? Math.min(args.timeout, 3600)
+        : args.timeout === 0
+          ? 0
+          : 1
+      : defaultTimeout;
 
   const cmdCheck = sanitizeCommand(args.command);
   if (cmdCheck.blocked) {
@@ -108,7 +113,12 @@ export async function execute(args, projectPath, config = {}) {
         }
         entry.status = "timeout";
         entry.completedAt = Date.now();
-        resolve({ stdout: entry.stdout.trim(), stderr: entry.stderr.trim(), exitCode: null, error: `Command timed out after ${timeoutSec}s` });
+        resolve({
+          stdout: entry.stdout.trim(),
+          stderr: entry.stderr.trim(),
+          exitCode: null,
+          error: `Command timed out after ${timeoutSec}s`,
+        });
       }, timeoutSec * 1000);
     }
 

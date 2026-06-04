@@ -58,18 +58,24 @@ export function useSound(options = {}) {
 
   function send() {
     ensureContext();
-    playSequence([
-      { freq: 600, duration: 0.06, type: "sine", volume: 0.25 },
-      { freq: 900, duration: 0.08, type: "sine", volume: 0.2 },
-    ], 0.06);
+    playSequence(
+      [
+        { freq: 600, duration: 0.06, type: "sine", volume: 0.25 },
+        { freq: 900, duration: 0.08, type: "sine", volume: 0.2 },
+      ],
+      0.06
+    );
   }
 
   function receive() {
     ensureContext();
-    playSequence([
-      { freq: 1200, duration: 0.04, type: "sine", volume: 0.2 },
-      { freq: 800, duration: 0.06, type: "sine", volume: 0.15 },
-    ], 0.06);
+    playSequence(
+      [
+        { freq: 1200, duration: 0.04, type: "sine", volume: 0.2 },
+        { freq: 800, duration: 0.06, type: "sine", volume: 0.15 },
+      ],
+      0.06
+    );
   }
 
   function error() {

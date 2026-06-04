@@ -1,8 +1,5 @@
 <template>
-  <div
-    :class="['card', `card--${variant}`, { 'card--hover': hoverEffect }]"
-    :style="hoverEffect ? {} : undefined"
-  >
+  <div :class="['card', `card--${variant}`, { 'card--hover': hoverEffect }]" :style="hoverEffect ? {} : undefined">
     <!-- Terminal variant: траффик-лайты -->
     <div v-if="variant === 'terminal'" class="card__terminal-bar">
       <span class="card__dot card__dot--red" />
@@ -57,12 +54,18 @@ defineProps({
   background: var(--bg-card);
   border: 1px solid var(--border);
   clip-path: polygon(
-    0 8px, 8px 0,
-    calc(100% - 8px) 0, 100% 8px,
-    100% calc(100% - 8px), calc(100% - 8px) 100%,
-    8px 100%, 0 calc(100% - 8px)
+    0 8px,
+    8px 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0 calc(100% - 8px)
   );
-  transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Верхняя акцентная линия (как индикатор активной панели) */
@@ -81,7 +84,9 @@ defineProps({
 /* ─── HOVER ─── */
 .card--hover:hover {
   border-color: var(--accent);
-  box-shadow: 0 0 8px rgba(42, 127, 255, 0.08), 0 0 30px rgba(42, 127, 255, 0.04);
+  box-shadow:
+    0 0 8px rgba(42, 127, 255, 0.08),
+    0 0 30px rgba(42, 127, 255, 0.04);
 }
 
 /* ═══════════════════════════════════════════
@@ -109,10 +114,7 @@ defineProps({
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.2);
-  clip-path: polygon(
-    0 0, 100% 0, 100% 100%,
-    0 100%
-  );
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
   margin: -1px;
 }
 
@@ -162,7 +164,9 @@ defineProps({
 
 .card--holographic.card--hover:hover {
   border-color: rgba(42, 127, 255, 0.35);
-  box-shadow: 0 0 15px rgba(42, 127, 255, 0.1), 0 0 40px rgba(42, 127, 255, 0.05);
+  box-shadow:
+    0 0 15px rgba(42, 127, 255, 0.1),
+    0 0 40px rgba(42, 127, 255, 0.05);
   transform: none;
 }
 

@@ -5,23 +5,13 @@
     </template>
 
     <div class="comm">
-      <Button
-        variant="primary"
-        full-width
-        :disabled="checking || !hasToken"
-        :loading="checking"
-        @click="checkBot"
-      >
-        {{ checking ? 'SCANNING' : hasToken ? 'TEST SIGNAL' : 'NO TOKEN' }}
+      <Button variant="primary" full-width :disabled="checking || !hasToken" :loading="checking" @click="checkBot">
+        {{ checking ? "SCANNING" : hasToken ? "TEST SIGNAL" : "NO TOKEN" }}
       </Button>
 
-      <div v-if="!hasToken" class="comm__msg comm__msg--warn">
-        NO TOKEN — SET IN CONFIG
-      </div>
+      <div v-if="!hasToken" class="comm__msg comm__msg--warn">NO TOKEN — SET IN CONFIG</div>
 
-      <div v-else-if="checkState === 'error'" class="comm__msg comm__msg--err">
-        ! CONNECTION FAILED
-      </div>
+      <div v-else-if="checkState === 'error'" class="comm__msg comm__msg--err">! CONNECTION FAILED</div>
 
       <template v-else-if="checkState === 'success' && botInfo">
         <div class="comm__success">
@@ -32,9 +22,7 @@
           <span class="comm__name">{{ botInfo.first_name }}</span>
           <span class="comm__id">ID: {{ botInfo.id }}</span>
         </div>
-        <a :href="botUrl" target="_blank" rel="noopener noreferrer" class="comm__link">
-          [ OPEN CHANNEL ]
-        </a>
+        <a :href="botUrl" target="_blank" rel="noopener noreferrer" class="comm__link"> [ OPEN CHANNEL ] </a>
       </template>
     </div>
   </Card>
@@ -55,9 +43,9 @@ const checkState = ref("idle");
 const botInfo = ref(null);
 const envToken = ref("");
 
-const effectiveToken = computed(() => props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : "");
+const effectiveToken = computed(() => (props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : ""));
 const hasToken = computed(() => !!(effectiveToken.value || envToken.value));
-const botUrl = computed(() => botInfo.value?.username ? `https://t.me/${botInfo.value.username}` : "#");
+const botUrl = computed(() => (botInfo.value?.username ? `https://t.me/${botInfo.value.username}` : "#"));
 
 onMounted(async () => {
   try {
@@ -125,8 +113,12 @@ async function checkBot() {
   text-align: center;
   padding: 6px;
 }
-.comm__msg--warn { color: var(--text-muted); }
-.comm__msg--err { color: var(--error); }
+.comm__msg--warn {
+  color: var(--text-muted);
+}
+.comm__msg--err {
+  color: var(--error);
+}
 
 .comm__success {
   display: flex;
@@ -136,7 +128,16 @@ async function checkBot() {
   padding: 8px;
   background: rgba(16, 185, 129, 0.06);
   border: 1px solid rgba(16, 185, 129, 0.15);
-  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+  clip-path: polygon(
+    0 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    0 calc(100% - 3px)
+  );
 }
 
 .comm__status {
@@ -183,7 +184,16 @@ async function checkBot() {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   text-decoration: none;
-  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+  clip-path: polygon(
+    0 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    0 calc(100% - 3px)
+  );
   transition: var(--transition);
 }
 .comm__link:hover {
@@ -193,7 +203,12 @@ async function checkBot() {
 }
 
 @keyframes commPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 </style>

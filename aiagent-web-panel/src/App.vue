@@ -164,11 +164,9 @@ const modelName = ref("gemma-4-E4B-it-Q4_K_M.gguf");
 const serverUrl = ref("http://192.168.1.101:8080/v1");
 const availableModels = ref([]);
 
-const selectedModel = computed(() =>
-  availableModels.value.find((m) => m.id === modelName.value) || null
-);
-const modelContextLength = computed(() =>
-  selectedModel.value?.maxContextLength || localConfig.value.maxTokens || configDefaults.maxTokens
+const selectedModel = computed(() => availableModels.value.find((m) => m.id === modelName.value) || null);
+const modelContextLength = computed(
+  () => selectedModel.value?.maxContextLength || localConfig.value.maxTokens || configDefaults.maxTokens
 );
 
 /**
@@ -611,8 +609,6 @@ const saveSettings = async (showToast = null) => {
   }
 };
 
-
-
 /**
  * Обработать обновление статистики токенов из ChatTab.
  * Аккумулирует usage в реактивный tokenUsage.
@@ -698,10 +694,14 @@ const chatTabRef = ref(null);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
+    0 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
   );
   flex-wrap: wrap;
   position: relative;
@@ -737,10 +737,14 @@ const chatTabRef = ref(null);
   align-items: center;
   gap: 6px;
   clip-path: polygon(
-    0 2px, 2px 0,
-    calc(100% - 2px) 0, 100% 2px,
-    100% calc(100% - 2px), calc(100% - 2px) 100%,
-    2px 100%, 0 calc(100% - 2px)
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
   );
 }
 

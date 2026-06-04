@@ -46,7 +46,8 @@ export const TOOLS = {
         },
         content: {
           type: "string",
-          description: 'Raw file content saved as-is. Match format to file extension (.json -> JSON, .html -> HTML, .js -> JS, etc.). Do NOT wrap in response objects like {success, data, content}.',
+          description:
+            "Raw file content saved as-is. Match format to file extension (.json -> JSON, .html -> HTML, .js -> JS, etc.). Do NOT wrap in response objects like {success, data, content}.",
         },
       },
       required: ["filePath", "content"],
@@ -84,7 +85,8 @@ export const TOOLS = {
   },
   execute: {
     name: "execute",
-    description: "Execute a shell command. Error output (stderr) is returned on failure — learn from it. Prefer simple, direct commands.",
+    description:
+      "Execute a shell command. Error output (stderr) is returned on failure — learn from it. Prefer simple, direct commands.",
     category: "system",
     examples: ['<tool>{"name": "execute", "args": {"command": "npm install", "timeout": 60}}</tool>'],
     input_schema: {

@@ -4,29 +4,12 @@
       <h3 class="mono-label">SYS://CONTROLS</h3>
     </template>
     <div class="controls">
-      <Button
-        variant="primary"
-        full-width
-        :disabled="isRunning || !projectPath"
-        @click="$emit('start')"
-      >
+      <Button variant="primary" full-width :disabled="isRunning || !projectPath" @click="$emit('start')">
         [ LAUNCH ]
       </Button>
       <div class="controls__row">
-        <Button
-          variant="danger"
-          :disabled="!isRunning || !projectPath"
-          @click="$emit('stop')"
-        >
-          [ HALT ]
-        </Button>
-        <Button
-          variant="ghost"
-          :disabled="!isRunning || !projectPath"
-          @click="$emit('restart')"
-        >
-          [ REBOOT ]
-        </Button>
+        <Button variant="danger" :disabled="!isRunning || !projectPath" @click="$emit('stop')"> [ HALT ] </Button>
+        <Button variant="ghost" :disabled="!isRunning || !projectPath" @click="$emit('restart')"> [ REBOOT ] </Button>
       </div>
     </div>
   </Card>

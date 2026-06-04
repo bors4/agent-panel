@@ -41,7 +41,7 @@ export async function waitForTask(taskId) {
       stderr: result.stderr || "",
       exitCode: result.exitCode,
     },
-    error: result.exitCode !== 0 ? (result.error || `Command exited with code ${result.exitCode}`) : undefined,
+    error: result.exitCode !== 0 ? result.error || `Command exited with code ${result.exitCode}` : undefined,
   };
 }
 

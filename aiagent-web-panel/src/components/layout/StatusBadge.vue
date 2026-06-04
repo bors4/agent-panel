@@ -37,10 +37,14 @@ const label = computed(() => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   clip-path: polygon(
-    0 3px, 3px 0,
-    calc(100% - 3px) 0, 100% 3px,
-    100% calc(100% - 3px), calc(100% - 3px) 100%,
-    3px 100%, 0 calc(100% - 3px)
+    0 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    0 calc(100% - 3px)
   );
   transition: var(--transition);
   user-select: none;
@@ -123,13 +127,25 @@ const label = computed(() => {
 
 /* ─── Animations ─── */
 @keyframes dotPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.75); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.75);
+  }
 }
 
 @keyframes dotBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.2; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
 }
 
 /* ─── Responsive ─── */

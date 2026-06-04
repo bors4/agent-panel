@@ -9,8 +9,8 @@
               <template #trigger>
                 <span class="info-trigger">?</span>
               </template>
-              <b>enabled</b> — toggle on/off<br>
-              <b>permission</b>: ask / always / deny<br>
+              <b>enabled</b> — toggle on/off<br />
+              <b>permission</b>: ask / always / deny<br />
               <b>exclude_paths</b> — restricted paths
             </AppTooltip>
           </div>
@@ -92,11 +92,7 @@
         </div>
         <div class="accounts-list">
           <div v-for="(acct, idx) in filteredAccounts" :key="idx" class="account-card">
-            <div
-              class="account-header"
-              style="cursor: pointer"
-              @click="toggleAccountSettings(idx)"
-            >
+            <div class="account-header" style="cursor: pointer" @click="toggleAccountSettings(idx)">
               <div class="account-header-left">
                 <span class="arrow-detail">{{ accountSettingsExpanded[idx] ? "▼" : "▶" }}</span>
                 <div class="account-fields">
@@ -112,7 +108,11 @@
                   </div>
                   <div class="field">
                     <label>Role:</label>
-                    <select :value="acct.role" @change="onRoleChange(getAccountIndex(acct), $event.target.value)" @click.stop>
+                    <select
+                      :value="acct.role"
+                      @change="onRoleChange(getAccountIndex(acct), $event.target.value)"
+                      @click.stop
+                    >
                       <option value="system">system</option>
                       <option value="user">user</option>
                       <option value="guest">guest</option>

@@ -1,396 +1,399 @@
 <template>
-<div class="settings-tab">
-  <Card>
-    <template #header>
-      <div class="header-row">
-        <h3 class="mono-label">CFG://CONFIG</h3>
-      </div>
-    </template>
-    <div class="form-group">
-      <div class="form-label">
-        <label>TELEGRAM_TOKEN</label>
-        <span class="hint">Токен из @BotFather</span>
-      </div>
-      <div class="token-input-wrapper">
-        <input
-          v-model="configCopy.token"
-          :type="tokenVisible ? 'text' : 'password'"
-          class="form-input"
-          placeholder="123456789:AAH..."
-        />
-        <button class="token-toggle" @click="tokenVisible = !tokenVisible">
-          {{ tokenVisible ? "HIDE" : "SHOW" }}
-        </button>
-      </div>
-      <span v-if="hasToken" class="token-ok">[TOKEN SET]</span>
-      <span v-else class="token-missing">[NO TOKEN]</span>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>PROJECT_PATH</label>
-        <span class="hint">Путь к проекту</span>
-      </div>
-      <div class="project-path-row">
-        <input v-model="projectPathDraft" type="text" class="form-input" placeholder="C:\path\to\project" @input="pathError = ''" @blur="checkProjectPath" />
-        <Button variant="ghost" @click="browseDirectory">BROWSE</Button>
-        <Button @click="handleSaveProjectPath">SAVE PATH</Button>
-      </div>
-      <p v-if="pathError" class="path-error">{{ pathError }}</p>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>API-BASE</label>
-        <span class="hint">Адреса AI серверов</span>
-      </div>
-      <div class="api-base-table">
-        <div class="table-header">
-          <span class="col-url">API-base</span>
-          <span class="col-connect">Connect</span>
-          <button class="btn-add" @click="addApiBase">+</button>
+  <div class="settings-tab">
+    <Card>
+      <template #header>
+        <div class="header-row">
+          <h3 class="mono-label">CFG://CONFIG</h3>
         </div>
-        <div v-for="(api, index) in apiBasesCopy" :key="index" class="table-row">
+      </template>
+      <div class="form-group">
+        <div class="form-label">
+          <label>TELEGRAM_TOKEN</label>
+          <span class="hint">Токен из @BotFather</span>
+        </div>
+        <div class="token-input-wrapper">
           <input
-            v-model="apiBasesCopy[index].url"
-            type="text"
-            class="form-input col-url"
-            placeholder="http://192.168.1.101:8080/v1"
-            @blur="syncApiBases"
+            v-model="configCopy.token"
+            :type="tokenVisible ? 'text' : 'password'"
+            class="form-input"
+            placeholder="123456789:AAH..."
           />
-          <label class="col-connect">
-            <input v-model="apiBasesCopy[index].connected" type="checkbox" @change="syncApiBases" />
-          </label>
-          <button class="btn-remove" @click="removeApiBase(index)">×</button>
+          <button class="token-toggle" @click="tokenVisible = !tokenVisible">
+            {{ tokenVisible ? "HIDE" : "SHOW" }}
+          </button>
+        </div>
+        <span v-if="hasToken" class="token-ok">[TOKEN SET]</span>
+        <span v-else class="token-missing">[NO TOKEN]</span>
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>PROJECT_PATH</label>
+          <span class="hint">Путь к проекту</span>
+        </div>
+        <div class="project-path-row">
+          <input
+            v-model="projectPathDraft"
+            type="text"
+            class="form-input"
+            placeholder="C:\path\to\project"
+            @input="pathError = ''"
+            @blur="checkProjectPath"
+          />
+          <Button variant="ghost" @click="browseDirectory">BROWSE</Button>
+          <Button @click="handleSaveProjectPath">SAVE PATH</Button>
+        </div>
+        <p v-if="pathError" class="path-error">{{ pathError }}</p>
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>API-BASE</label>
+          <span class="hint">Адреса AI серверов</span>
+        </div>
+        <div class="api-base-table">
+          <div class="table-header">
+            <span class="col-url">API-base</span>
+            <span class="col-connect">Connect</span>
+            <button class="btn-add" @click="addApiBase">+</button>
+          </div>
+          <div v-for="(api, index) in apiBasesCopy" :key="index" class="table-row">
+            <input
+              v-model="apiBasesCopy[index].url"
+              type="text"
+              class="form-input col-url"
+              placeholder="http://192.168.1.101:8080/v1"
+              @blur="syncApiBases"
+            />
+            <label class="col-connect">
+              <input v-model="apiBasesCopy[index].connected" type="checkbox" @change="syncApiBases" />
+            </label>
+            <button class="btn-remove" @click="removeApiBase(index)">×</button>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MODEL_NAME</label>
-        <span class="hint">Выберите модель</span>
-      </div>
-      <input
-        v-model="modelFilter"
-        type="text"
-        class="form-input"
-        placeholder="Фильтр моделей..."
-        style="margin-bottom: 6px"
-      />
-      <div class="model-name-row">
-        <select v-model="modelNameCopy" class="form-input">
-          <option value="" disabled>Выберите модель</option>
-          <option v-for="model in filteredModels" :key="model.id" :value="model.id">
-            {{ model.id }} ({{ model.source }})
-          </option>
-        </select>
-        <Button
-          class="btn-refresh-models"
-          :disabled="loadingStates.models"
-          :loading="loadingStates.models"
-          @click="handleRefreshModels"
-        >
-          REFRESH
-        </Button>
-      </div>
-      <p v-if="availableModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>OPENROUTER_API_KEY</label>
-        <span class="hint">Ключ API OpenRouter (опционально)</span>
-      </div>
-      <div class="token-input-wrapper">
+      <div class="form-group">
+        <div class="form-label">
+          <label>MODEL_NAME</label>
+          <span class="hint">Выберите модель</span>
+        </div>
         <input
-          v-model="configCopy.openrouterApiKey"
-          :type="orKeyVisible ? 'text' : 'password'"
-          class="form-input"
-          placeholder="sk-or-v1-..."
-        />
-        <button class="token-toggle" @click="orKeyVisible = !orKeyVisible">
-          {{ orKeyVisible ? "HIDE" : "SHOW" }}
-        </button>
-      </div>
-    </div>
-    <div v-if="configCopy.openrouterApiKey" class="form-group">
-      <div class="form-label">
-        <label>OpenRouter модели</label>
-        <span class="hint">Загрузить модели из OpenRouter</span>
-      </div>
-      <div class="openrouter-row">
-        <Button
-          class="btn-refresh-models"
-          :disabled="loadingStates.openrouterModels"
-          :loading="loadingStates.openrouterModels"
-          @click="handleLoadOpenRouterModels"
-        >
-          LOAD OPENROUTER
-        </Button>
-      </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>ASR_SERVER_URL</label>
-        <span class="hint">URL ASR сервера (whisper.cpp / faster-whisper)</span>
-      </div>
-      <div class="asr-row">
-        <input
-          v-model="configCopy.asrServerUrl"
+          v-model="modelFilter"
           type="text"
           class="form-input"
-          placeholder="http://192.168.1.103:8081"
+          placeholder="Фильтр моделей..."
+          style="margin-bottom: 6px"
         />
-        <Button
-          :disabled="!configCopy.asrServerUrl || loadingStates.asrTest"
-          :loading="loadingStates.asrTest"
-          @click="testAsrServer"
-        >
-          TEST
-        </Button>
+        <div class="model-name-row">
+          <select v-model="modelNameCopy" class="form-input">
+            <option value="" disabled>Выберите модель</option>
+            <option v-for="model in filteredModels" :key="model.id" :value="model.id">
+              {{ model.id }} ({{ model.source }})
+            </option>
+          </select>
+          <Button
+            class="btn-refresh-models"
+            :disabled="loadingStates.models"
+            :loading="loadingStates.models"
+            @click="handleRefreshModels"
+          >
+            REFRESH
+          </Button>
+        </div>
+        <p v-if="availableModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
       </div>
-      <span v-if="asrStatus" :class="asrStatus.reachable ? 'token-ok' : 'token-missing'">
-        {{ asrStatus.reachable ? '[CONNECTED]' : '[UNREACHABLE]' }}
-      </span>
-      <span class="hint">Для голосовых сообщений Telegram. Оставьте пустым для Web Speech API.</span>
-    </div>
-  </Card>
+      <div class="form-group">
+        <div class="form-label">
+          <label>OPENROUTER_API_KEY</label>
+          <span class="hint">Ключ API OpenRouter (опционально)</span>
+        </div>
+        <div class="token-input-wrapper">
+          <input
+            v-model="configCopy.openrouterApiKey"
+            :type="orKeyVisible ? 'text' : 'password'"
+            class="form-input"
+            placeholder="sk-or-v1-..."
+          />
+          <button class="token-toggle" @click="orKeyVisible = !orKeyVisible">
+            {{ orKeyVisible ? "HIDE" : "SHOW" }}
+          </button>
+        </div>
+      </div>
+      <div v-if="configCopy.openrouterApiKey" class="form-group">
+        <div class="form-label">
+          <label>OpenRouter модели</label>
+          <span class="hint">Загрузить модели из OpenRouter</span>
+        </div>
+        <div class="openrouter-row">
+          <Button
+            class="btn-refresh-models"
+            :disabled="loadingStates.openrouterModels"
+            :loading="loadingStates.openrouterModels"
+            @click="handleLoadOpenRouterModels"
+          >
+            LOAD OPENROUTER
+          </Button>
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>ASR_SERVER_URL</label>
+          <span class="hint">URL ASR сервера (whisper.cpp / faster-whisper)</span>
+        </div>
+        <div class="asr-row">
+          <input
+            v-model="configCopy.asrServerUrl"
+            type="text"
+            class="form-input"
+            placeholder="http://192.168.1.103:8081"
+          />
+          <Button
+            :disabled="!configCopy.asrServerUrl || loadingStates.asrTest"
+            :loading="loadingStates.asrTest"
+            @click="testAsrServer"
+          >
+            TEST
+          </Button>
+        </div>
+        <span v-if="asrStatus" :class="asrStatus.reachable ? 'token-ok' : 'token-missing'">
+          {{ asrStatus.reachable ? "[CONNECTED]" : "[UNREACHABLE]" }}
+        </span>
+        <span class="hint">Для голосовых сообщений Telegram. Оставьте пустым для Web Speech API.</span>
+      </div>
+    </Card>
 
-  <Card>
-    <template #header>
-      <div class="header-row">
-        <h3 class="mono-label">CFG://LIMITS</h3>
-      </div>
-    </template>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MAX_FILE_CHARS</label>
-        <span class="hint">Макс. символов файла</span>
-      </div>
-      <input
-        v-model.number="configCopy.maxFileChars"
-        type="number"
-        class="form-input"
-        min="500"
-        max="20000"
-        step="500"
-      />
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MAX_HISTORY_PAIRS</label>
-        <span class="hint">Пар сообщений</span>
-      </div>
-      <input v-model.number="configCopy.maxHistoryPairs" type="number" class="form-input" min="2" max="20" />
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MAX_SEARCH_RESULTS</label>
-        <span class="hint">Результатов поиска</span>
-      </div>
-      <input v-model.number="configCopy.maxSearchResults" type="number" class="form-input" min="5" max="50" />
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MAX_SEARCH_FILE_SIZE (bytes)</label>
-        <span class="hint">Макс. размер файла для поиска</span>
-      </div>
-      <input
-        v-model.number="configCopy.maxSearchFileSize"
-        type="number"
-        class="form-input"
-        min="65536"
-        max="10485760"
-        step="65536"
-      />
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MAX_FILES_IN_PROMPT</label>
-        <span class="hint">Файлов в контексте</span>
-      </div>
-      <input v-model.number="configCopy.maxFilesInPrompt" type="number" class="form-input" min="1" max="10" />
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>TIMEOUT (мс)</label>
-        <span class="hint">Таймаут запроса</span>
-      </div>
-      <input
-        v-model.number="configCopy.timeout"
-        type="number"
-        class="form-input"
-        min="10000"
-        max="3000000"
-        step="10000"
-      />
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>MAX_TOKENS</label>
-        <span class="hint">Контекст ответа</span>
-      </div>
-      <div class="form-number-wrapper">
-        <Button style="border-radius: var(--radius-sm) 0 0 var(--radius-sm)" @click="adjustTokens(-4096)">
-          −4K
-        </Button>
+    <Card>
+      <template #header>
+        <div class="header-row">
+          <h3 class="mono-label">CFG://LIMITS</h3>
+        </div>
+      </template>
+      <div class="form-group">
+        <div class="form-label">
+          <label>MAX_FILE_CHARS</label>
+          <span class="hint">Макс. символов файла</span>
+        </div>
         <input
-          v-model.number="configCopy.maxTokens"
+          v-model.number="configCopy.maxFileChars"
           type="number"
           class="form-input"
-          min="256"
-          max="65536"
-          step="256"
-          style="border-radius: 0; border-right: none; text-align: center"
+          min="500"
+          max="20000"
+          step="500"
         />
-        <Button style="border-radius: 0 var(--radius-sm) var(--radius-sm) 0" @click="adjustTokens(4096)">
-          +4K
-        </Button>
       </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>TEMPERATURE</label>
-        <span class="hint">Креативность (0-1)</span>
+      <div class="form-group">
+        <div class="form-label">
+          <label>MAX_HISTORY_PAIRS</label>
+          <span class="hint">Пар сообщений</span>
+        </div>
+        <input v-model.number="configCopy.maxHistoryPairs" type="number" class="form-input" min="2" max="20" />
       </div>
-      <input v-model.number="configCopy.temperature" type="range" min="0" max="1" step="0.05" class="range-input" />
-      <div class="range-labels">
-        <span>0</span>
-        <span class="range-value">{{ (configCopy.temperature ?? 0.1).toFixed(2) }}</span>
-        <span>1</span>
+      <div class="form-group">
+        <div class="form-label">
+          <label>MAX_SEARCH_RESULTS</label>
+          <span class="hint">Результатов поиска</span>
+        </div>
+        <input v-model.number="configCopy.maxSearchResults" type="number" class="form-input" min="5" max="50" />
       </div>
-    </div>
-  </Card>
+      <div class="form-group">
+        <div class="form-label">
+          <label>MAX_SEARCH_FILE_SIZE (bytes)</label>
+          <span class="hint">Макс. размер файла для поиска</span>
+        </div>
+        <input
+          v-model.number="configCopy.maxSearchFileSize"
+          type="number"
+          class="form-input"
+          min="65536"
+          max="10485760"
+          step="65536"
+        />
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>MAX_FILES_IN_PROMPT</label>
+          <span class="hint">Файлов в контексте</span>
+        </div>
+        <input v-model.number="configCopy.maxFilesInPrompt" type="number" class="form-input" min="1" max="10" />
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>TIMEOUT (мс)</label>
+          <span class="hint">Таймаут запроса</span>
+        </div>
+        <input
+          v-model.number="configCopy.timeout"
+          type="number"
+          class="form-input"
+          min="10000"
+          max="3000000"
+          step="10000"
+        />
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>MAX_TOKENS</label>
+          <span class="hint">Контекст ответа</span>
+        </div>
+        <div class="form-number-wrapper">
+          <Button style="border-radius: var(--radius-sm) 0 0 var(--radius-sm)" @click="adjustTokens(-4096)">
+            −4K
+          </Button>
+          <input
+            v-model.number="configCopy.maxTokens"
+            type="number"
+            class="form-input"
+            min="256"
+            max="65536"
+            step="256"
+            style="border-radius: 0; border-right: none; text-align: center"
+          />
+          <Button style="border-radius: 0 var(--radius-sm) var(--radius-sm) 0" @click="adjustTokens(4096)">
+            +4K
+          </Button>
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="form-label">
+          <label>TEMPERATURE</label>
+          <span class="hint">Креативность (0-1)</span>
+        </div>
+        <input v-model.number="configCopy.temperature" type="range" min="0" max="1" step="0.05" class="range-input" />
+        <div class="range-labels">
+          <span>0</span>
+          <span class="range-value">{{ (configCopy.temperature ?? 0.1).toFixed(2) }}</span>
+          <span>1</span>
+        </div>
+      </div>
+    </Card>
 
-  <Card>
-    <template #header>
-      <div class="header-row">
-        <h3 class="mono-label">CFG://BEHAVIOR</h3>
+    <Card>
+      <template #header>
+        <div class="header-row">
+          <h3 class="mono-label">CFG://BEHAVIOR</h3>
+        </div>
+      </template>
+      <div class="form-group">
+        <div class="form-label">
+          <label>Потоковый вывод (SSE)</label>
+          <span class="hint">Token-by-token вывод ответа</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.stream" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-    </template>
-    <div class="form-group">
-      <div class="form-label">
-        <label>Потоковый вывод (SSE)</label>
-        <span class="hint">Token-by-token вывод ответа</span>
+      <div class="form-group">
+        <div class="form-label">
+          <label>insertUserAfterTool</label>
+          <span class="hint">В Jinja-шаблонах user после tool</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.insertUserAfterTool" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.stream" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
+      <div class="form-group">
+        <div class="form-label">
+          <label>CHAT MODE</label>
+          <span class="hint">Отключить проектный контекст</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.chatMode" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>insertUserAfterTool</label>
-        <span class="hint">В Jinja-шаблонах user после tool</span>
+      <div class="form-group">
+        <div class="form-label">
+          <label>AUTO SAVE</label>
+          <span class="hint">Автосохранение изменений</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.autoSave" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.insertUserAfterTool" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
+      <div class="form-group">
+        <div class="form-label">
+          <label>VERBOSE</label>
+          <span class="hint">Детализация логов</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.verbose" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>CHAT MODE</label>
-        <span class="hint">Отключить проектный контекст</span>
+      <div class="form-group">
+        <div class="form-label">
+          <label>AUTO START</label>
+          <span class="hint">Автозапуск бота при загрузке</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.autoStart" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.chatMode" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
-      </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>AUTO SAVE</label>
-        <span class="hint">Автосохранение изменений</span>
-      </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.autoSave" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
-      </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>VERBOSE</label>
-        <span class="hint">Детализация логов</span>
-      </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.verbose" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
-      </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>AUTO START</label>
-        <span class="hint">Автозапуск бота при загрузке</span>
-      </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.autoStart" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
-      </div>
-    </div>
-  </Card>
+    </Card>
 
-  <Card>
-    <template #header>
-      <div class="header-row">
-        <h3 class="mono-label">CFG://DISPLAY</h3>
+    <Card>
+      <template #header>
+        <div class="header-row">
+          <h3 class="mono-label">CFG://DISPLAY</h3>
+        </div>
+      </template>
+      <div class="form-group">
+        <div class="form-label">
+          <label>SHOW TOKENS</label>
+          <span class="hint">Показывать счётчик токенов</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.showTokens" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-    </template>
-    <div class="form-group">
-      <div class="form-label">
-        <label>SHOW TOKENS</label>
-        <span class="hint">Показывать счётчик токенов</span>
+      <div class="form-group">
+        <div class="form-label">
+          <label>SOUND</label>
+          <span class="hint">Звуковые уведомления</span>
+        </div>
+        <div class="toggle-control">
+          <label class="toggle-switch">
+            <input v-model="configCopy.soundEnabled" type="checkbox" />
+            <span class="toggle-slider" />
+          </label>
+        </div>
       </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.showTokens" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
+      <div v-if="configCopy.soundEnabled" class="form-group">
+        <div class="form-label">
+          <label>VOLUME</label>
+          <span class="hint">{{ configCopy.soundVolume }}%</span>
+        </div>
+        <input v-model.number="configCopy.soundVolume" type="range" min="0" max="100" step="5" class="range-input" />
+        <div class="range-labels">
+          <span>0</span>
+          <span class="range-value">{{ configCopy.soundVolume }}%</span>
+          <span>100</span>
+        </div>
       </div>
-    </div>
-    <div class="form-group">
-      <div class="form-label">
-        <label>SOUND</label>
-        <span class="hint">Звуковые уведомления</span>
-      </div>
-      <div class="toggle-control">
-        <label class="toggle-switch">
-          <input v-model="configCopy.soundEnabled" type="checkbox" />
-          <span class="toggle-slider" />
-        </label>
-      </div>
-    </div>
-    <div v-if="configCopy.soundEnabled" class="form-group">
-      <div class="form-label">
-        <label>VOLUME</label>
-        <span class="hint">{{ configCopy.soundVolume }}%</span>
-      </div>
-      <input v-model.number="configCopy.soundVolume" type="range" min="0" max="100" step="5" class="range-input" />
-      <div class="range-labels">
-        <span>0</span>
-        <span class="range-value">{{ configCopy.soundVolume }}%</span>
-        <span>100</span>
-      </div>
-    </div>
-  </Card>
+    </Card>
 
-  <div class="settings-actions">
-    <Button variant="primary" :disabled="loadingStates.save" @click="handleSave">
-      SAVE ALL
-    </Button>
-    <Button variant="ghost" :disabled="loadingStates.reset" @click="handleReset">
-      RESET
-    </Button>
-  </div>
+    <div class="settings-actions">
+      <Button variant="primary" :disabled="loadingStates.save" @click="handleSave"> SAVE ALL </Button>
+      <Button variant="ghost" :disabled="loadingStates.reset" @click="handleReset"> RESET </Button>
+    </div>
   </div>
 </template>
 
@@ -588,9 +591,12 @@ watch(configCopy, autoSave, { deep: true });
 watch(modelNameCopy, autoSave);
 watch(apiBasesCopy, autoSave, { deep: true });
 
-watch(() => configCopy.projectPath, () => {
-  pathError.value = "";
-});
+watch(
+  () => configCopy.projectPath,
+  () => {
+    pathError.value = "";
+  }
+);
 
 /**
  * Открыть системное окно выбора директории через backend.
@@ -614,10 +620,16 @@ const browseDirectory = async () => {
  */
 async function checkProjectPath() {
   const p = projectPathDraft.value;
-  if (!p) { pathError.value = ""; return; }
+  if (!p) {
+    pathError.value = "";
+    return;
+  }
   const isWin = navigator.userAgent.includes("Win");
   const rootDriveMatch = isWin && /^[a-zA-Z]:\\$/i.test(p);
-  if (rootDriveMatch) { pathError.value = ""; return; }
+  if (rootDriveMatch) {
+    pathError.value = "";
+    return;
+  }
   try {
     const data = await checkPath(p);
     pathError.value = data.valid ? "" : "⚠️ Directory does not exist";
@@ -798,7 +810,16 @@ const adjustTokens = (delta) => {
 
 .api-base-table {
   border: 1px solid var(--border);
-  clip-path: polygon(0 3px, 3px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 0 calc(100% - 3px));
+  clip-path: polygon(
+    0 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    0 calc(100% - 3px)
+  );
   overflow: hidden;
 }
 .table-header {
@@ -835,7 +856,16 @@ const adjustTokens = (delta) => {
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-secondary);
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
   cursor: pointer;
   font-size: 14px;
   display: flex;
@@ -900,7 +930,16 @@ const adjustTokens = (delta) => {
   padding: 6px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
   color: var(--text-primary);
   font-size: 0.75rem;
   font-family: "JetBrains Mono", monospace;
@@ -949,7 +988,16 @@ select.form-input {
   font-family: "JetBrains Mono", monospace;
   font-size: 0.55rem;
   letter-spacing: 0.05em;
-  clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+  clip-path: polygon(
+    0 2px,
+    2px 0,
+    calc(100% - 2px) 0,
+    100% 2px,
+    100% calc(100% - 2px),
+    calc(100% - 2px) 100%,
+    2px 100%,
+    0 calc(100% - 2px)
+  );
   transition: var(--transition);
 }
 .range-input {

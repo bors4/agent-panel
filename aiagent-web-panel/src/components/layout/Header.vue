@@ -61,10 +61,7 @@ const subtitle = computed(() => {
   min-height: 56px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  clip-path: polygon(
-    0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%,
-    6px 100%, 0 calc(100% - 6px)
-  );
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px));
   position: relative;
   z-index: 50;
 }
@@ -78,7 +75,9 @@ const subtitle = computed(() => {
   right: 6px;
   height: 2px;
   background: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow), 0 0 20px var(--accent-glow);
+  box-shadow:
+    0 0 8px var(--accent-glow),
+    0 0 20px var(--accent-glow);
   opacity: 0.8;
 }
 
@@ -105,10 +104,14 @@ const subtitle = computed(() => {
   background: var(--glass-bg);
   border: 1px solid rgba(42, 127, 255, 0.25);
   clip-path: polygon(
-    0 3px, 3px 0,
-    calc(100% - 3px) 0, 100% 3px,
-    100% calc(100% - 3px), calc(100% - 3px) 100%,
-    3px 100%, 0 calc(100% - 3px)
+    0 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    0 calc(100% - 3px)
   );
   display: flex;
   align-items: center;
@@ -201,8 +204,12 @@ const subtitle = computed(() => {
 }
 
 @keyframes orbitSpin {
-  from { transform: rotate(0deg) translateX(60px); }
-  to { transform: rotate(360deg) translateX(60px); }
+  from {
+    transform: rotate(0deg) translateX(60px);
+  }
+  to {
+    transform: rotate(360deg) translateX(60px);
+  }
 }
 
 /* ─── Responsive ─── */

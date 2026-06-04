@@ -6,14 +6,52 @@ import fs from "fs";
 import path from "path";
 
 const BINARY_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
-  ".mp3", ".mp4", ".avi", ".mov", ".wav", ".flac", ".ogg",
-  ".zip", ".tar", ".gz", ".rar", ".7z",
-  ".exe", ".dll", ".so", ".dylib", ".o", ".a", ".lib",
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-  ".bin", ".dat", ".db", ".sqlite",
-  ".woff", ".woff2", ".ttf", ".eot", ".otf",
-  ".wasm", ".class", ".pyc", ".cur",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".ico",
+  ".webp",
+  ".mp3",
+  ".mp4",
+  ".avi",
+  ".mov",
+  ".wav",
+  ".flac",
+  ".ogg",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".rar",
+  ".7z",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".o",
+  ".a",
+  ".lib",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".bin",
+  ".dat",
+  ".db",
+  ".sqlite",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".eot",
+  ".otf",
+  ".wasm",
+  ".class",
+  ".pyc",
+  ".cur",
 ]);
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "venv", "__pycache__"]);
@@ -69,7 +107,17 @@ export async function listDirectoryFlat(dirPath, maxDepth, currentDepth = 0) {
  * @param {number} maxSearchFileSize - Максимальный размер файла в байтах
  * @param {number} maxFileChars - Макс. символов для regex matching
  */
-export async function searchDirectory(dirPath, pattern, results, depth, extension, maxResults, projectPath, maxSearchFileSize, maxFileChars) {
+export async function searchDirectory(
+  dirPath,
+  pattern,
+  results,
+  depth,
+  extension,
+  maxResults,
+  projectPath,
+  maxSearchFileSize,
+  maxFileChars
+) {
   if (depth > 5 || results.length >= maxResults) return;
 
   try {
@@ -82,7 +130,17 @@ export async function searchDirectory(dirPath, pattern, results, depth, extensio
       const fullPath = path.join(dirPath, entry.name);
 
       if (entry.isDirectory()) {
-        await searchDirectory(fullPath, pattern, results, depth + 1, extension, maxResults, projectPath, maxSearchFileSize, maxFileChars);
+        await searchDirectory(
+          fullPath,
+          pattern,
+          results,
+          depth + 1,
+          extension,
+          maxResults,
+          projectPath,
+          maxSearchFileSize,
+          maxFileChars
+        );
       } else if (entry.isFile()) {
         if (extension && !entry.name.endsWith(extension.replace("*", ""))) continue;
 
@@ -111,7 +169,7 @@ export async function searchDirectory(dirPath, pattern, results, depth, extensio
                 preview: content
                   .substring(
                     Math.max(0, content.indexOf(matches[0]) - 50),
-                    Math.min(content.length, content.indexOf(matches[0]) + 100),
+                    Math.min(content.length, content.indexOf(matches[0]) + 100)
                   )
                   .replace(/\n/g, " "),
               });

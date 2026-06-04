@@ -116,7 +116,7 @@ describe("agentLoopStep OpenRouter headers", () => {
           "HTTP-Referer": "https://agent-panel.local",
           "X-OpenRouter-Title": "AI Agent Panel",
         }),
-      }),
+      })
     );
   });
 
@@ -129,7 +129,7 @@ describe("agentLoopStep OpenRouter headers", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer local-key",
         }),
-      }),
+      })
     );
     // Should NOT have OpenRouter-specific headers
     const callArgs = fetchMock.mock.calls[0];

@@ -43,7 +43,19 @@
  * @returns {(ctx, chatId, result, account, draftMsgId, abortSignal) => Promise<boolean>}
  */
 export function createHandleAgentResult(deps) {
-  const { config, chatHistories, pendingApprovals, addLog, replyMsg, editDraftMessage, sendLongMessage, chunkText, KEYBOARD_YES_NO, agentLoopStep, MAX_AGENT_ITERATIONS } = deps;
+  const {
+    config,
+    chatHistories,
+    pendingApprovals,
+    addLog,
+    replyMsg,
+    editDraftMessage,
+    sendLongMessage,
+    chunkText,
+    KEYBOARD_YES_NO,
+    agentLoopStep,
+    MAX_AGENT_ITERATIONS,
+  } = deps;
 
   /**
    * Унифицированная обработка результата agent loop.
@@ -94,9 +106,13 @@ export function createHandleAgentResult(deps) {
           : paramStr.length > 300
             ? paramStr.substring(0, 300) + "… [truncated]"
             : paramStr;
-      await replyMsg(ctx, `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${displayParams}</code>`, {
-        reply_markup: KEYBOARD_YES_NO(result.toolName),
-      });
+      await replyMsg(
+        ctx,
+        `⚠️ Confirmation needed:\n\n📦 <b>${result.toolName}</b>\nParams: <code>${displayParams}</code>`,
+        {
+          reply_markup: KEYBOARD_YES_NO(result.toolName),
+        }
+      );
       return true;
     }
 

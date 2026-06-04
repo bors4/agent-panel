@@ -27,7 +27,12 @@
         </div>
         <div v-else class="search-hints">
           <div class="hint-title">Быстрый переход:</div>
-          <div v-for="item in quickLinks" :key="item.action" class="search-result-item" @click="navigateTo(item.action)">
+          <div
+            v-for="item in quickLinks"
+            :key="item.action"
+            class="search-result-item"
+            @click="navigateTo(item.action)"
+          >
             <span class="result-icon">{{ item.icon }}</span>
             <span class="result-label">{{ item.label }}</span>
             <span class="result-category">{{ item.category }}</span>
@@ -84,8 +89,8 @@ const toggleSearch = () => {
       const rect = trigger.getBoundingClientRect();
       dropdownStyle.value = {
         position: "fixed",
-        top: (rect.bottom + 8) + "px",
-        right: (window.innerWidth - rect.right) + "px",
+        top: rect.bottom + 8 + "px",
+        right: window.innerWidth - rect.right + "px",
         zIndex: 10000,
       };
     }
@@ -172,7 +177,16 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: slideDown 0.2s ease;
-  clip-path: polygon(0 4px, 4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px));
+  clip-path: polygon(
+    0 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
+  );
 }
 
 .search-dropdown .search-input {
@@ -244,7 +258,13 @@ onUnmounted(() => {
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

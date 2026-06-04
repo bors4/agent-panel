@@ -5,7 +5,15 @@
  */
 import { TOOLS } from "../agent/executeTool.js";
 import { cancelTask, getActiveTasks } from "../agent/executeTool.js";
-import { chatHistories, activeAgentControllers, pendingApprovals, config, runtime, stats, tokenUsage } from "../state.js";
+import {
+  chatHistories,
+  activeAgentControllers,
+  pendingApprovals,
+  config,
+  runtime,
+  stats,
+  tokenUsage,
+} from "../state.js";
 import { addLog, updateStatus } from "./log.js";
 import { replyMsg, REPLY_OPTS } from "./reply.js";
 
@@ -20,7 +28,9 @@ export function registerCommands(b) {
       return;
     }
     updateStatus("running", "Работает");
-    const asrInfo = config.asrServerUrl ? `🎤 ASR: ${config.asrServerUrl} (${config.asrLanguage || "ru"})` : "🎤 ASR: local whisper";
+    const asrInfo = config.asrServerUrl
+      ? `🎤 ASR: ${config.asrServerUrl} (${config.asrLanguage || "ru"})`
+      : "🎤 ASR: local whisper";
     ctx.reply(
       `🤖 <b>AI Agent active!</b>\n\n` +
         `Model: <code>${config.modelName}</code>\n` +
@@ -96,7 +106,10 @@ export function registerCommands(b) {
     if (!had) {
       ctx.reply("ℹ️ Nothing to reset — history was already empty.", REPLY_OPTS);
     } else {
-      ctx.reply("✅ <b>Reset complete.</b>\n• History cleared\n• Active request cancelled\n• Pending approval removed", REPLY_OPTS);
+      ctx.reply(
+        "✅ <b>Reset complete.</b>\n• History cleared\n• Active request cancelled\n• Pending approval removed",
+        REPLY_OPTS
+      );
     }
   });
 

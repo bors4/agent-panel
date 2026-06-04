@@ -93,11 +93,7 @@ export function buildMultipartBody(fileBuffer, fileName, fileType, fields) {
     if (value == null) continue;
     const safeKey = String(key).replace(/[\r\n"]/g, "_");
     const safeVal = String(value).replace(/[\r\n]/g, "");
-    parts.push(
-      `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="${safeKey}"\r\n\r\n` +
-        `${safeVal}\r\n`
-    );
+    parts.push(`--${boundary}\r\n` + `Content-Disposition: form-data; name="${safeKey}"\r\n\r\n` + `${safeVal}\r\n`);
   }
   parts.push(`--${boundary}--\r\n`);
   const body = Buffer.concat(parts.map((p) => (typeof p === "string" ? Buffer.from(p) : p)));
@@ -119,12 +115,11 @@ export async function transcribeViaAsrServer({ wavPath, asrServerUrl, language =
   const safeLang = sanitizeLanguage(language);
 
   const fileBuffer = fs.readFileSync(wavPath);
-  const { body, boundary } = buildMultipartBody(
-    fileBuffer,
-    "audio.wav",
-    "audio/wav",
-    { language: safeLang, response_format: "json", temperature: "0.0" }
-  );
+  const { body, boundary } = buildMultipartBody(fileBuffer, "audio.wav", "audio/wav", {
+    language: safeLang,
+    response_format: "json",
+    temperature: "0.0",
+  });
 
   const controller = new AbortController();
   const onExternalAbort = () => controller.abort();

@@ -6,7 +6,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { safeErrorMessage, recordAndCheckRateLimit, buildPerfStats, cleanupTmp, RATE_LIMIT } from "../lib/telegram/util.js";
+import {
+  safeErrorMessage,
+  recordAndCheckRateLimit,
+  buildPerfStats,
+  cleanupTmp,
+  RATE_LIMIT,
+} from "../lib/telegram/util.js";
 import { rateLimitMap } from "../lib/state.js";
 
 describe("safeErrorMessage", () => {
