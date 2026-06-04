@@ -95,13 +95,21 @@ export function getRoleDefaultPermissions(role) {
  *   Проверяет:
  *   1. Явный запрет инструмента в account.permissions
  *   2. include_paths — если заданы, путь инструмента должен быть внутри одной из директорий
- *   3. Для инструмента "execute" проверка include_paths не применяется
+ *   3. Для инструмента "execute" с include_paths требуется роль "system"
+ *      (shell-команды не имеют надёжного пути для проверки границ директорий)
  */
 export function checkAccountToolPermission(account, toolName, args, projectPath) {
   if (!account) return { allowed: true };
 
   if (account.permissions && account.permissions[toolName] === false) {
     return { allowed: false, reason: `Tool '${toolName}' is not available for your account` };
+  }
+
+  if (toolName === "execute" && account.role !== "system" && account.include_paths?.length > 0) {
+    return {
+      allowed: false,
+      reason: 'Tool "execute" is not available with include_paths for non-system accounts',
+    };
   }
 
   if (account.include_paths?.length > 0) {

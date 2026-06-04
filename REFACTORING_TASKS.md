@@ -66,19 +66,19 @@
 
 - **Source:** Known TODO + refactorer verification
 - **Severity:** medium (security)
-- **Detail:** `execute` ignores `include_paths` for non-system roles
-- **Proposed solution:** Apply include_paths check in `executeTool.js` execute branch
+- **Detail:** `execute` ignored `include_paths` for non-system roles, allowing shell access outside allowed directories
+- **Proposed solution:** Deny `execute` for non-system role when `include_paths` is set, in `checkAccountToolPermission` (`accounts.js`). Shell commands have no reliable file path for boundary checks.
 - **Effort:** S
-- **Status:** Will be fixed in PR 5 (executeTool.js split)
+- **Status:** ✅ Fixed in PR 5a (commit pending)
 
 ## T-009 — `args.timeout || 30` treats 0 as 30 (P2-#8)
 
-- **Source:** Known TODO + refactorer verification
-- **Severity:** low (UX)
-- **Detail:** `||` falls back to 30 on 0; should be `??`
-- **Proposed solution:** `args.timeout ?? 30`
-- **Effort:** XS
-- **Status:** Will be fixed in PR 5
+- **Source:** Stale TODO — claim is incorrect
+- **Severity:** none (false alarm)
+- **Detail:** TODO says code uses `args.timeout || 30` which treats `0` as `30`. Verification at `executeTool.js:755-757` shows the code already uses a proper ternary that explicitly handles `0`, `> 0`, and `undefined` cases. The TODO in `AGENTS.md` is **outdated** — the bug it describes does not exist in the current code.
+- **Proposed solution:** Mark as resolved/no action needed.
+- **Effort:** none
+- **Status:** ✅ Verified false-positive (commit pending)
 
 ## T-010 — `App.vue` (813 LoC) untested
 

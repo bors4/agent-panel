@@ -185,10 +185,44 @@ describe("checkAccountToolPermission", () => {
     expect(result.allowed).toBe(true);
   });
 
-  it("skips include_paths check for execute tool", () => {
+  it("allows execute for system role even with include_paths", () => {
     const account = {
+      role: "system",
       permissions: { execute: true },
       include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
+    expect(result.allowed).toBe(true);
+  });
+
+  it("denies execute for non-system role when include_paths set", () => {
+    const account = {
+      role: "user",
+      permissions: { execute: true },
+      include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('Tool "execute"');
+  });
+
+  it("denies execute for guest role when include_paths set", () => {
+    const account = {
+      role: "guest",
+      permissions: { execute: true },
+      include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "execute", { command: "rm -rf /" }, testDir);
+    expect(result.allowed).toBe(false);
+  });
+
+  it("allows execute for non-system role when no include_paths set", () => {
+    const account = {
+      role: "user",
+      permissions: { execute: true },
     };
 
     const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
