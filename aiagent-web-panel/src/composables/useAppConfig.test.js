@@ -135,10 +135,45 @@ describe("useAppConfig", () => {
     });
     const deps = makeDeps();
     const c = useAppConfig(deps);
-    c.localConfig.value.token = "tok-123";
     c.exportConfig();
     expect(deps.success).toHaveBeenCalledWith("Конфигурация экспортирована");
     expect(deps.addLog).toHaveBeenCalledWith("Config exported", "success");
+    createElementSpy.mockRestore();
+  });
+
+  it("exportConfig asks for confirmation when token is present", () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag) => {
+      if (tag === "a") return { click: vi.fn(), href: "", download: "" };
+      return document.createElement(tag);
+    });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    c.localConfig.value.token = "secret-tok";
+    confirmSpy.mockReturnValue(false);
+    c.exportConfig();
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(deps.success).not.toHaveBeenCalled();
+    expect(deps.addLog).toHaveBeenCalledWith("Config export cancelled (secrets present)", "warning");
+    confirmSpy.mockReturnValue(true);
+    c.exportConfig();
+    expect(deps.success).toHaveBeenCalledWith("Конфигурация экспортирована");
+    createElementSpy.mockRestore();
+  });
+
+  it("exportConfig asks for confirmation when openrouterApiKey is present", () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag) => {
+      if (tag === "a") return { click: vi.fn(), href: "", download: "" };
+      return document.createElement(tag);
+    });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    c.localConfig.value.openrouterApiKey = "or-key-xyz";
+    confirmSpy.mockReturnValue(false);
+    c.exportConfig();
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(deps.addLog).toHaveBeenCalledWith("Config export cancelled (secrets present)", "warning");
     createElementSpy.mockRestore();
   });
 
@@ -198,6 +233,52 @@ describe("useAppConfig", () => {
     expect(deps.modelName.value).toBe("new-model");
     expect(deps.serverUrl.value).toBe("http://new/v1");
     expect(deps.success).toHaveBeenCalledWith("Настройки сохранены");
+  });
+
+  it("handleSettingsSave accepts empty string modelName and serverUrl", async () => {
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ success: true });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await c.handleSettingsSave({ modelName: "", serverUrl: "" });
+    expect(deps.modelName.value).toBe("");
+    expect(deps.serverUrl.value).toBe("");
+  });
+
+  it("saveSettings sanitises non-ASCII characters from token and openrouterApiKey", async () => {
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ success: true });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    c.localConfig.value.token = "  abc—def  ";
+    c.localConfig.value.openrouterApiKey = "k—y";
+    await c.saveSettings(false);
+    const payload = client.updateConfig.mock.calls[0][0];
+    expect(payload.token).toBe("abcdef");
+    expect(payload.openrouterApiKey).toBe("ky");
+    const stored = JSON.parse(localStorage.getItem("agent-config"));
+    expect(stored.token).toBe("abcdef");
+    expect(stored.openrouterApiKey).toBe("ky");
+  });
+
+  it("saveSettings shows quota-specific error when localStorage is full", async () => {
+    const setItemSpy = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      const err = new Error("quota exceeded");
+      err.name = "QuotaExceededError";
+      throw err;
+    });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await c.saveSettings(false);
+    expect(deps.error).toHaveBeenCalledWith(expect.stringContaining("переполнено"));
+    setItemSpy.mockRestore();
+  });
+
+  it("saveSettings suppresses success toast when backend update fails", async () => {
+    vi.spyOn(client, "updateConfig").mockRejectedValue(new Error("backend down"));
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await c.saveSettings(true);
+    expect(deps.error).toHaveBeenCalledWith(expect.stringContaining("backend down"));
+    expect(deps.success).not.toHaveBeenCalled();
   });
 
   it("handleSaveProjectPath updates projectPath and saves with showToast=null", async () => {

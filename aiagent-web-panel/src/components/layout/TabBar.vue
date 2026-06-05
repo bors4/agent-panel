@@ -5,13 +5,17 @@
 <template>
   <div class="tabs" role="tablist" aria-label="Навигация по разделам">
     <button
-      v-for="tab in tabs"
+      v-for="(tab, idx) in tabs"
+      :id="`tab-${tab.id}`"
+      :ref="(el) => (tabRefs[idx] = el)"
       :key="tab.id"
       :class="['tab', { active: activeTab === tab.id }]"
       role="tab"
       :aria-selected="activeTab === tab.id"
       :aria-controls="`panel-${tab.id}`"
+      :tabindex="activeTab === tab.id ? 0 : -1"
       @click="$emit('update:activeTab', tab.id)"
+      @keydown="onKey($event, idx)"
     >
       <span class="tab__indicator" aria-hidden="true">{{ tab.symbol }}</span>
       {{ tab.label }}
@@ -20,12 +24,46 @@
 </template>
 
 <script setup>
-defineProps({
+import { ref, nextTick } from "vue";
+
+const props = defineProps({
   tabs: { type: Array, required: true },
   activeTab: { type: String, required: true },
 });
 
-defineEmits(["update:activeTab"]);
+const emit = defineEmits(["update:activeTab"]);
+
+const tabRefs = ref([]);
+
+function focusTab(idx) {
+  const clamped = (idx + props.tabs.length) % props.tabs.length;
+  const target = props.tabs[clamped];
+  emit("update:activeTab", target.id);
+  nextTick(() => {
+    tabRefs.value[clamped]?.focus();
+  });
+}
+
+function onKey(e, idx) {
+  switch (e.key) {
+    case "ArrowRight":
+      e.preventDefault();
+      focusTab(idx + 1);
+      break;
+    case "ArrowLeft":
+      e.preventDefault();
+      focusTab(idx - 1);
+      break;
+    case "Home":
+      e.preventDefault();
+      focusTab(0);
+      break;
+    case "End":
+      e.preventDefault();
+      focusTab(props.tabs.length - 1);
+      break;
+  }
+}
 </script>
 
 <style scoped>

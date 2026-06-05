@@ -93,11 +93,12 @@ describe("useAppBoot", () => {
     expect(deps.refs.serverUrl.value).toBe("http://ls/v1");
   });
 
-  it("ignores localStorage when JSON is malformed", async () => {
+  it("ignores localStorage when JSON is malformed and logs a warning", async () => {
     localStorage.setItem("agent-config", "not-json");
     const deps = makeDeps();
     await bootApp(deps);
     expect(deps.addLog).toHaveBeenCalledWith("App initialized", "system");
+    expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("agent-config"), "warning");
   });
 
   it("loads projectPath from backend when not in localStorage", async () => {
@@ -122,6 +123,37 @@ describe("useAppBoot", () => {
     const deps = makeDeps({ localConfig: { token: "local-tok" } });
     await bootApp(deps);
     expect(deps.refs.localConfig.value.token).toBe("local-tok");
+  });
+
+  it("calls getConfig exactly once on cold start (no projectPath, no local token)", async () => {
+    const getConfigSpy = vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { projectPath: "C:\\be", token: "be-tok" },
+    });
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(getConfigSpy).toHaveBeenCalledTimes(1);
+    expect(deps.refs.localConfig.value.projectPath).toBe("C:\\be");
+    expect(deps.refs.localConfig.value.token).toBe("be-tok");
+  });
+
+  it("calls getConfig exactly once when only localStorage has projectPath (token still needs to load)", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ projectPath: "C:\\from-ls" }));
+    const getConfigSpy = vi.spyOn(client, "getConfig").mockResolvedValue({ config: { token: "be-tok" } });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(getConfigSpy).toHaveBeenCalledTimes(1);
+    expect(deps.refs.localConfig.value.projectPath).toBe("C:\\from-ls");
+    expect(deps.refs.localConfig.value.token).toBe("be-tok");
+  });
+
+  it("does not call getConfig when localStorage has both projectPath and token", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ projectPath: "C:\\from-ls", token: "ls-tok" }));
+    const getConfigSpy = vi.spyOn(client, "getConfig");
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(getConfigSpy).not.toHaveBeenCalled();
   });
 
   it("skips backend sync if no projectPath is known", async () => {

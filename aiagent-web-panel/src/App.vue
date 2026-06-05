@@ -46,6 +46,9 @@
 
       <SettingsTab
         v-if="activeTab === 'settings'"
+        id="panel-settings"
+        role="tabpanel"
+        aria-labelledby="tab-settings"
         :config="localConfig"
         :api-bases="apiBases"
         :available-models="availableModels"
@@ -58,7 +61,10 @@
 
       <ChatTab
         v-show="activeTab === 'chat'"
+        id="panel-chat"
         ref="chatTabRef"
+        role="tabpanel"
+        aria-labelledby="tab-chat"
         :is-active="isRunning"
         :model-name="modelName"
         :server-url="serverUrl"
@@ -73,9 +79,16 @@
         @token-usage="handleTokenUsage"
       />
 
-      <LogsTab v-if="activeTab === 'logs'" :logs="logs" @clear="handleClearLogs" />
+      <LogsTab
+        v-if="activeTab === 'logs'"
+        id="panel-logs"
+        role="tabpanel"
+        aria-labelledby="tab-logs"
+        :logs="logs"
+        @clear="handleClearLogs"
+      />
 
-      <ToolsTab v-if="activeTab === 'tools'" />
+      <ToolsTab v-if="activeTab === 'tools'" id="panel-tools" role="tabpanel" aria-labelledby="tab-tools" />
     </main>
 
     <ToastContainer />
@@ -126,7 +139,12 @@ function copyPrompt() {
   copyPromptRaw(systemPrompt);
 }
 
-const models = useAppModels({ addLog, success, maxTokensFallback: computed(() => localConfig.value?.maxTokens) });
+const models = useAppModels({
+  addLog,
+  success,
+  error,
+  maxTokensFallback: computed(() => localConfig.value?.maxTokens),
+});
 const { apiBases, modelName, serverUrl, availableModels, modelContextLength, loadApiBases, updateModels } = models;
 
 const {
@@ -165,28 +183,33 @@ function handleNavigate(action) {
     case "format":
       return formatPrompt();
     default:
-      if (["prompt", "settings", "quick", "chat", "logs", "tools"].includes(action)) {
+      if (["prompt", "settings", "chat", "logs", "tools"].includes(action)) {
         activeTab.value = action;
       }
   }
 }
 
 onMounted(async () => {
-  await bootApp({
-    refreshStatus,
-    handleStart,
-    addLog,
-    warning,
-    loadApiBases,
-    defaultConfig,
-    refs: {
-      localConfig,
-      systemPrompt,
-      apiBases,
-      modelName,
-      serverUrl,
-    },
-  });
+  try {
+    await bootApp({
+      refreshStatus,
+      handleStart,
+      addLog,
+      warning,
+      loadApiBases,
+      defaultConfig,
+      refs: {
+        localConfig,
+        systemPrompt,
+        apiBases,
+        modelName,
+        serverUrl,
+      },
+    });
+  } catch (e) {
+    error("Ошибка инициализации приложения: " + e.message);
+    addLog("bootApp failed: " + e.message, "error");
+  }
 });
 </script>
 

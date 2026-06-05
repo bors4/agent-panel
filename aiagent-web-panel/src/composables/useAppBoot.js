@@ -33,27 +33,25 @@ function applyLocalStorage(parsed, { systemPrompt, localConfig, apiBases, modelN
 async function loadFromBackend({ localConfig, addLog }) {
   try {
     const backendConfig = await getConfig();
-    if (backendConfig?.config?.projectPath) {
-      localConfig.value.projectPath = backendConfig.config.projectPath;
-      addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
-      return true;
-    }
+    applyBackendConfig(backendConfig, { localConfig, addLog });
   } catch (e) {
     addLog(`Failed to load backend config: ${e.message}`, "warning");
   }
-  return false;
 }
 
-async function loadBackendToken({ localConfig, addLog }) {
-  try {
-    const backendConfig = await getConfig();
-    if (backendConfig?.config?.token && !localConfig.value.token) {
-      localConfig.value.token = backendConfig.config.token;
-      addLog("Loaded Telegram token from backend", "info");
-    }
-  } catch (e) {
-    addLog(`Failed to load backend config: ${e.message}`, "warning");
+function applyBackendConfig(backendConfig, { localConfig, addLog }) {
+  if (!backendConfig?.config) return false;
+  let applied = false;
+  if (backendConfig.config.projectPath) {
+    localConfig.value.projectPath = backendConfig.config.projectPath;
+    addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
+    applied = true;
   }
+  if (backendConfig.config.token && !localConfig.value.token) {
+    localConfig.value.token = backendConfig.config.token;
+    addLog("Loaded Telegram token from backend", "info");
+  }
+  return applied;
 }
 
 async function syncToBackend(refs, addLog) {
@@ -115,14 +113,25 @@ export async function bootApp({ refreshStatus, handleStart, addLog, warning, ref
   if (saved) {
     try {
       applyLocalStorage(JSON.parse(saved), { ...refs, defaultConfig });
-    } catch {}
+    } catch (e) {
+      addLog(`localStorage "${LS_KEY}" is corrupt — settings reset to defaults: ${e.message}`, "warning");
+    }
   }
 
   let hasProjectPath = !!refs.localConfig.value.projectPath;
   if (!hasProjectPath) {
     hasProjectPath = await loadFromBackend({ localConfig: refs.localConfig, addLog });
+  } else if (!refs.localConfig.value.token) {
+    try {
+      const backendConfig = await getConfig();
+      if (backendConfig?.config?.token) {
+        refs.localConfig.value.token = backendConfig.config.token;
+        addLog("Loaded Telegram token from backend", "info");
+      }
+    } catch (e) {
+      addLog(`Failed to load backend config: ${e.message}`, "warning");
+    }
   }
-  await loadBackendToken({ localConfig: refs.localConfig, addLog });
 
   if (!refs.localConfig.value.projectPath) {
     warning("Путь к проекту не указан. Укажите его в разделе Параметры.");

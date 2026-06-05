@@ -29,11 +29,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed } from "vue";
 import Card from "../ui/Card.vue";
 import Button from "../ui/Button.vue";
 import { useToast } from "@/composables/useToast";
-import { getConfig } from "@/api/client";
 
 const props = defineProps({ token: { type: String, default: "" } });
 
@@ -41,22 +40,14 @@ const { success, error: showError } = useToast();
 const checking = ref(false);
 const checkState = ref("idle");
 const botInfo = ref(null);
-const envToken = ref("");
 
 const effectiveToken = computed(() => (props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : ""));
-const hasToken = computed(() => !!(effectiveToken.value || envToken.value));
+const hasToken = computed(() => !!effectiveToken.value);
 const botUrl = computed(() => (botInfo.value?.username ? `https://t.me/${botInfo.value.username}` : "#"));
-
-onMounted(async () => {
-  try {
-    const data = await getConfig();
-    envToken.value = data.config?.token || "";
-  } catch {}
-});
 
 async function checkBot() {
   try {
-    const token = effectiveToken.value || envToken.value;
+    const token = effectiveToken.value;
     if (!token) {
       showError("Set token in Settings");
       checkState.value = "error";

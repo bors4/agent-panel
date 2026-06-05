@@ -42,13 +42,15 @@ export function useAgent() {
         tokenUsage.value = statusData.tokenUsage;
       }
 
-      try {
-        const logsData = await getLogs();
-        if (logsData?.logs) {
-          logs.value = logsData.logs;
+      if (logs.value.length === 0) {
+        try {
+          const logsData = await getLogs();
+          if (logsData?.logs) {
+            logs.value = logsData.logs;
+          }
+        } catch (_e) {
+          console.debug("[useAgent] Logs fetch skipped");
         }
-      } catch (_e) {
-        console.debug("[useAgent] Logs fetch skipped");
       }
     } catch (_error) {
       status.value = "error";

@@ -107,9 +107,7 @@
           REFRESH
         </Button>
       </div>
-      <p v-if="filteredModels.length === 0" class="model-error">
-        Модели недоступны. Проверь подключение к серверу.
-      </p>
+      <p v-if="filteredModels.length === 0" class="model-error">Модели недоступны. Проверь подключение к серверу.</p>
     </div>
 
     <div class="form-group">
@@ -153,12 +151,7 @@
         <span class="hint">URL ASR сервера (whisper.cpp / faster-whisper)</span>
       </div>
       <div class="asr-row">
-        <input
-          v-model="config.asrServerUrl"
-          type="text"
-          class="form-input"
-          placeholder="http://192.168.1.103:8081"
-        />
+        <input v-model="config.asrServerUrl" type="text" class="form-input" placeholder="http://192.168.1.103:8081" />
         <Button
           :disabled="!config.asrServerUrl || loadingStates.asrTest"
           :loading="loadingStates.asrTest"

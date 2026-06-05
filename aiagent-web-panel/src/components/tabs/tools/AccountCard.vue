@@ -10,13 +10,7 @@
         <div class="account-fields">
           <div class="field">
             <label>Username:</label>
-            <input
-              type="text"
-              :value="acct.username"
-              placeholder="@username"
-              @input="onUsernameInput"
-              @click.stop
-            />
+            <input type="text" :value="acct.username" placeholder="@username" @input="onUsernameInput" @click.stop />
           </div>
           <div class="field">
             <label>Role:</label>

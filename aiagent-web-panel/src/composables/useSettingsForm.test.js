@@ -215,14 +215,69 @@ describe("useSettingsForm", () => {
     expect(s.pathError.value).toContain("Cannot validate path");
   });
 
-  it("handleSave emits payload with sanitised token (ASCII only)", async () => {
+  it("handleSave emits payload (sanitisation happens in useAppConfig)", async () => {
     vi.spyOn(client, "checkPath").mockResolvedValue({ valid: true, exists: true, isDirectory: true });
     const { props, emit } = makeProps({ config: { token: "  abc—def  " } });
     const s = useSettingsForm(props, emit);
     await s.handleSave();
     const lastCall = emit.mock.calls.find((c) => c[0] === "save");
     expect(lastCall).toBeDefined();
-    expect(lastCall[1].config.token).toBe("abcdef");
+    expect(lastCall[1].config.token).toBe("  abc—def  ");
+  });
+
+  it("debounced autosave fires save after 300ms of inactivity", async () => {
+    vi.useFakeTimers();
+    const { props, emit } = makeProps();
+    const s = useSettingsForm(props, emit);
+    s.configCopy.maxTokens = 4096;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(emit).not.toHaveBeenCalledWith("save", expect.anything());
+    vi.advanceTimersByTime(299);
+    expect(emit).not.toHaveBeenCalledWith("save", expect.anything());
+    vi.advanceTimersByTime(2);
+    expect(emit).toHaveBeenCalledWith(
+      "save",
+      expect.objectContaining({ config: expect.objectContaining({ maxTokens: 4096 }) })
+    );
+    vi.useRealTimers();
+  });
+
+  it("debounced autosave resets timer on rapid successive edits", async () => {
+    vi.useFakeTimers();
+    const { props, emit } = makeProps();
+    const s = useSettingsForm(props, emit);
+    s.configCopy.maxTokens = 2000;
+    await Promise.resolve();
+    vi.advanceTimersByTime(200);
+    s.configCopy.maxTokens = 3000;
+    await Promise.resolve();
+    vi.advanceTimersByTime(200);
+    s.configCopy.maxTokens = 4096;
+    await Promise.resolve();
+    vi.advanceTimersByTime(299);
+    expect(emit).not.toHaveBeenCalledWith("save", expect.anything());
+    vi.advanceTimersByTime(2);
+    const saveCalls = emit.mock.calls.filter((c) => c[0] === "save");
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0][1].config.maxTokens).toBe(4096);
+    vi.useRealTimers();
+  });
+
+  it("debounced autosave is cleared when handleSave starts", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(client, "checkPath").mockResolvedValue({ valid: true, exists: true, isDirectory: true });
+    const { props, emit } = makeProps();
+    const s = useSettingsForm(props, emit);
+    s.configCopy.maxTokens = 8192;
+    await Promise.resolve();
+    const savePromise = s.handleSave();
+    vi.advanceTimersByTime(500);
+    await savePromise;
+    const saveCalls = emit.mock.calls.filter((c) => c[0] === "save");
+    expect(saveCalls.length).toBe(1);
+    expect(saveCalls[0][1].config.maxTokens).toBe(8192);
+    vi.useRealTimers();
   });
 
   it("handleSaveProjectPath emits save-path with current draft", async () => {

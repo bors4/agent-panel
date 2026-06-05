@@ -41,14 +41,7 @@
         <label>VOLUME</label>
         <span class="hint">{{ config.soundVolume }}%</span>
       </div>
-      <input
-        v-model.number="config.soundVolume"
-        type="range"
-        min="0"
-        max="100"
-        step="5"
-        class="range-input"
-      />
+      <input v-model.number="config.soundVolume" type="range" min="0" max="100" step="5" class="range-input" />
       <div class="range-labels">
         <span>0</span>
         <span class="range-value">{{ config.soundVolume }}%</span>

@@ -15,14 +15,7 @@
         <label>MAX_FILE_CHARS</label>
         <span class="hint">Макс. символов файла</span>
       </div>
-      <input
-        v-model.number="config.maxFileChars"
-        type="number"
-        class="form-input"
-        min="500"
-        max="20000"
-        step="500"
-      />
+      <input v-model.number="config.maxFileChars" type="number" class="form-input" min="500" max="20000" step="500" />
     </div>
 
     <div class="form-group">
@@ -69,14 +62,7 @@
         <label>TIMEOUT (мс)</label>
         <span class="hint">Таймаут запроса</span>
       </div>
-      <input
-        v-model.number="config.timeout"
-        type="number"
-        class="form-input"
-        min="10000"
-        max="3000000"
-        step="10000"
-      />
+      <input v-model.number="config.timeout" type="number" class="form-input" min="10000" max="3000000" step="10000" />
     </div>
 
     <div class="form-group">
@@ -108,14 +94,7 @@
         <label>TEMPERATURE</label>
         <span class="hint">Креативность (0-1)</span>
       </div>
-      <input
-        v-model.number="config.temperature"
-        type="range"
-        min="0"
-        max="1"
-        step="0.05"
-        class="range-input"
-      />
+      <input v-model.number="config.temperature" type="range" min="0" max="1" step="0.05" class="range-input" />
       <div class="range-labels">
         <span>0</span>
         <span class="range-value">{{ (config.temperature ?? 0.1).toFixed(2) }}</span>

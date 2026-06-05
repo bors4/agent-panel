@@ -22,9 +22,10 @@ const DEFAULT_SERVER_URL = "http://192.168.1.101:8080/v1";
  * @param {Object} deps
  * @param {Function} deps.addLog - логгер
  * @param {Function} [deps.success] - toast success
+ * @param {Function} [deps.error] - toast error
  * @param {import("vue").Ref<number>} [deps.maxTokensFallback] - fallback для modelContextLength
  */
-export function useAppModels({ addLog, success, maxTokensFallback }) {
+export function useAppModels({ addLog, success, error, maxTokensFallback }) {
   const apiBases = ref([...DEFAULT_API_BASES]);
   const modelName = ref(DEFAULT_MODEL);
   const serverUrl = ref(DEFAULT_SERVER_URL);
@@ -55,6 +56,7 @@ export function useAppModels({ addLog, success, maxTokensFallback }) {
    * Также обновляет `modelName`/`serverUrl` на первый доступный, если текущий не найден.
    */
   async function loadApiBases() {
+    const initialModelName = modelName.value;
     for (const api of apiBases.value) {
       if (!api.connected) continue;
       try {
@@ -68,10 +70,10 @@ export function useAppModels({ addLog, success, maxTokensFallback }) {
       }
     }
     if (availableModels.value.length > 0) {
-      const saved = availableModels.value.find((m) => m.id === modelName.value);
+      const saved = availableModels.value.find((m) => m.id === initialModelName);
       if (saved) {
         serverUrl.value = saved.source;
-      } else {
+      } else if (modelName.value === initialModelName) {
         const first = availableModels.value[0];
         modelName.value = first.id;
         serverUrl.value = first.source;
@@ -91,11 +93,14 @@ export function useAppModels({ addLog, success, maxTokensFallback }) {
         if (data.models) {
           pushModelsUnique(data.models, openrouterUrl);
           addLog(`Connected to OpenRouter - ${data.models.length} models`, "success");
+          success?.("Модели OpenRouter загружены");
+        } else {
+          addLog("OpenRouter returned no models", "warning");
         }
       } catch (e) {
         addLog(`Failed to connect OpenRouter: ${e.message}`, "error");
+        error?.("Ошибка OpenRouter: " + e.message);
       }
-      success?.("Модели OpenRouter загружены");
     } else {
       availableModels.value = [];
       await loadApiBases();

@@ -11,7 +11,6 @@ import { checkPath, browseFolder, testAsrConnection } from "@/api/client";
 
 const MAX_TOKENS_MIN = 256;
 const MAX_TOKENS_MAX = 65536;
-const ASR_URL_TOKEN_REGEX = /[^\x00-\x7F]/g;
 const DEBOUNCE_SAVE_MS = 300;
 const RESET_FLAG_MS = 500;
 const IGNORE_WATCH_MS = 600;
@@ -159,20 +158,25 @@ export function useSettingsForm(props, emit) {
   async function handleSave() {
     if (isSaving) return;
     configCopy.projectPath = projectPathDraft.value;
-    await checkProjectPath();
-    if (pathError.value) return;
-
+    clearTimeout(saveTimer);
     pendingSave = true;
+    await checkProjectPath();
+    if (pathError.value) {
+      setTimeout(() => {
+        pendingSave = false;
+      }, RESET_FLAG_MS);
+      return;
+    }
+
     loadingStates.value.save = true;
     try {
-      const payload = buildSavePayload();
-      payload.config.token = payload.config.token.trim().replace(ASR_URL_TOKEN_REGEX, "");
-      emit("save", payload);
+      emit("save", buildSavePayload());
     } catch (error) {
       console.error("Manual save failed:", error);
     } finally {
       setTimeout(() => {
         loadingStates.value.save = false;
+        pendingSave = false;
       }, RESET_FLAG_MS);
     }
   }
@@ -230,10 +234,7 @@ export function useSettingsForm(props, emit) {
   }
 
   function adjustTokens(delta) {
-    configCopy.maxTokens = Math.max(
-      MAX_TOKENS_MIN,
-      Math.min(MAX_TOKENS_MAX, configCopy.maxTokens + delta)
-    );
+    configCopy.maxTokens = Math.max(MAX_TOKENS_MIN, Math.min(MAX_TOKENS_MAX, configCopy.maxTokens + delta));
   }
 
   async function browseDirectory() {

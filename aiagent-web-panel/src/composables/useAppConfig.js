@@ -10,6 +10,7 @@ import { configDefaults } from "@backend/lib/configDefaults.js";
 import { updateConfig } from "@/api/client";
 
 const LS_KEY = "agent-config";
+const TOKEN_SANITIZE_REGEX = /[^\x00-\x7F]/g;
 
 /**
  * Базовые значения для localConfig.
@@ -56,7 +57,7 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
 
   function buildLocalStoragePayload() {
     return {
-      ...localConfig.value,
+      ...sanitizeConfigForPersist(localConfig.value),
       systemPrompt: systemPrompt.value,
       apiBases: apiBases.value,
       modelName: modelName.value,
@@ -65,22 +66,34 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
   }
 
   function buildBackendPayload() {
+    const sanitized = sanitizeConfigForPersist(localConfig.value);
     return {
       modelName: modelName.value,
       serverUrl: serverUrl.value,
-      projectPath: localConfig.value.projectPath,
+      projectPath: sanitized.projectPath,
       systemPrompt: systemPrompt.value,
-      maxFileChars: localConfig.value.maxFileChars,
-      maxHistoryPairs: localConfig.value.maxHistoryPairs,
-      maxSearchResults: localConfig.value.maxSearchResults,
-      maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
-      maxTokens: localConfig.value.maxTokens,
-      timeout: localConfig.value.timeout,
-      temperature: localConfig.value.temperature,
-      stream: localConfig.value.stream,
-      insertUserAfterTool: localConfig.value.insertUserAfterTool,
-      openrouterApiKey: localConfig.value.openrouterApiKey || "",
-      token: localConfig.value.token || "",
+      maxFileChars: sanitized.maxFileChars,
+      maxHistoryPairs: sanitized.maxHistoryPairs,
+      maxSearchResults: sanitized.maxSearchResults,
+      maxFilesInPrompt: sanitized.maxFilesInPrompt,
+      maxTokens: sanitized.maxTokens,
+      timeout: sanitized.timeout,
+      temperature: sanitized.temperature,
+      stream: sanitized.stream,
+      insertUserAfterTool: sanitized.insertUserAfterTool,
+      openrouterApiKey: sanitized.openrouterApiKey,
+      token: sanitized.token,
+    };
+  }
+
+  /**
+   * Удалить из токенов/ключей не-ASCII (em-dash и т.п.), которые ломают backend-аутентификацию.
+   */
+  function sanitizeConfigForPersist(cfg) {
+    return {
+      ...cfg,
+      token: (cfg.token || "").trim().replace(TOKEN_SANITIZE_REGEX, ""),
+      openrouterApiKey: (cfg.openrouterApiKey || "").trim().replace(TOKEN_SANITIZE_REGEX, ""),
     };
   }
 
@@ -89,20 +102,26 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
    * @param {boolean|null} [showToast=null] - true=показать тост, false=нет, null=по autoSave
    */
   async function saveSettings(showToast = null) {
+    let backendOk = true;
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(buildLocalStoragePayload()));
     } catch (e) {
-      error(e.message);
+      if (e?.name === "QuotaExceededError" || /quota/i.test(e?.message || "")) {
+        error("Локальное хранилище переполнено — очистите данные браузера");
+      } else {
+        error("Не удалось сохранить настройки локально: " + e.message);
+      }
       return;
     }
     try {
       await updateConfig(buildBackendPayload());
       addLog(`Config updated: ${modelName.value}, projectPath=${localConfig.value.projectPath}`, "info");
     } catch (e) {
+      backendOk = false;
       error(`Failed to update backend config: ${e.message}`);
     }
     const shouldShow = showToast !== null ? showToast : localConfig.value.autoSave;
-    if (shouldShow) success("Настройки сохранены");
+    if (shouldShow && backendOk) success("Настройки сохранены");
   }
 
   /**
@@ -136,6 +155,18 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
   }
 
   function exportConfig() {
+    const hasSecrets = !!localConfig.value.token || !!localConfig.value.openrouterApiKey;
+    if (hasSecrets) {
+      const proceed = window.confirm(
+        "В конфигурации есть Telegram-токен и/или OpenRouter-ключ.\n" +
+          "Эти данные дают полный доступ к боту и аккаунту OpenRouter.\n\n" +
+          "Экспортировать в JSON?"
+      );
+      if (!proceed) {
+        addLog("Config export cancelled (secrets present)", "warning");
+        return;
+      }
+    }
     const data = { ...localConfig.value, systemPrompt: systemPrompt.value };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -180,10 +211,10 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
     if (data.apiBases) {
       apiBases.value = data.apiBases;
     }
-    if (data.modelName) {
+    if (data.modelName !== undefined) {
       modelName.value = data.modelName;
     }
-    if (data.serverUrl) {
+    if (data.serverUrl !== undefined) {
       serverUrl.value = data.serverUrl;
     }
     return saveSettings(true);

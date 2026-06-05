@@ -182,4 +182,30 @@ describe("useAccounts", () => {
     await a.handleImportFile(event);
     expect(a.accounts.value).toEqual([]);
   });
+
+  it("handleImportFile does NOT wipe local accounts when server returns success=false", async () => {
+    const file = new File([JSON.stringify({ accounts: [{ username: "would-be-imported" }] })], "bad.json", {
+      type: "application/json",
+    });
+    vi.spyOn(client, "postImportAccounts").mockResolvedValue({
+      success: false,
+      error: "Invalid roles",
+    });
+    const a = useAccounts();
+    a.accounts.value = [{ username: "local-precious" }];
+    const event = { target: { files: [file], value: "stale" } };
+    await a.handleImportFile(event);
+    expect(a.accounts.value).toEqual([{ username: "local-precious" }]);
+  });
+
+  it("saveAccounts does NOT wipe local accounts when server returns success=false", async () => {
+    vi.spyOn(client, "postAccounts").mockResolvedValue({
+      success: false,
+      error: "Validation failed",
+    });
+    const a = useAccounts();
+    a.accounts.value = [{ username: "local-precious" }];
+    await a.saveAccounts();
+    expect(a.accounts.value).toEqual([{ username: "local-precious" }]);
+  });
 });

@@ -55,12 +55,7 @@
 
       <div>
         <div class="account-toolbar">
-          <input
-            v-model="accountSearch"
-            type="text"
-            placeholder="Поиск..."
-            class="search-input search-input-compact"
-          />
+          <input v-model="accountSearch" type="text" placeholder="Поиск..." class="search-input search-input-compact" />
           <button class="btn btn-secondary btn-sm" @click="importAccounts">Импорт</button>
           <input ref="importFileInput" type="file" accept=".json" style="display: none" @change="handleImportFile" />
         </div>

@@ -106,10 +106,14 @@ export function useAppActions(overrides = {}) {
    * Скопировать системный промпт в буфер обмена.
    * @param {import("vue").Ref<string>} systemPrompt
    */
-  function copyPrompt(systemPrompt) {
-    navigator.clipboard.writeText(systemPrompt.value);
-    success("Скопировано");
-    addLog("Prompt copied to clipboard", "info");
+  async function copyPrompt(systemPrompt) {
+    try {
+      await navigator.clipboard.writeText(systemPrompt.value);
+      success("Скопировано");
+      addLog("Prompt copied to clipboard", "info");
+    } catch (e) {
+      error("Не удалось скопировать: " + e.message);
+    }
   }
 
   return {

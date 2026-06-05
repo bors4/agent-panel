@@ -118,14 +118,26 @@ describe("useAppActions", () => {
     expect(o.success).toHaveBeenCalledWith("Отформатировано");
   });
 
-  it("copyPrompt writes to clipboard and toasts", () => {
+  it("copyPrompt writes to clipboard and toasts", async () => {
     const o = makeOverrides();
     const writeText = vi.fn().mockResolvedValue();
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true, writable: true });
     const a = useAppActions(o);
     const prompt = ref("hello world");
-    a.copyPrompt(prompt);
+    await a.copyPrompt(prompt);
     expect(writeText).toHaveBeenCalledWith("hello world");
     expect(o.success).toHaveBeenCalledWith("Скопировано");
+  });
+
+  it("copyPrompt toasts error when clipboard rejects", async () => {
+    const o = makeOverrides();
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true, writable: true });
+    const a = useAppActions(o);
+    const prompt = ref("hello");
+    await a.copyPrompt(prompt);
+    expect(writeText).toHaveBeenCalledWith("hello");
+    expect(o.error).toHaveBeenCalledWith(expect.stringContaining("denied"));
+    expect(o.success).not.toHaveBeenCalled();
   });
 });

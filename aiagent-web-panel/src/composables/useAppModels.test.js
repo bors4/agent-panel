@@ -11,6 +11,7 @@ function makeDeps(overrides = {}) {
   return {
     addLog: vi.fn(),
     success: vi.fn(),
+    error: vi.fn(),
     maxTokensFallback: ref(overrides.maxTokens ?? 1024),
     ...overrides,
   };
@@ -105,6 +106,7 @@ describe("useAppModels", () => {
       expect.objectContaining({ id: "or1", source: "https://openrouter.ai/api/v1" })
     );
     expect(deps.success).toHaveBeenCalledWith("Модели OpenRouter загружены");
+    expect(deps.error).not.toHaveBeenCalled();
   });
 
   it("updateModels without URL clears availableModels and reloads local bases", async () => {
@@ -118,12 +120,38 @@ describe("useAppModels", () => {
     expect(deps.success).toHaveBeenCalledWith("Модели обновлены");
   });
 
-  it("updateModels with OpenRouter URL logs error on failure", async () => {
+  it("updateModels with OpenRouter URL does NOT toast success and does call error on failure", async () => {
     vi.spyOn(client, "getModels").mockRejectedValue(new Error("or-down"));
     const deps = makeDeps();
     const m = useAppModels(deps);
     await m.updateModels("https://openrouter.ai/api/v1", "k");
     expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("OpenRouter"), "error");
-    expect(deps.success).toHaveBeenCalledWith("Модели OpenRouter загружены");
+    expect(deps.success).not.toHaveBeenCalled();
+    expect(deps.error).toHaveBeenCalledWith(expect.stringContaining("or-down"));
+  });
+
+  it("updateModels with OpenRouter URL logs warning and skips success when no models returned", async () => {
+    vi.spyOn(client, "getModels").mockResolvedValueOnce({ error: "rate-limited" });
+    const deps = makeDeps();
+    const m = useAppModels(deps);
+    await m.updateModels("https://openrouter.ai/api/v1", "k");
+    expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("no models"), "warning");
+    expect(deps.success).not.toHaveBeenCalled();
+  });
+
+  it("loadApiBases preserves user-typed modelName typed during in-flight fetch", async () => {
+    let resolveFetch;
+    vi.spyOn(client, "getModels").mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const m = useAppModels(makeDeps());
+    const promise = m.loadApiBases();
+    m.modelName.value = "user-typed-during-fetch";
+    resolveFetch({ models: [{ id: "m1" }] });
+    await promise;
+    expect(m.modelName.value).toBe("user-typed-during-fetch");
   });
 });
