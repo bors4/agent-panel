@@ -63,7 +63,7 @@ const subtitle = computed(() => {
   border: 1px solid var(--border);
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px));
   position: relative;
-  z-index: 50;
+  z-index: var(--z-sticky);
 }
 
 /* Верхняя акцентная линия */

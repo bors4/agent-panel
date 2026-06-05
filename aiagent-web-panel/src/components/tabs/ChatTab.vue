@@ -93,9 +93,9 @@
                 <button class="msg-action-btn" title="Resend message" @click="resendMessage(msg, index)">↻</button>
               </div>
               <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
-                <span>⚡ {{ msg.usage.total }} tokens</span>
-                <span class="token-detail">(p:{{ msg.usage.prompt }}, c:{{ msg.usage.completion }})</span>
-                <span v-if="msg.usage.cached > 0" class="token-detail">cached:{{ msg.usage.cached }}</span>
+                <span class="tabular-nums">⚡ {{ msg.usage.total }} tokens</span>
+                <span class="token-detail tabular-nums">(p:{{ msg.usage.prompt }}, c:{{ msg.usage.completion }})</span>
+                <span v-if="msg.usage.cached > 0" class="token-detail tabular-nums">cached:{{ msg.usage.cached }}</span>
               </div>
             </template>
           </div>
@@ -1080,7 +1080,7 @@ defineExpose({ clearChatHistory });
 /* Context menu (right-click) */
 .context-menu {
   position: fixed;
-  z-index: 9999;
+  z-index: var(--z-modal);
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1122,7 +1122,7 @@ defineExpose({ clearChatHistory });
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 10000;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;

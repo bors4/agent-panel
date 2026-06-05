@@ -14,19 +14,19 @@
       <div class="tlm__grid">
         <div class="tlm__item">
           <span class="tlm__label">UPTIME</span>
-          <span class="tlm__value tlm__value--green">{{ formattedUptime }}</span>
+          <span class="tlm__value tlm__value--green tabular-nums">{{ formattedUptime }}</span>
         </div>
         <div class="tlm__item">
           <span class="tlm__label">REQUESTS</span>
-          <span class="tlm__value tlm__value--cyan">{{ stats.requests || 0 }}</span>
+          <span class="tlm__value tlm__value--cyan tabular-nums">{{ stats.requests || 0 }}</span>
         </div>
         <div class="tlm__item">
           <span class="tlm__label">TOOLS</span>
-          <span class="tlm__value tlm__value--orange">{{ stats.tools || 0 }}</span>
+          <span class="tlm__value tlm__value--orange tabular-nums">{{ stats.tools || 0 }}</span>
         </div>
         <div class="tlm__item">
           <span class="tlm__label">ERRORS</span>
-          <span class="tlm__value tlm__value--red">{{ stats.errors || 0 }}</span>
+          <span class="tlm__value tlm__value--red tabular-nums">{{ stats.errors || 0 }}</span>
         </div>
       </div>
 
@@ -61,7 +61,9 @@
               transform="rotate(-90 50 50)"
               class="tlm__donut-ring"
             />
-            <text x="50" y="44" text-anchor="middle" class="tlm__donut-val">{{ formatNumber(tokenUsage.total) }}</text>
+            <text x="50" y="44" text-anchor="middle" class="tlm__donut-val tabular-nums">
+              {{ formatNumber(tokenUsage.total) }}
+            </text>
             <text x="50" y="57" text-anchor="middle" class="tlm__donut-max">/{{ formatNumber(maxTokens) }}</text>
           </svg>
           <div class="tlm__bars">
@@ -70,7 +72,7 @@
               <div class="tlm__bar-track">
                 <div class="tlm__bar-fill tlm__bar-cyan" :style="{ width: barPercent(tokenUsage.prompt) + '%' }" />
               </div>
-              <span class="tlm__bar-val">{{ formatNumber(tokenUsage.prompt) }}</span>
+              <span class="tlm__bar-val tabular-nums">{{ formatNumber(tokenUsage.prompt) }}</span>
             </div>
             <div class="tlm__bar-row">
               <span class="tlm__bar-label">CMPLT</span>
@@ -80,7 +82,7 @@
                   :style="{ width: barPercent(tokenUsage.completion) + '%' }"
                 />
               </div>
-              <span class="tlm__bar-val">{{ formatNumber(tokenUsage.completion) }}</span>
+              <span class="tlm__bar-val tabular-nums">{{ formatNumber(tokenUsage.completion) }}</span>
             </div>
             <div class="tlm__bar-row">
               <span class="tlm__bar-label">CACHE</span>
@@ -92,7 +94,7 @@
                 />
                 <span v-else class="tlm__bar-na">—</span>
               </div>
-              <span class="tlm__bar-val">{{ cachedText }}</span>
+              <span class="tlm__bar-val tabular-nums">{{ cachedText }}</span>
             </div>
           </div>
         </div>
@@ -109,13 +111,13 @@
           <div class="tlm__perf-grid">
             <div class="tlm__perf-item">
               <span class="tlm__perf-label">PROMPT</span>
-              <span class="tlm__perf-val">{{ perfStats.prompt_n }}t</span>
-              <span class="tlm__perf-sub">{{ perfStats.prompt_per_second.toFixed(2) }} t/s</span>
+              <span class="tlm__perf-val tabular-nums">{{ perfStats.prompt_n }}t</span>
+              <span class="tlm__perf-sub tabular-nums">{{ perfStats.prompt_per_second.toFixed(2) }} t/s</span>
             </div>
             <div class="tlm__perf-item">
               <span class="tlm__perf-label">GEN</span>
-              <span class="tlm__perf-val">{{ perfStats.predicted_n }}t</span>
-              <span class="tlm__perf-sub">{{ perfStats.predicted_per_second.toFixed(2) }} t/s</span>
+              <span class="tlm__perf-val tabular-nums">{{ perfStats.predicted_n }}t</span>
+              <span class="tlm__perf-sub tabular-nums">{{ perfStats.predicted_per_second.toFixed(2) }} t/s</span>
             </div>
           </div>
           <ul class="tlm__perf-list">

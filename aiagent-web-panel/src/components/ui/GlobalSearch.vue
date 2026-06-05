@@ -155,7 +155,7 @@ onUnmounted(() => {
   transition: var(--transition);
   font-size: 14px;
   position: relative;
-  z-index: 100;
+  z-index: var(--z-dropdown);
 }
 
 .search-trigger:hover {

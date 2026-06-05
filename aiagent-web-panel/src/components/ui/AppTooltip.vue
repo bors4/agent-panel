@@ -17,7 +17,7 @@
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 1000;
+  z-index: var(--z-toast);
   margin-top: 6px;
   padding: 10px 14px;
   background: var(--bg-card);

@@ -1,9 +1,16 @@
 <template>
   <Teleport to="body">
-    <div class="toast-container">
-      <TransitionGroup name="toast">
-        <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
-          <span class="toast-icon">{{ getIcon(toast.type) }}</span>
+    <div class="toast-container" role="region" aria-label="Уведомления">
+      <TransitionGroup name="toast" tag="div">
+        <div
+          v-for="toast in toasts"
+          :key="toast.id"
+          :class="['toast', toast.type]"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span class="toast-icon" aria-hidden="true">{{ getIcon(toast.type) }}</span>
           <span class="toast-message">{{ toast.message }}</span>
         </div>
       </TransitionGroup>
@@ -35,7 +42,7 @@ function getIcon(type) {
   position: fixed;
   top: 20px;
   right: 20px;
-  z-index: 1000;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 8px;

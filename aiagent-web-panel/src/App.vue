@@ -4,6 +4,7 @@
   виджеты. Вся логика вынесена в composables.
 -->
 <template>
+  <a class="skip-link" href="#main-content">Skip to content</a>
   <div class="app-container">
     <Header :status="status" :active-tab="activeTab" @navigate="handleNavigate" />
 
@@ -27,7 +28,7 @@
       <BotCheckCard :token="localConfig.token" />
     </aside>
 
-    <main class="main-content">
+    <main id="main-content" class="main-content">
       <TabBar v-model:active-tab="activeTab" :tabs="tabs" />
 
       <PromptTab
@@ -229,7 +230,7 @@ onMounted(async () => {
   gap: 16px;
   min-height: 100vh;
   background: var(--bg-primary);
-  z-index: 1;
+  z-index: var(--z-elevated);
 }
 
 /* ═══════════════════════════════════════════════
