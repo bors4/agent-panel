@@ -16,7 +16,7 @@ Vue 3 + Vite dashboard for the AI Agent Control Panel. See [root README](../READ
 ```sh
 npm run dev      # Vite dev server on port 5173
 npm run build    # Production build
-npm run test     # Vitest (204 tests)
+npm run test     # Vitest (307 tests)
 ```
 
 ### Compile and Hot-Reload for Development

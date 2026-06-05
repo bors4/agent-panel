@@ -20,7 +20,7 @@
 | `npm run dev` | Both frontend + backend (concurrently) |
 | `npm run backend:dev` | Backend only (port 3000) |
 | `npm run frontend:dev` | Frontend only (port 5173, `/api` → `127.0.0.1:3000`) |
-| `npm run test:all` | All tests (345 backend + 227 frontend = 572 total) |
+| `npm run test:all` | All tests (345 backend + 307 frontend = 652 total) |
 | `npm run backend:test` | Backend tests (Vitest, 7 files) |
 | `npm run frontend:test` | Frontend tests (Vitest, 6 files — must run from `aiagent-web-panel/`) |
 | `npm run lint` | ESLint flat config (0 errors, 0 warnings required) |
@@ -160,7 +160,7 @@ Per-tool overrides via `permissions` object. `include_paths` restricts file oper
 ## Vue Component Patterns
 
 - **No `v-model` on props**: Use local ref + `emit("update:modelValue", value)`
-- **State**: Composables (`src/composables/` — `useAgent`, `useToast`, `useSound`, `useVoiceInput`, `useWebSocket`, `useToolsConfig`, `useAccounts`, `useSettingsForm`, `useAppConfig`, `useAppModels`, `useAppActions`, `useAppBoot`) + `localStorage` (`agent-config` key). The `src/stores/` directory is currently empty.
+- **State**: Composables (`src/composables/` — `useAgent`, `useToast`, `useSound`, `useVoiceInput`, `useWebSocket`, `useToolsConfig`, `useAccounts`, `useSettingsForm`, `useAppConfig`, `useAppModels`, `useAppActions`, `useAppBoot`, `useChatHistory`, `useChatToggles`, `useChatCancel`, `usePendingApproval`, `useChatSend`) + `localStorage` (`agent-config` key). The `src/stores/` directory is currently empty.
 - **SettingsTab**: `configCopy` reactive + `watch` with 300ms debounce auto-save
 - **Vite HMR overlay**: Disabled (prevents false error popups)
 - **Frontend tests**: Must be run from `aiagent-web-panel/` (not repo root) — `npx vitest run` from there picks up the local `vitest.config.js` with the `@` alias.
