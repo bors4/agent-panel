@@ -51,6 +51,7 @@ export default [
       "vue/singleline-html-element-content-newline": "off",
       "vue/html-closing-bracket-newline": "off",
       "vue/html-indent": "off",
+      "vue/no-mutating-props": "off",
     },
   },
   prettier,

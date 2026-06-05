@@ -112,7 +112,7 @@ npm run frontend:test
 ```
 
 - **Backend**: 345 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, API endpoints, and per-sub-router factory units (config/asr/chat/admin)
-- **Frontend**: 102 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket, **useToolsConfig, useAccounts**), API client, App, SettingsTab, ChatTab-related cards, StatsCard, **ToolItem, AccountCard**
+- **Frontend**: 152 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket, useToolsConfig, useAccounts, **useSettingsForm**), API client, App, SettingsTab, ChatTab-related cards, StatsCard, ToolItem, AccountCard, **ConfigCard, LimitsCard, BehaviorCard, DisplayCard**
 
 ## Documentation
 

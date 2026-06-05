@@ -20,7 +20,7 @@
 | `npm run dev` | Both frontend + backend (concurrently) |
 | `npm run backend:dev` | Backend only (port 3000) |
 | `npm run frontend:dev` | Frontend only (port 5173, `/api` → `127.0.0.1:3000`) |
-| `npm run test:all` | All tests (345 backend + 102 frontend = 447 total) |
+| `npm run test:all` | All tests (345 backend + 152 frontend = 497 total) |
 | `npm run backend:test` | Backend tests (Vitest, 7 files) |
 | `npm run frontend:test` | Frontend tests (Vitest, 6 files — must run from `aiagent-web-panel/`) |
 | `npm run lint` | ESLint flat config (0 errors, 0 warnings required) |
