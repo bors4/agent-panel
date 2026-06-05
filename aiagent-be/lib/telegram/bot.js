@@ -46,7 +46,8 @@ function accountMiddleware(getAccountByUsername) {
 export function initBot(token) {
   if (!token) return null;
   const b = new Bot(token);
-  b.api.config.use(autoRetry());
+  const maxRetries = parseInt(process.env.MAX_RETRIES, 10);
+  b.api.config.use(autoRetry({ maxRetryAttempts: Number.isFinite(maxRetries) ? maxRetries : 3 }));
   b.use(stream());
   b.use(accountMiddleware(getAccountByUsername));
 

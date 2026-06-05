@@ -30,7 +30,8 @@ export function loadAccounts(projectPath) {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(raw);
-    accounts = parsed.accounts || [];
+    const loaded = parsed.accounts || [];
+    accounts = loaded.map(sanitizeAccount);
   } catch (e) {
     if (e.code === "ENOENT") {
       // File doesn't exist - graceful no-op (accounts remain unchanged)
@@ -44,6 +45,25 @@ export function loadAccounts(projectPath) {
     console.error(`[accounts] Corrupted ${filePath}, backed up to ${backupPath}:`, e.message);
     accounts = [];
   }
+}
+
+/**
+ * Drop unknown permission keys so stale `accounts.json` (e.g. after tool
+ * removal/rename) cannot grant access to non-existent tools.
+ * @param {Object} account
+ * @returns {Object}
+ */
+function sanitizeAccount(account) {
+  if (!account || typeof account !== "object" || !account.permissions) return account;
+  const cleaned = {};
+  for (const [tool, allowed] of Object.entries(account.permissions)) {
+    if (ALL_TOOLS.includes(tool)) {
+      cleaned[tool] = allowed;
+    } else {
+      console.warn(`[accounts] Dropped unknown permission '${tool}' for @${account.username || "?"}`);
+    }
+  }
+  return { ...account, permissions: cleaned };
 }
 
 /**

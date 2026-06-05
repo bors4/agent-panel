@@ -9,13 +9,14 @@ import {
   chatHistories,
   activeAgentControllers,
   pendingApprovals,
+  agentLogs,
   config,
   runtime,
   stats,
   tokenUsage,
 } from "../state.js";
 import { addLog, updateStatus } from "./log.js";
-import { replyMsg, REPLY_OPTS } from "./reply.js";
+import { replyMsg, REPLY_OPTS, sendLongMessage } from "./reply.js";
 
 /**
  * Register all command handlers on a Bot instance.
@@ -51,6 +52,7 @@ export function registerCommands(b) {
         `/model — Current model + server\n` +
         `/tools — Tools available for you\n` +
         `/tasks — Active background tasks\n` +
+        `/logs [N] — Last N log lines (default 10, max 50)\n` +
         `/reset — Clear conversation history\n` +
         `/cancel — Cancel current request\n` +
         `/mode chat|project — Switch context mode\n\n` +
@@ -138,6 +140,27 @@ export function registerCommands(b) {
     ctx.reply(`⏳ Active tasks:\n${lines.join("\n")}`, REPLY_OPTS);
   });
 
+  b.command("logs", async (ctx) => {
+    const text = ctx.message?.text || "";
+    const parts = text.trim().split(/\s+/);
+    const requested = parseInt(parts[1], 10);
+    const limit = Number.isFinite(requested) ? Math.max(1, Math.min(50, requested)) : 10;
+
+    if (agentLogs.length === 0) {
+      await replyMsg(ctx, "📋 No logs yet.");
+      return;
+    }
+
+    const recent = agentLogs.slice(-limit);
+    const lines = recent.map((entry, idx) => {
+      const time = new Date(entry.time).toLocaleTimeString();
+      const icon = typeIcon(entry.type);
+      return `${idx + 1}. <code>${time}</code> ${icon} ${escapeHtml(entry.message)}`;
+    });
+    const header = `📋 <b>Last ${recent.length} log line(s):</b>\n\n`;
+    await sendLongMessage(ctx, header + lines.join("\n"));
+  });
+
   b.command("cancel", async (ctx) => {
     const chatId = ctx.chat.id.toString();
     const text = ctx.message?.text || "";
@@ -202,4 +225,29 @@ export function registerCommands(b) {
 
   // Silence unused import warning
   void addLog;
+}
+
+/** Map log type → emoji icon. */
+function typeIcon(type) {
+  switch (type) {
+    case "error":
+      return "❌";
+    case "warning":
+    case "warn":
+      return "⚠️";
+    case "success":
+      return "✅";
+    case "system":
+      return "⚙️";
+    default:
+      return "ℹ️";
+  }
+}
+
+/** Escape characters that Telegram Markdown would interpret. */
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

@@ -111,8 +111,8 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 345 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, API endpoints, and per-sub-router factory units (config/asr/chat/admin)
-- **Frontend**: 307 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket, useToolsConfig, useAccounts, useSettingsForm, useAppConfig, useAppModels, useAppActions, useAppBoot, **useChatHistory, useChatToggles, useChatCancel, usePendingApproval**), API client, App, SettingsTab-related cards, ChatTab child components (**ChatHeader, MessageBubble, ChatInput, ConfirmDialog, ContextMenu**), StatsCard, ToolItem, AccountCard, ConfigCard, LimitsCard, BehaviorCard, DisplayCard, TabBar
+- **Backend**: 348 tests covering safePath, parseToolCall, executeTool, accounts (incl. permission sanitisation), agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, API endpoints, and per-sub-router factory units (config/asr/chat/admin)
+- **Frontend**: 308 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket (incl. batched ring buffer), useToolsConfig, useAccounts, useSettingsForm, useAppConfig, useAppModels, useAppActions, useAppBoot, **useChatHistory, useChatToggles, useChatCancel, usePendingApproval**), API client, App, SettingsTab-related cards, ChatTab child components (**ChatHeader, MessageBubble, ChatInput, ConfirmDialog, ContextMenu**), StatsCard, ToolItem, AccountCard, ConfigCard, LimitsCard, BehaviorCard, DisplayCard, TabBar
 
 ## Documentation
 
@@ -258,7 +258,7 @@ aiagent-be/
 │   ├── accounts.js        # Account management
 │   ├── logger.js          # Structured logging with rotation
 │   └── utils.js           # Path safety and tool call parsing
-├── tests/                 # Backend tests (Vitest, 345 tests)
+├── tests/                 # Backend tests (Vitest, 348 tests)
 └── logs/                  # Application logs
 
 aiagent-web-panel/

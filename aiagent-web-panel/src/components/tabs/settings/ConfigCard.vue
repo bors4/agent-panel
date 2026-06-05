@@ -165,6 +165,18 @@
       </span>
       <span class="hint">Для голосовых сообщений Telegram. Оставьте пустым для Web Speech API.</span>
     </div>
+
+    <div class="form-group">
+      <div class="form-label">
+        <label>ASR_LANGUAGE</label>
+        <span class="hint">ISO 639-1 (ru, en, de, …)</span>
+      </div>
+      <input v-model="config.asrLanguage" type="text" class="form-input" placeholder="ru" maxlength="5" />
+      <span class="hint">
+        Используется при распознавании через ASR-сервер. Для локального whisper.cpp — тоже применяется как language hint
+        (whisper сам определит, если не указан).
+      </span>
+    </div>
   </Card>
 </template>
 

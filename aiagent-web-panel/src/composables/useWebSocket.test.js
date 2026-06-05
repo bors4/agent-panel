@@ -191,19 +191,36 @@ describe("useWebSocket", () => {
     expect(composable.stats.value.errors).toBe(1);
   });
 
-  it("dispatches 'log' message: pushes to logs, caps at 200", async () => {
+  it("dispatches 'log' message: batched splice keeps buffer ≤220 with amortised O(1) per push", async () => {
     const { composable: c } = mountUseWebSocket();
     MockWebSocket.last().simulateOpen();
     await nextTick();
-    // Push 205 messages
-    for (let i = 0; i < 205; i++) {
+    // Push 250 messages. With the batched splice (20 items per trim, threshold 220),
+    // the buffer oscillates in [180, 220] in steady state.
+    for (let i = 0; i < 250; i++) {
       MockWebSocket.last().simulateMessage({ type: "log", data: { message: `log-${i}`, time: "t", type: "info" } });
     }
     await nextTick();
-    expect(c.logs.value).toHaveLength(200);
-    // Oldest logs (0-4) should be shifted out
-    expect(c.logs.value[0].message).toBe("log-5");
-    expect(c.logs.value[199].message).toBe("log-204");
+    // Buffer must be capped well below the 250 we pushed.
+    expect(c.logs.value.length).toBeLessThanOrEqual(220);
+    // And it must retain at least the most recent batch (180+) — never empty.
+    expect(c.logs.value.length).toBeGreaterThanOrEqual(180);
+    // The very latest push must be present.
+    expect(c.logs.value[c.logs.value.length - 1].message).toBe("log-249");
+  });
+
+  it("keeps logs below threshold (≤220) without splicing — O(1) per push", async () => {
+    const { composable: c } = mountUseWebSocket();
+    MockWebSocket.last().simulateOpen();
+    await nextTick();
+    for (let i = 0; i < 220; i++) {
+      MockWebSocket.last().simulateMessage({ type: "log", data: { message: `log-${i}`, time: "t", type: "info" } });
+    }
+    await nextTick();
+    // Below trigger threshold, no splice happens — all 220 are preserved.
+    expect(c.logs.value).toHaveLength(220);
+    expect(c.logs.value[0].message).toBe("log-0");
+    expect(c.logs.value[219].message).toBe("log-219");
   });
 
   it("dispatches 'tokenUsage' message: replaces tokenUsage", async () => {

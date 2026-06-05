@@ -20,7 +20,7 @@
 | `npm run dev` | Both frontend + backend (concurrently) |
 | `npm run backend:dev` | Backend only (port 3000) |
 | `npm run frontend:dev` | Frontend only (port 5173, `/api` → `127.0.0.1:3000`) |
-| `npm run test:all` | All tests (345 backend + 307 frontend = 652 total) |
+| `npm run test:all` | All tests (348 backend + 308 frontend = 656 total) |
 | `npm run backend:test` | Backend tests (Vitest, 7 files) |
 | `npm run frontend:test` | Frontend tests (Vitest, 6 files — must run from `aiagent-web-panel/`) |
 | `npm run lint` | ESLint flat config (0 errors, 0 warnings required) |
@@ -59,8 +59,13 @@ Updates are direct field assignment (no `Object.assign`, no separate sync call).
 
 **ASR env vars** (non-secret, safe in `.env`):
 - `FFMPEG_PATH` — absolute path to `ffmpeg.exe` (auto-detected on PATH otherwise)
-- `ASR_SERVER_URL` — remote whisper.cpp `/inference` URL (empty = local whisper-cpp fallback)
+- `ASR_SERVER_URL` — remote whisper.cpp `/inference` URL. **Remote ASR preferred** — lower CPU/RAM, no model file download (saves ~1.5 GB on disk). Empty = local `whisper-cpp-node` fallback (model `large-v3-turbo`).
 - `ASR_TIMEOUT` — ASR request timeout in ms (default `120000`)
+
+**ASR architecture:**
+- `aiagent-be/lib/asrClient.js` — SSRF-safe HTTP client for remote whisper.cpp server (POST multipart audio to `/inference`)
+- `aiagent-be/lib/whisper.js` — Local `whisper-cpp-node` ESM wrapper (fallback only — CPU-intensive, ~1.5 GB model download)
+- Voice input flow always goes through `agentLoopStep()` — same path as text, no separate route
 
 ## Voice Input
 

@@ -78,7 +78,9 @@ if (config.projectPath && config.projectPath !== process.cwd() && fs.existsSync(
 
 // ─── Express middleware ──────────────────────────────────────────────────────
 
-app.use(cors());
+// CORS: по умолчанию "*" (локальная разработка). Для прод-деплоя задайте
+// CORS_ORIGIN=https://your-domain.com через .env или process.env.
+app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(requestLogger);
 

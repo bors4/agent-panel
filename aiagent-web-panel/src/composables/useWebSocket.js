@@ -65,7 +65,10 @@ export function useWebSocket() {
             break;
           case "log":
             logs.value.push(data);
-            if (logs.value.length > 200) logs.value.shift();
+            // Batched splice: trim 20 items at a time once we exceed 220,
+            // keeping the buffer in the [180, 220] range with amortised O(1)
+            // per push. Replaces the previous O(n) shift() on every push.
+            if (logs.value.length > 220) logs.value.splice(0, 20);
             break;
           case "tokenUsage":
             tokenUsage.value = { ...data };

@@ -4,7 +4,7 @@
 
 import path from "path";
 import fs from "fs";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   loadAccounts,
   saveAccounts,
@@ -257,5 +257,44 @@ describe("isToolEnabledForAccount", () => {
   it("returns true when no config entry", () => {
     const account = { permissions: { read: true } };
     expect(isToolEnabledForAccount(account, "read", {})).toBe(true);
+  });
+});
+
+describe("loadAccounts — permission sanitisation", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("strips unknown permission keys (stale/renamed tool names)", () => {
+    saveAccounts(testDir, [
+      {
+        username: "@old",
+        role: "user",
+        permissions: { read: true, deleted_tool: true, renamed_tool: false, write: true },
+      },
+    ]);
+    loadAccounts(testDir);
+    const loaded = getAccounts()[0];
+    expect(loaded.permissions).toEqual({ read: true, write: true });
+    expect(loaded.permissions.deleted_tool).toBeUndefined();
+    expect(loaded.permissions.renamed_tool).toBeUndefined();
+  });
+
+  it("warns once per dropped unknown permission", () => {
+    saveAccounts(testDir, [{ username: "@alice", role: "user", permissions: { read: true, ghost: true } }]);
+    loadAccounts(testDir);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("ghost"));
+  });
+
+  it("preserves accounts with no permissions field", () => {
+    saveAccounts(testDir, [{ username: "@noperms", role: "user" }]);
+    loadAccounts(testDir);
+    const loaded = getAccounts()[0];
+    expect(loaded.username).toBe("@noperms");
+    expect(loaded.permissions).toBeUndefined();
   });
 });
