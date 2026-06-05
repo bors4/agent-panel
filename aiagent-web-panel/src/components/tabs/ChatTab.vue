@@ -1,28 +1,26 @@
+<!--
+  Вкладка чата для тестирования AI агента. Поддерживает отправку сообщений,
+  отображение истории, очистку чата. История сохраняется в localStorage.
+
+  Структура:
+  - useChatHistory    — localStorage persistence (история, approval state)
+  - useChatToggles    — agent mode + reasoning toggles
+  - useChatCancel     — AbortController + cancelChat integration
+  - usePendingApproval — approval-флоу (approve/reject → continue)
+  - useChatSend       — send-флоу (agent/direct/streaming)
+  - Child components  — рендеринг отдельных блоков
+-->
 <template>
   <Card>
     <template #header>
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <h3 class="mono-label">COM://CHAT</h3>
-          <span class="chat-status" :class="{ active: isActive }">
-            <span class="chat-dot" />
-            {{ isActive ? "ONLINE" : "OFFLINE" }}
-          </span>
-        </div>
-        <div class="chat-header-right">
-          <span v-if="verbose" class="verbose-badge">VERBOSE</span>
-          <label class="agent-toggle" title="Toggle reasoning display">
-            <span class="toggle-label" :class="{ active: showReasoning }">REASONING</span>
-            <input type="checkbox" :checked="showReasoning" @change="toggleReasoning" />
-            <span class="toggle-slider" />
-          </label>
-          <label class="agent-toggle" title="Toggle agent loop with tools">
-            <span class="toggle-label">AGENT</span>
-            <input v-model="agentMode" type="checkbox" @change="onAgentModeChange" />
-            <span class="toggle-slider" />
-          </label>
-        </div>
-      </div>
+      <ChatHeader
+        :is-active="isActive"
+        :verbose="verbose"
+        :show-reasoning="showReasoning"
+        :agent-mode="agentMode"
+        @toggle-reasoning="toggleReasoning"
+        @toggle-agent="toggleAgentMode"
+      />
     </template>
     <div class="chat-container" @contextmenu.prevent="showContextMenu">
       <div ref="chatContainer" class="chat-messages">
@@ -32,74 +30,36 @@
             {{ isActive ? "Введите сообщение для начала диалога" : "Запустите агента для начала общения" }}
           </div>
         </div>
-        <div
-          v-for="(msg, index) in messages"
-          :key="index"
-          :class="['chat-msg', msg.role, msg.type ? 'msg-' + msg.type : '']"
-        >
-          <div class="chat-avatar">
-            <template v-if="msg.type === 'tool_call'">🔧</template>
-            <template v-else-if="msg.type === 'tool_result'">📊</template>
-            <template v-else-if="msg.type === 'approval'">🔐</template>
-            <template v-else>{{ msg.role === "user" ? "👤" : "🤖" }}</template>
+        <template v-for="(msg, index) in messages" :key="index">
+          <MessageBubble
+            v-if="!msg.type"
+            :msg="msg"
+            :show-reasoning="showReasoning"
+            :show-tokens="showTokens"
+            :is-typing="isTyping"
+            :is-streaming="isStreaming"
+            @resend="(m) => onResend(m, index)"
+          />
+          <div v-else class="chat-msg system" :class="'msg-' + msg.type">
+            <div class="chat-avatar">
+              <template v-if="msg.type === 'tool_call'">🔧</template>
+              <template v-else-if="msg.type === 'tool_result'">📊</template>
+              <template v-else-if="msg.type === 'approval'">🔐</template>
+              <template v-else>⚙️</template>
+            </div>
+            <div class="chat-msg-col">
+              <ToolCallBlock v-if="msg.type === 'tool_call'" :msg="msg" />
+              <ToolResultBlock v-else-if="msg.type === 'tool_result'" :msg="msg" />
+              <ApprovalBlock
+                v-else-if="msg.type === 'approval'"
+                :msg="msg"
+                @approve="(m) => handleToolDecision(m, true)"
+                @reject="(m) => handleToolDecision(m, false)"
+              />
+              <div v-else class="chat-bubble system-msg">{{ msg.content }}</div>
+            </div>
           </div>
-          <div class="chat-msg-col">
-            <!-- Tool call block -->
-            <div v-if="msg.type === 'tool_call'" class="tool-call-block" :class="{ collapsed: !msg.expanded }">
-              <div class="tool-call-header" @click="msg.expanded = !msg.expanded">
-                <span class="tool-call-name">🔧 {{ msg.toolName }}({{ msg.toolArgsShort }})</span>
-                <span class="tool-call-toggle">{{ msg.expanded ? "▲" : "▼" }}</span>
-              </div>
-              <pre v-if="msg.expanded" class="tool-call-args">{{ msg.toolArgsPretty }}</pre>
-            </div>
-            <!-- Tool result block -->
-            <div v-else-if="msg.type === 'tool_result'" class="tool-result-block" :class="{ collapsed: !msg.expanded }">
-              <div class="tool-result-header" @click="msg.expanded = !msg.expanded">
-                <span class="tool-result-status" :class="msg.success ? 'success' : 'error'">
-                  {{ msg.success ? "✅" : "❌" }}
-                </span>
-                <span class="tool-result-label">{{ msg.success ? "Успешно" : "Ошибка" }}</span>
-                <span class="tool-call-toggle">{{ msg.expanded ? "▲" : "▼" }}</span>
-              </div>
-              <pre v-if="msg.expanded" class="tool-result-output">{{ msg.output }}</pre>
-            </div>
-            <!-- Approval request block -->
-            <div v-else-if="msg.type === 'approval'" class="approval-block">
-              <div class="approval-header">🔐 Требуется одобрение</div>
-              <div class="approval-tool">
-                Инструмент: <strong>{{ msg.toolName }}</strong>
-              </div>
-              <pre class="approval-args">{{ msg.toolArgsPretty }}</pre>
-              <div class="approval-buttons">
-                <button class="approval-btn approve" @click="approveTool(msg)">✅ Одобрить</button>
-                <button class="approval-btn reject" @click="rejectTool(msg)">❌ Отклонить</button>
-              </div>
-            </div>
-            <!-- Regular message -->
-            <template v-else>
-              <div v-if="showReasoning && msg.reasoning && msg.role === 'bot'" class="reasoning-block">
-                <div class="reasoning-header" @click="msg.reasoningExpanded = !msg.reasoningExpanded">
-                  <span class="reasoning-icon">💭</span>
-                  <span class="reasoning-label">Reasoning</span>
-                  <span class="tool-call-toggle">{{ msg.reasoningExpanded ? "▲" : "▼" }}</span>
-                </div>
-                <pre v-if="msg.reasoningExpanded" class="reasoning-content">{{ msg.reasoning }}</pre>
-              </div>
-              <div class="chat-bubble" :class="{ streaming: msg.streaming }">
-                {{ msg.content }}
-                <span v-if="msg.streaming && msg.content" class="cursor-blink">|</span>
-              </div>
-              <div v-if="msg.role === 'user' && !isTyping && !isStreaming" class="msg-actions">
-                <button class="msg-action-btn" title="Resend message" @click="resendMessage(msg, index)">↻</button>
-              </div>
-              <div v-if="showTokens && msg.usage && msg.role === 'bot'" class="token-info">
-                <span class="tabular-nums">⚡ {{ msg.usage.total }} tokens</span>
-                <span class="token-detail tabular-nums">(p:{{ msg.usage.prompt }}, c:{{ msg.usage.completion }})</span>
-                <span v-if="msg.usage.cached > 0" class="token-detail tabular-nums">cached:{{ msg.usage.cached }}</span>
-              </div>
-            </template>
-          </div>
-        </div>
+        </template>
         <div v-if="isTyping" class="chat-msg bot">
           <div class="chat-avatar">🤖</div>
           <div class="chat-bubble">
@@ -111,80 +71,58 @@
           </div>
         </div>
       </div>
-      <div class="chat-input-area">
-        <input
-          v-model="inputMessage"
-          type="text"
-          class="chat-input"
-          :disabled="!isActive"
-          :placeholder="isActive ? 'Введите сообщение...' : 'Сначала запустите агента'"
-          @keypress="handleKeypress"
-        />
-        <button
-          v-if="voiceSupported"
-          class="chat-mic"
-          :class="{ recording: isRecording, processing: isVoiceProcessing }"
-          :disabled="isVoiceProcessing || isTyping || isStreaming"
-          :title="isRecording ? 'Остановить запись' : isVoiceProcessing ? 'Очистка текста...' : 'Голосовой ввод'"
-          @click="toggleRecording"
-        >
-          {{ isVoiceProcessing ? "⏳" : isRecording ? "⏹" : "🎙" }}
-        </button>
-        <button
-          class="chat-send"
-          :disabled="!isActive || !inputMessage.trim() || isCancelling || isTyping"
-          @click="sendMessage"
-        >
-          ➤
-        </button>
-        <button v-if="isTyping || isStreaming" class="chat-stop" title="Отменить запрос" @click="handleStop">■</button>
-        <button class="chat-clear" :disabled="messages.length === 0" title="Очистить чат" @click="handleClearChat">
-          🗑
-        </button>
-      </div>
-      <div v-if="isRecording || isVoiceProcessing" class="voice-status">
-        <span v-if="isRecording" class="voice-pulse"></span>
-        <span class="voice-status-text">{{
-          isVoiceProcessing ? "Очистка текста..." : interimTranscript || voiceTranscript || "Говорите..."
-        }}</span>
-      </div>
-      <div v-if="voiceError" class="voice-error">{{ voiceError }}</div>
+
+      <ChatInput
+        v-model:input-message="inputMessage"
+        :is-active="isActive"
+        :is-typing="isTyping"
+        :is-streaming="isStreaming"
+        :is-cancelling="isCancelling"
+        :messages-count="messages.length"
+        :voice-supported="voiceSupported"
+        :is-recording="isRecording"
+        :is-voice-processing="isVoiceProcessing"
+        :voice-transcript="voiceTranscript"
+        :interim-transcript="interimTranscript"
+        :voice-error="voiceError"
+        @send="onSend"
+        @stop="handleStop"
+        @clear="handleClearChat"
+        @toggle-recording="toggleRecording"
+      />
     </div>
-    <Transition name="contextmenu-fade">
-      <div
-        v-if="contextMenuVisible"
-        class="context-menu"
-        :style="{ top: menuY + 'px', left: menuX + 'px' }"
-        @contextmenu.prevent
-      >
-        <div class="context-menu-item" @click="handleClearChat">🗑️ Очистить чат</div>
-      </div>
-    </Transition>
-    <Transition name="confirm-fade">
-      <div v-if="showConfirm" class="confirm-overlay" @click.self="showConfirm = false">
-        <div class="confirm-dialog">
-          <p>Очистить весь чат? История сообщений будет удалена.</p>
-          <div class="confirm-actions">
-            <button class="confirm-btn cancel" @click="showConfirm = false">Отмена</button>
-            <button class="confirm-btn confirm" @click="confirmClearChat">Очистить</button>
-          </div>
-        </div>
-      </div>
-    </Transition>
+
+    <ContextMenu :visible="contextMenuVisible" :x="menuX" :y="menuY" @action="onContextAction" />
+
+    <ConfirmDialog
+      :visible="showConfirm"
+      message="Очистить весь чат? История сообщений будет удалена."
+      confirm-label="Очистить"
+      cancel-label="Отмена"
+      @confirm="confirmClearChat"
+      @cancel="showConfirm = false"
+    />
   </Card>
 </template>
 
-<!--
-  Компонент чата для тестирования AI агента.
-  Поддерживает отправку сообщений, отображение истории, очистку чата.
-  История сохраняется в localStorage.
--->
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { ref, onMounted, watch } from "vue";
 import Card from "../ui/Card.vue";
-import { directChat, directChatStream, agentChat, agentChatContinue, cancelChat } from "@/api/client";
 import { useSound } from "@/composables/useSound";
 import { useVoiceInput } from "@/composables/useVoiceInput";
+import { useChatHistory } from "@/composables/useChatHistory";
+import { useChatToggles } from "@/composables/useChatToggles";
+import { useChatCancel } from "@/composables/useChatCancel";
+import { usePendingApproval } from "@/composables/usePendingApproval";
+import { useChatSend } from "@/composables/useChatSend";
+import ChatHeader from "./chat/ChatHeader.vue";
+import MessageBubble from "./chat/MessageBubble.vue";
+import ToolCallBlock from "./chat/ToolCallBlock.vue";
+import ToolResultBlock from "./chat/ToolResultBlock.vue";
+import ApprovalBlock from "./chat/ApprovalBlock.vue";
+import ChatInput from "./chat/ChatInput.vue";
+import ContextMenu from "./chat/ContextMenu.vue";
+import ConfirmDialog from "./chat/ConfirmDialog.vue";
 
 const props = defineProps({
   isActive: Boolean,
@@ -201,16 +139,29 @@ const props = defineProps({
 
 const emit = defineEmits(["log", "token-usage"]);
 
-const messages = ref([]);
-const inputMessage = ref("");
-const isTyping = ref(false);
-const isStreaming = ref(false);
-const streamingContent = ref("");
-const streamingReasoning = ref("");
-const reasoningDone = ref(false);
-const chatContainer = ref(null);
+const { messages, approvalMessages, clearAll: clearAllHistory } = useChatHistory();
+const { agentMode, showReasoning, toggleAgentMode, toggleReasoning } = useChatToggles();
+const cancel = useChatCancel();
+const pending = usePendingApproval({ messages, approvalMessages, cancel });
 
-const { send: playSend, receive: playReceive, setVolume } = useSound({ volume: props.soundVolume });
+const inputMessage = ref("");
+const chatContainer = ref(null);
+const showConfirm = ref(false);
+const contextMenuVisible = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
+
+const sound = useSound({ volume: props.soundVolume });
+watch(
+  () => props.soundVolume,
+  (v) => sound.setVolume(v)
+);
+
+const voice = useVoiceInput({
+  onResult: (cleanedText) => {
+    inputMessage.value = cleanedText;
+  },
+});
 
 const {
   isRecording,
@@ -221,717 +172,102 @@ const {
   isSupported: voiceSupported,
   toggleRecording,
   cancel: cancelVoice,
-} = useVoiceInput({
-  onResult: (cleanedText) => {
-    inputMessage.value = cleanedText;
+} = voice;
+
+const sendDeps = {
+  messages,
+  approvalMessages,
+  pendingToolCalls: pending.pendingToolCalls,
+  chatContainer,
+  cancel,
+  pending,
+  toggles: { agentMode },
+  options: {
+    modelName: props.modelName,
+    serverUrl: props.serverUrl,
+    projectPath: props.projectPath,
+    systemPrompt: props.systemPrompt,
+    streamEnabled: props.streamEnabled,
+    verbose: props.verbose,
+    soundEnabled: props.soundEnabled,
+    soundVolume: props.soundVolume,
+    sound,
   },
-});
+};
+const { isTyping, isStreaming, sendMessage, resendMessage, scrollToBottom } = useChatSend(sendDeps);
 
-// Отмена запросов
-const abortController = ref(null);
-const isCancelling = ref(false);
-const lastAbortId = ref(null);
+const isCancelling = cancel.isCancelling;
 
-watch(
-  () => props.soundVolume,
-  (v) => setVolume(v)
-);
-
-// Agent mode state
-const AGENT_MODE_KEY = "agent-chat-mode";
-const SHOW_REASONING_KEY = "agent-show-reasoning";
-const agentMode = ref(localStorage.getItem(AGENT_MODE_KEY) !== "false");
-const showReasoning = ref(localStorage.getItem(SHOW_REASONING_KEY) !== "false");
-const pendingApproval = ref(null);
-const pendingToolCalls = ref([]);
-const approvalMessages = ref([]);
-
-function onAgentModeChange() {
-  localStorage.setItem(AGENT_MODE_KEY, agentMode.value.toString());
+function emitLog(entry) {
+  emit("log", entry);
 }
 
-function toggleReasoning() {
-  showReasoning.value = !showReasoning.value;
-  localStorage.setItem(SHOW_REASONING_KEY, showReasoning.value.toString());
+function emitTokenUsage(usage) {
+  emit("token-usage", usage);
 }
 
-function handleStop() {
-  if (isCancelling.value || !abortController.value) return;
-  isCancelling.value = true;
-  // Отменяем на фронтенде — закрываем fetch
-  abortController.value.abort();
-  abortController.value = null;
-  // Отменяем на бэкенде через /chat/cancel (только для agent loop)
-  if (lastAbortId.value) {
-    cancelChat(lastAbortId.value).catch(() => {});
-    lastAbortId.value = null;
-  }
+async function onSend() {
+  if (!inputMessage.value.trim()) return;
+  if (isRecording.value) cancelVoice();
+  const text = inputMessage.value.trim();
+  inputMessage.value = "";
+  await sendMessage(text, emitLog, emitTokenUsage);
 }
 
-// 🔥 Константы для localStorage
-const CHAT_HISTORY_KEY = "agent-chat-history";
-const APPROVAL_MESSAGES_KEY = "agent-approval-messages";
-const MAX_HISTORY_LENGTH = 50;
-
-function saveApprovalMessages(msgs) {
-  try {
-    localStorage.setItem(APPROVAL_MESSAGES_KEY, JSON.stringify(msgs));
-  } catch {}
-}
-
-function loadApprovalMessages() {
-  try {
-    const saved = localStorage.getItem(APPROVAL_MESSAGES_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch {}
-  return [];
-}
-
-function clearApprovalMessages() {
-  localStorage.removeItem(APPROVAL_MESSAGES_KEY);
-}
-
-// 🔥 Pending approval persistence
-const PENDING_APPROVAL_KEY = "agent-pending-approval";
-const PENDING_TOOL_CALLS_KEY = "agent-pending-tool-calls";
-
-function savePendingApproval(approval) {
-  try {
-    if (approval) {
-      localStorage.setItem(PENDING_APPROVAL_KEY, JSON.stringify(approval));
-    } else {
-      localStorage.removeItem(PENDING_APPROVAL_KEY);
-    }
-  } catch {}
-}
-
-function loadPendingApproval() {
-  try {
-    const saved = localStorage.getItem(PENDING_APPROVAL_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch {}
-  return null;
-}
-
-function savePendingToolCalls(toolCalls) {
-  try {
-    if (toolCalls && toolCalls.length > 0) {
-      localStorage.setItem(PENDING_TOOL_CALLS_KEY, JSON.stringify(toolCalls));
-    } else {
-      localStorage.removeItem(PENDING_TOOL_CALLS_KEY);
-    }
-  } catch {}
-}
-
-function loadPendingToolCalls() {
-  try {
-    const saved = localStorage.getItem(PENDING_TOOL_CALLS_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch {}
-  return [];
-}
-
-// 🔥 Именованная функция для слушателя storage (чтобы можно было удалить)
-function handleStorageChange(e) {
-  if (e.key === CHAT_HISTORY_KEY && e.newValue) {
-    try {
-      const parsed = JSON.parse(e.newValue);
-      if (Array.isArray(parsed)) {
-        messages.value = parsed.slice(-MAX_HISTORY_LENGTH);
-      }
-    } catch {}
-  }
-}
-
-// 🔥 Загрузка истории из localStorage
-function loadChatHistory() {
-  try {
-    const saved = localStorage.getItem(CHAT_HISTORY_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.every((m) => m.role && m.content)) {
-        messages.value = parsed.slice(-MAX_HISTORY_LENGTH);
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to load chat history:", e);
-  }
-}
-
-// 🔥 Сохранение истории в localStorage
-function saveChatHistory(history) {
-  try {
-    const toSave = history.slice(-MAX_HISTORY_LENGTH);
-    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(toSave));
-  } catch (e) {
-    console.warn("Failed to save chat history:", e);
-  }
-}
-
-const showConfirm = ref(false);
-const contextMenuVisible = ref(false);
-const menuX = ref(0);
-const menuY = ref(0);
-
-// 🔥 Очистка истории
-function clearChatHistory() {
-  messages.value = [];
-  pendingApproval.value = null;
-  pendingToolCalls.value = [];
-  approvalMessages.value = [];
-  localStorage.removeItem(CHAT_HISTORY_KEY);
-  clearApprovalMessages();
-  savePendingApproval(null);
-  savePendingToolCalls([]);
-}
-
-// 🎯 Контекстное меню
-function showContextMenu(e) {
-  contextMenuVisible.value = false;
-  nextTick(() => {
-    menuX.value = e.clientX;
-    menuY.value = e.clientY;
-    contextMenuVisible.value = true;
+async function onResend(msg, index) {
+  await resendMessage(msg, index, async (t) => {
+    await sendMessage(t, emitLog, emitTokenUsage);
   });
 }
 
-function handleClearChat() {
+async function handleToolDecision(msg, approved) {
+  await pending.handleToolDecision(msg, approved, isTyping, emitLog);
+}
+
+function handleStop() {
+  cancel.handleStop();
+}
+
+function showContextMenu(e) {
   contextMenuVisible.value = false;
+  // nextTick гарантирует, что Transition завершит hide перед show
+  setTimeout(() => {
+    menuX.value = e.clientX;
+    menuY.value = e.clientY;
+    contextMenuVisible.value = true;
+  }, 0);
+}
+
+function onContextAction(action) {
+  contextMenuVisible.value = false;
+  if (action === "clear") handleClearChat();
+}
+
+function handleClearChat() {
   showConfirm.value = true;
 }
 
 function confirmClearChat() {
-  clearChatHistory();
+  clearAllHistory();
   showConfirm.value = false;
-  emit("log", { message: "Чат очищен", type: "success" });
+  emitLog({ message: "Чат очищен", type: "success" });
 }
 
-// 🔥 Обработчики событий
-const handleKeypress = (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-};
-
-// Преобразовать toolCalls и toolResults из ответа в сообщения для чата
-function addToolMessages(toolCalls, toolResults, requiresApproval, approvalToolName, approvalArgs, approvalToolCallId) {
-  if (toolCalls?.length > 0) {
-    for (const tc of toolCalls) {
-      let argsParsed;
-      try {
-        argsParsed = JSON.parse(tc.args);
-      } catch {
-        argsParsed = tc.args;
-      }
-      const argsStr = typeof argsParsed === "object" ? JSON.stringify(argsParsed, null, 2) : String(tc.args);
-      const shortStr =
-        typeof argsParsed === "object"
-          ? Object.keys(argsParsed)
-              .slice(0, 3)
-              .map((k) => `${k}=${String(argsParsed[k]).substring(0, 30)}`)
-              .join(", ") + (Object.keys(argsParsed).length > 3 ? "..." : "")
-          : String(tc.args).substring(0, 50);
-      messages.value.push({
-        role: "system",
-        type: "tool_call",
-        toolName: tc.name,
-        toolArgsPretty: argsStr,
-        toolArgsShort: shortStr,
-        expanded: false,
-        toolCallId: tc.id,
-      });
-    }
-  }
-
-  if (toolResults?.length > 0) {
-    for (const tr of toolResults) {
-      messages.value.push({
-        role: "system",
-        type: "tool_result",
-        success: tr.success,
-        output: String(tr.output),
-        expanded: false,
-      });
-    }
-  }
-
-  if (requiresApproval) {
-    let argsParsed;
-    try {
-      argsParsed = JSON.parse(approvalArgs);
-    } catch {
-      argsParsed = approvalArgs;
-    }
-    const argsStr = typeof argsParsed === "object" ? JSON.stringify(argsParsed, null, 2) : String(approvalArgs);
-    pendingApproval.value = {
-      toolName: approvalToolName,
-      args: approvalArgs,
-      toolCallId: approvalToolCallId,
-    };
-    savePendingApproval(pendingApproval.value);
-    messages.value.push({
-      role: "system",
-      type: "approval",
-      toolName: approvalToolName,
-      toolArgsPretty: argsStr,
-      pendingApproval: true,
-      toolCallId: approvalToolCallId,
-    });
-  }
-}
-
-// Agent loop send message
-async function sendAgentMessage(text, signal = null, abortId = null) {
-  // Собираем историю для отправки на бэкенд
-  const historyMsgs = messages.value
-    .filter((m) => !m.type) // только обычные сообщения
-    .map((m) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content }));
-
-  const result = await agentChat(
-    {
-      message: text,
-      messages: historyMsgs,
-      accountName: "",
-      projectPath: props.projectPath,
-      serverUrl: props.serverUrl,
-      modelName: props.modelName,
-      systemPrompt: props.systemPrompt,
-    },
-    signal,
-    abortId
-  );
-
-  isTyping.value = false;
-  if (props.soundEnabled) playReceive();
-
-  if (!result.success) {
-    throw new Error(result.error || "Agent loop failed");
-  }
-
-  // Отмена — показываем специальное сообщение, не обрабатываем tool data
-  if (result.cancelled) {
-    messages.value.push({
-      role: "system",
-      content: "🔴 Cancelled",
-      type: "cancelled",
-    });
-    emit("log", { message: "Agent loop cancelled", type: "warning" });
-    return result;
-  }
-
-  // Добавляем ответ бота
-  if (result.reply) {
-    messages.value.push({
-      role: "bot",
-      content: result.reply,
-      reasoning: result.reasoning || "",
-      reasoningExpanded: false,
-      usage: result.tokenUsage || null,
-    });
-    if (result.tokenUsage) emit("token-usage", result.tokenUsage);
-  }
-
-  // Добавляем tool calls и results
-  addToolMessages(
-    result.toolCalls,
-    result.toolResults,
-    result.requiresApproval,
-    result.approvalToolName,
-    result.approvalArgs,
-    result.approvalToolCallId
-  );
-
-  // Сохраняем сообщения для продолжения (при одобрении)
-  approvalMessages.value = result.messages || [];
-  saveApprovalMessages(approvalMessages.value);
-  pendingToolCalls.value = result.pendingToolCalls || [];
-  savePendingToolCalls(pendingToolCalls.value);
-  return result;
-}
-
-async function handleToolDecision(msg, approved) {
-  if (!pendingApproval.value) return;
-
-  const decision = {
-    approved,
-    toolName: pendingApproval.value.toolName,
-    args: pendingApproval.value.args,
-    toolCallId: pendingApproval.value.toolCallId,
-  };
-
-  messages.value = messages.value.filter((m) => m !== msg);
-  isTyping.value = true;
-  isCancelling.value = false;
-  const controller = new AbortController();
-  abortController.value = controller;
-  const continueAbortId = crypto.randomUUID();
-  lastAbortId.value = continueAbortId;
-  pendingApproval.value = null;
-  savePendingApproval(null);
-  pendingToolCalls.value = [];
-  savePendingToolCalls([]);
-
-  try {
-    const result = await agentChatContinue(
-      {
-        messages: approvalMessages.value,
-        approvalDecision: decision,
-        accountName: "",
-        abortId: continueAbortId,
-      },
-      controller.signal
-    );
-
-    isTyping.value = false;
-
-    if (result.abortId) lastAbortId.value = result.abortId;
-
-    if (!result.success) {
-      messages.value.push({ role: "bot", content: `❌ Ошибка: ${result.error}` });
-      return;
-    }
-
-    if (result.reply) {
-      messages.value.push({
-        role: "bot",
-        content: result.reply,
-        reasoning: result.reasoning || "",
-        reasoningExpanded: false,
-        usage: result.tokenUsage || null,
-      });
-    }
-
-    addToolMessages(
-      result.toolCalls,
-      result.toolResults,
-      result.requiresApproval,
-      result.approvalToolName,
-      result.approvalArgs,
-      result.approvalToolCallId
-    );
-
-    approvalMessages.value = result.messages || [];
-    saveApprovalMessages(approvalMessages.value);
-  } catch (e) {
-    isTyping.value = false;
-    if (e.name === "AbortError") {
-      messages.value.push({ role: "bot", content: "🔴 Cancelled" });
-    } else {
-      messages.value.push({ role: "bot", content: `❌ Ошибка: ${e.message}` });
-    }
-  } finally {
-    if (abortController.value === controller) abortController.value = null;
-  }
-}
-
-function approveTool(msg) {
-  return handleToolDecision(msg, true);
-}
-function rejectTool(msg) {
-  return handleToolDecision(msg, false);
-}
-
-async function resendMessage(msg, index) {
-  // 1. Cancel active request (если есть)
-  if (abortController.value) {
-    handleStop();
-    // Ждём полной отмены (макс 2 сек). isCancelling сбрасывается когда abort завершён.
-    let w = 0;
-    while ((isTyping.value || isStreaming.value) && w < 40) {
-      await new Promise((r) => setTimeout(r, 50));
-      w++;
-    }
-  }
-
-  // 2. Remove all messages after this user message
-  messages.value.splice(index + 1);
-
-  // 3. Remove this user message and save its text
-  const text = msg.content;
-  messages.value.splice(index, 1);
-
-  // 4. Re-send via existing sendMessage flow
-  inputMessage.value = text;
-  await sendMessage();
-}
-
-const sendMessage = async () => {
-  if (!inputMessage.value.trim()) return;
-  if (isTyping.value || isStreaming.value) return; // guard against double-send
-
-  // Stop voice recording if active
-  if (isRecording.value) cancelVoice();
-
-  const text = inputMessage.value.trim();
-  inputMessage.value = "";
-
-  messages.value.push({ role: "user", content: text });
-  if (props.soundEnabled) playSend();
-  isTyping.value = true;
-  isCancelling.value = false;
-
-  // Создаём AbortController для отмены запроса
-  const controller = new AbortController();
-  abortController.value = controller;
-
-  await nextTick();
-  scrollToBottom();
-
-  const startTime = Date.now();
-
-  if (props.verbose) {
-    emit("log", {
-      message: `[VERBOSE] Request → model: ${props.modelName}, server: ${props.serverUrl}`,
-      type: "system",
-    });
-  }
-
-  // Agent mode — используем agent loop
-  if (agentMode.value) {
-    // Генерируем abortId для отмены на бэкенде
-    const abortId = crypto.randomUUID();
-    lastAbortId.value = abortId;
-    try {
-      const result = await sendAgentMessage(text, controller.signal, abortId);
-      const latency = Date.now() - startTime;
-
-      if (props.verbose) {
-        const toolCount = (result.toolCalls?.length || 0) + (result.toolResults?.length || 0);
-        emit("log", {
-          message: `[VERBOSE] Agent loop (${latency}ms): ${result.reply?.substring(0, 100) || "empty"}, tools: ${toolCount}`,
-          type: "success",
-        });
-      } else {
-        emit("log", {
-          message: `Agent response (${latency}ms): ${result.reply?.substring(0, 100)}...`,
-          type: "success",
-        });
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime;
-      isTyping.value = false;
-      if (error.name === "AbortError") {
-        messages.value.push({ role: "bot", content: "🔴 Cancelled" });
-        emit("log", { message: `Agent cancelled (${latency}ms)`, type: "warning" });
-      } else {
-        messages.value.push({
-          role: "bot",
-          content: `❌ Ошибка: ${error.message}`,
-        });
-        emit("log", {
-          message: `Agent error (${latency}ms): ${error.message}`,
-          type: "error",
-        });
-      }
-    } finally {
-      if (abortController.value === controller) abortController.value = null;
-      if (lastAbortId.value === abortId) lastAbortId.value = null;
-    }
-
-    await nextTick();
-    scrollToBottom();
-    return;
-  }
-
-  try {
-    if (props.streamEnabled) {
-      // Потоковый режим
-      isStreaming.value = true;
-      isTyping.value = false;
-      streamingContent.value = "";
-      streamingReasoning.value = "";
-      reasoningDone.value = false;
-
-      // Добавляем пустое сообщение бота, которое будем обновлять
-      const botMsgIdx = messages.value.length;
-      messages.value.push({ role: "bot", content: "", streaming: true, reasoning: "", reasoningExpanded: false });
-
-      let fullContent = "";
-      let lastUsage = null;
-
-      await directChatStream(
-        {
-          message: text,
-          modelName: props.modelName,
-          serverUrl: props.serverUrl,
-          projectPath: props.projectPath,
-          systemPrompt: props.systemPrompt,
-        },
-        {
-          onReasoning: (chunk, accumulated) => {
-            streamingReasoning.value = accumulated;
-            messages.value[botMsgIdx].reasoning = accumulated;
-          },
-          onReasoningDone: () => {
-            reasoningDone.value = true;
-          },
-          onContent: (chunk, accumulated) => {
-            fullContent = accumulated;
-            streamingContent.value = accumulated;
-            messages.value[botMsgIdx].content = accumulated;
-            nextTick(() => scrollToBottom());
-          },
-          onDone: (usage) => {
-            lastUsage = usage;
-            messages.value[botMsgIdx].streaming = false;
-            messages.value[botMsgIdx].usage = usage || null;
-            if (usage) emit("token-usage", usage);
-          },
-          onError: (error) => {
-            throw new Error(error);
-          },
-        },
-        controller.signal
-      );
-
-      const latency = Date.now() - startTime;
-      isStreaming.value = false;
-      if (props.soundEnabled) playReceive();
-
-      if (props.verbose) {
-        emit("log", {
-          message: `[VERBOSE] Response ← model (${latency}ms): ${fullContent.substring(0, 100) || "empty"}`,
-          type: "success",
-        });
-        if (lastUsage) {
-          emit("log", {
-            message: `[VERBOSE] Tokens: prompt=${lastUsage.prompt_tokens}, completion=${lastUsage.completion_tokens}, total=${lastUsage.total_tokens}, cached=${lastUsage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
-            type: "info",
-          });
-        }
-      } else {
-        emit("log", {
-          message: `Model response (${props.modelName}): ${fullContent.substring(0, 100)}...`,
-          type: "success",
-        });
-      }
-    } else {
-      // Обычный режим
-      const data = await directChat(
-        {
-          message: text,
-          modelName: props.modelName,
-          serverUrl: props.serverUrl,
-          projectPath: props.projectPath,
-          systemPrompt: props.systemPrompt,
-        },
-        controller.signal
-      );
-
-      const latency = Date.now() - startTime;
-      isTyping.value = false;
-
-      const botMsg = {
-        role: "bot",
-        content: data.reply || "Пустой ответ",
-        reasoning: data.reasoning || "",
-        usage: data.usage || null,
-      };
-      messages.value.push(botMsg);
-
-      if (props.verbose) {
-        emit("log", {
-          message: `[VERBOSE] Response ← model (${latency}ms): ${data.reply || "empty"}`,
-          type: "success",
-        });
-        if (data.usage) {
-          emit("log", {
-            message: `[VERBOSE] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}, cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
-            type: "info",
-          });
-        }
-      } else {
-        emit("log", {
-          message: `Model response (${props.modelName}): ${data.reply?.substring(0, 100)}...`,
-          type: "success",
-        });
-      }
-
-      if (data.usage) {
-        emit("token-usage", data.usage);
-      }
-    }
-  } catch (error) {
-    const latency = Date.now() - startTime;
-    isTyping.value = false;
-    if (props.soundEnabled) playReceive();
-    isStreaming.value = false;
-    if (error.name === "AbortError") {
-      const lastIdx = messages.value.length - 1;
-      if (messages.value[lastIdx]?.streaming) {
-        messages.value[lastIdx].content = "🔴 Cancelled";
-        messages.value[lastIdx].streaming = false;
-      } else {
-        messages.value.push({ role: "bot", content: "🔴 Cancelled" });
-      }
-      emit("log", { message: `Chat cancelled (${latency}ms)`, type: "warning" });
-    } else {
-      messages.value.push({
-        role: "bot",
-        content: `❌ Ошибка: ${error.message}`,
-      });
-      emit("log", {
-        message: `Chat error (${latency}ms): ${error.message}`,
-        type: "error",
-      });
-    }
-  } finally {
-    if (abortController.value === controller) abortController.value = null;
-  }
-
-  await nextTick();
-  scrollToBottom();
-};
-
-const scrollToBottom = () => {
-  if (chatContainer.value) {
-    chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-  }
-};
-
-// 🔥 Lifecycle hooks
 onMounted(() => {
-  loadChatHistory();
-  approvalMessages.value = loadApprovalMessages();
-  pendingApproval.value = loadPendingApproval();
-  pendingToolCalls.value = loadPendingToolCalls();
-  nextTick(() => scrollToBottom());
-  window.addEventListener("storage", handleStorageChange);
+  // Восстанавливаем state из localStorage. useChatHistory уже синхронизировал
+  // messages/approvalMessages в своём onMounted (вызывается раньше родительского).
+  // Здесь восстанавливаем pending-approval state (отдельный concern).
+  pending.load();
+  scrollToBottom();
 });
 
-onUnmounted(() => {
-  // Отменяем in-flight запрос при уходе со страницы
-  if (abortController.value) {
-    abortController.value.abort();
-    abortController.value = null;
-  }
-  isCancelling.value = false;
-  // Отменяем на бэкенде до того, как очищаем abortId
-  if (lastAbortId.value) {
-    cancelChat(lastAbortId.value).catch(() => {});
-  }
-  lastAbortId.value = null;
-  saveChatHistory(messages.value);
-  saveApprovalMessages(approvalMessages.value);
-  savePendingApproval(pendingApproval.value);
-  savePendingToolCalls(pendingToolCalls.value);
-  window.removeEventListener("storage", handleStorageChange);
-});
-
-// 🔥 Автосохранение при изменении истории (debounced — не дёргаем на каждый стриминг-токен)
-let saveTimer = null;
+// Sync с chatContainer ref — нужны для scrollToBottom
 watch(
-  messages,
+  () => messages.value.length,
   () => {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveChatHistory(messages.value), 500);
-  },
-  { deep: true }
+    scrollToBottom();
+  }
 );
-
-// 🔥 Экспорт для использования извне
-defineExpose({ clearChatHistory });
 </script>
 
 <style scoped>
@@ -939,259 +275,6 @@ defineExpose({ clearChatHistory });
   display: flex;
   flex-direction: column;
   height: 480px;
-}
-
-.mono-label {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.65rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-}
-
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.chat-header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.chat-header-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.verbose-badge {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.55rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 3px 8px;
-  background: rgba(212, 135, 74, 0.15);
-  color: var(--accent-secondary);
-  border: 1px solid rgba(212, 135, 74, 0.3);
-  clip-path: polygon(
-    0 2px,
-    2px 0,
-    calc(100% - 2px) 0,
-    100% 2px,
-    100% calc(100% - 2px),
-    calc(100% - 2px) 100%,
-    2px 100%,
-    0 calc(100% - 2px)
-  );
-}
-
-.chat-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.6rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  padding: 3px 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  clip-path: polygon(
-    0 2px,
-    2px 0,
-    calc(100% - 2px) 0,
-    100% 2px,
-    100% calc(100% - 2px),
-    calc(100% - 2px) 100%,
-    2px 100%,
-    0 calc(100% - 2px)
-  );
-  transition: var(--transition);
-}
-
-.chat-status.active {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--success);
-  border-color: rgba(16, 185, 129, 0.3);
-}
-
-.chat-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.chat-status.active .chat-dot {
-  background: var(--success);
-  box-shadow: 0 0 6px var(--success);
-  animation: chatPulse 2s ease-in-out infinite;
-}
-
-@keyframes chatPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
-/* Chat clear button */
-.chat-clear {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  transition: var(--transition);
-  flex-shrink: 0;
-}
-
-.chat-clear:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #ef4444;
-}
-
-.chat-clear:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-/* Context menu (right-click) */
-.context-menu {
-  position: fixed;
-  z-index: var(--z-modal);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
-  min-width: 180px;
-  overflow: hidden;
-  animation: contextMenuIn 0.15s ease-out;
-}
-
-@keyframes contextMenuIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.context-menu-item {
-  padding: 10px 16px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-  transition: background 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.context-menu-item:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
-}
-
-/* Confirm dialog */
-.confirm-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn 0.2s ease;
-}
-
-.confirm-dialog {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  max-width: 360px;
-  width: 90%;
-  box-shadow: var(--shadow-lg);
-  animation: dialogIn 0.2s ease;
-}
-
-.confirm-dialog p {
-  color: var(--text-primary);
-  margin-bottom: 20px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.confirm-btn {
-  padding: 8px 18px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: var(--transition);
-}
-
-.confirm-btn.cancel {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.confirm-btn.cancel:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.confirm-btn.confirm {
-  background: var(--error);
-  color: white;
-  border-color: var(--error);
-}
-
-.confirm-btn.confirm:hover {
-  background: #dc2626;
-}
-
-@keyframes dialogIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
 }
 
 .chat-messages {
@@ -1240,6 +323,10 @@ defineExpose({ clearChatHistory });
   align-self: flex-start;
 }
 
+.chat-msg.system {
+  align-self: flex-start;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -1260,13 +347,7 @@ defineExpose({ clearChatHistory });
   justify-content: center;
   font-size: 14px;
   flex-shrink: 0;
-}
-
-.chat-msg.user .chat-avatar {
-  background: var(--accent);
-}
-.chat-msg.bot .chat-avatar {
-  background: #8b5cf6;
+  background: var(--bg-tertiary);
 }
 
 .chat-bubble {
@@ -1277,228 +358,12 @@ defineExpose({ clearChatHistory });
   border: 1px solid var(--border);
 }
 
-.chat-msg.user .chat-bubble {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
-  border-bottom-right-radius: 4px;
-}
-
-.chat-msg.bot .chat-bubble {
+.chat-bubble.system-msg {
   background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-bottom-left-radius: 4px;
-}
-
-.chat-msg.bot .chat-bubble.streaming {
-  border-color: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow);
-}
-
-.cursor-blink {
-  display: inline-block;
-  width: 2px;
-  height: 16px;
-  background: var(--accent);
-  margin-left: 2px;
-  vertical-align: middle;
-  animation: blink 0.8s step-end infinite;
-}
-
-@keyframes blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-
-.token-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 9px;
   color: var(--text-muted);
-  font-family: "JetBrains Mono", monospace;
-  padding: 0 4px;
-}
-
-.token-detail {
-  opacity: 0.7;
-}
-
-.chat-input-area {
-  display: flex;
-  gap: 8px;
-  padding: 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-card);
-  position: relative;
-  overflow: visible;
-}
-
-.chat-input {
-  flex: 1;
-  padding: 10px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 100px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  transition: var(--transition);
-}
-
-.chat-input:focus {
-  outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--accent-glow);
-}
-
-.chat-input:disabled {
-  opacity: 0.5;
-}
-
-.chat-send {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: none;
-  color: white;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: var(--transition);
-}
-
-.chat-send:hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: 0 0 16px var(--accent-glow);
-}
-
-.chat-send:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.chat-mic {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: var(--transition);
-}
-
-.chat-mic:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--border-focus);
-}
-
-.chat-mic.recording {
-  color: #ef4444;
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.15);
-  animation: mic-pulse 1.2s ease-in-out infinite;
-}
-
-.chat-mic.processing {
-  opacity: 0.5;
-  cursor: wait;
-}
-
-.chat-mic:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-@keyframes mic-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
-  }
-}
-
-.voice-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  font-style: italic;
   font-size: 12px;
-  color: var(--text-secondary);
-  border-top: 1px solid var(--border);
-  background: var(--bg-card);
-}
-
-.voice-pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  flex-shrink: 0;
-  animation: mic-pulse 1.2s ease-in-out infinite;
-}
-
-.voice-status-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.voice-error {
-  padding: 4px 12px;
-  font-size: 11px;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  border-top: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.chat-stop {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: bold;
-  transition: var(--transition);
-  flex-shrink: 0;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.chat-stop:hover {
-  background: rgba(239, 68, 68, 0.3);
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
+  border-bottom-left-radius: 4px;
 }
 
 .typing-indicator {
@@ -1532,304 +397,5 @@ defineExpose({ clearChatHistory });
     transform: translateY(-6px);
     opacity: 1;
   }
-}
-
-/* ─── Agent mode toggle ─── */
-.agent-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  position: relative;
-  user-select: none;
-}
-
-.toggle-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.agent-toggle input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  width: 32px;
-  height: 18px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  position: relative;
-  transition: var(--transition);
-}
-
-.toggle-slider::before {
-  content: "";
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  left: 2px;
-  top: 2px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: var(--transition);
-}
-
-.agent-toggle input:checked + .toggle-slider {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.agent-toggle input:checked + .toggle-slider::before {
-  transform: translateX(14px);
-  background: white;
-}
-
-/* Tool call block */
-.tool-call-block,
-.tool-result-block {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  margin: 2px 0;
-  max-width: 450px;
-}
-
-.tool-call-header,
-.tool-result-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.15s;
-}
-
-.tool-call-header:hover,
-.tool-result-header:hover {
-  background: var(--bg-hover);
-}
-
-.tool-call-name {
-  flex: 1;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
-  color: var(--accent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tool-call-toggle {
-  font-size: 9px;
-  color: var(--text-muted);
-}
-
-.tool-call-args,
-.tool-result-output {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
-  padding: 8px 10px;
-  margin: 0;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border);
-  max-height: 200px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-secondary);
-}
-
-.tool-result-block .tool-result-status {
-  font-size: 13px;
-}
-
-.tool-result-label {
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.tool-result-header .success {
-  color: #10b981;
-}
-
-.tool-result-header .error {
-  color: #ef4444;
-}
-
-.collapsed .tool-call-args,
-.collapsed .tool-result-output {
-  display: none;
-}
-
-/* Approval block */
-.approval-block {
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: var(--radius-sm);
-  padding: 10px;
-  max-width: 400px;
-}
-
-.approval-header {
-  font-size: 12px;
-  font-weight: 600;
-  color: #f59e0b;
-  margin-bottom: 6px;
-}
-
-.approval-tool {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.approval-args {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px;
-  margin: 4px 0 8px;
-  max-height: 120px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.approval-buttons {
-  display: flex;
-  gap: 6px;
-}
-
-.approval-btn {
-  padding: 5px 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  transition: var(--transition);
-}
-
-.approval-btn.approve {
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.3);
-}
-
-.approval-btn.approve:hover {
-  background: rgba(16, 185, 129, 0.2);
-}
-
-.approval-btn.reject {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.3);
-}
-
-.approval-btn.reject:hover {
-  background: rgba(239, 68, 68, 0.2);
-}
-
-/* Resend button on user messages */
-.msg-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 2px;
-}
-
-.msg-action-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 8px;
-  opacity: 0;
-  transition:
-    opacity 0.15s,
-    color 0.15s;
-}
-
-.chat-msg:hover .msg-action-btn {
-  opacity: 1;
-}
-
-.msg-action-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-/* Reasoning block */
-.reasoning-block {
-  background: rgba(139, 92, 246, 0.06);
-  border: 1px solid rgba(139, 92, 246, 0.2);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  margin: 2px 0;
-  max-width: 450px;
-}
-
-.reasoning-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.15s;
-}
-
-.reasoning-header:hover {
-  background: var(--bg-hover);
-}
-
-.reasoning-icon {
-  font-size: 13px;
-}
-
-.reasoning-label {
-  flex: 1;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: #8b5cf6;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.reasoning-content {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 11px;
-  padding: 8px 10px;
-  margin: 0;
-  background: var(--bg-primary);
-  border-top: 1px solid rgba(139, 92, 246, 0.15);
-  max-height: 200px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.toggle-label.active {
-  color: #8b5cf6;
-}
-
-.chat-header-right .agent-toggle:first-child {
-  margin-right: 2px;
 }
 </style>
