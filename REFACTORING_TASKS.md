@@ -38,7 +38,7 @@
 - **Detail:** Either initialize Pinia and migrate state, or remove the dep
 - **Proposed solution:** Decision required from user. Pinia is small and idiomatic Vue 3; recommend keeping and migrating App.vue state. Trade-off: 12KB additional bundle.
 - **Effort:** M (if migrate), XS (if remove)
-- **Status:** ⏳ Awaiting user decision.
+- **Status:** ✅ Resolved — removed `pinia` from `aiagent-web-panel/package.json` dependencies. Removed `createPinia()` import and `app.use(createPinia())` from `src/main.js`. No actual usage anywhere; `src/stores/` was empty. State stays in composables + localStorage. Bundle −12 KB.
 
 ## T-005a — ~~`useSound.js` orphan~~ — **RETRACTED** (used in `ChatTab.vue:177,204`)
 
