@@ -16,7 +16,8 @@ import {
   tokenUsage,
 } from "../state.js";
 import { addLog, updateStatus } from "./log.js";
-import { replyMsg, REPLY_OPTS, sendLongMessage } from "./reply.js";
+import { replyMsg, REPLY_OPTS } from "./reply.js";
+import { sendLongMessage } from "./util.js";
 
 /**
  * Register all command handlers on a Bot instance.

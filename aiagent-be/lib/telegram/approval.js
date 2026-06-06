@@ -7,8 +7,8 @@ import { agentLoopStep, MAX_AGENT_ITERATIONS } from "../agent/agentLoop.js";
 import { executeTool, waitForTask, getToolConfig } from "../agent/executeTool.js";
 import { chatHistories, pendingApprovals, config, stats, tokenUsage } from "../state.js";
 import { addLog, wsBroadcast } from "./log.js";
-import { replyMsg, KEYBOARD_YES_NO, sendLongMessage } from "./reply.js";
-import { buildPerfStats, safeErrorMessage } from "./util.js";
+import { replyMsg, KEYBOARD_YES_NO } from "./reply.js";
+import { buildPerfStats, safeErrorMessage, sendLongMessage } from "./util.js";
 
 const MAX_APPROVAL_DEPTH = 10;
 
