@@ -2,7 +2,7 @@
  * Тесты для composable useSettingsForm.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { reactive } from "vue";
 import { useSettingsForm } from "@/composables/useSettingsForm";
 import * as client from "@/api/client";
@@ -50,6 +50,10 @@ function makeProps(overrides = {}) {
 describe("useSettingsForm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("initialises configCopy from props.config with defaults", () => {

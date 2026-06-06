@@ -1,7 +1,7 @@
 <template>
   <span class="tooltip-wrap">
     <slot name="trigger" />
-    <span class="tooltip-content">
+    <span class="tooltip-content" role="tooltip">
       <slot />
     </span>
   </span>

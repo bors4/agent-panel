@@ -24,6 +24,7 @@ describe("useAccounts", () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it("exposes initial empty state", () => {

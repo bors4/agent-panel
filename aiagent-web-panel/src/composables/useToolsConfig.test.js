@@ -25,6 +25,7 @@ describe("useToolsConfig", () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it("exposes tools, config, expanded state and counts", () => {

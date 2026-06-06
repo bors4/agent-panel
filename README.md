@@ -112,7 +112,7 @@ npm run frontend:test
 ```
 
 - **Backend**: 352 tests covering safePath, parseToolCall, executeTool, accounts (incl. permission sanitisation), agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, **module loadability (smoke)**, API endpoints, and per-sub-router factory units (config/asr/chat/admin)
-- **Frontend**: 313 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket (incl. batched ring buffer), useToolsConfig, useAccounts, useSettingsForm, useAppConfig (incl. empty/non-object import), useAppModels (incl. Set-based dedup), useAppActions, useAppBoot, **useChatHistory, useChatToggles, useChatCancel, usePendingApproval**), API client, App, SettingsTab-related cards, ChatTab child components (**ChatHeader, MessageBubble, ChatInput, ConfirmDialog, ContextMenu**), StatsCard, ToolItem, AccountCard, ConfigCard, LimitsCard, BehaviorCard, DisplayCard, TabBar
+- **Frontend**: 322 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket (incl. batched ring buffer), useToolsConfig, useAccounts, useSettingsForm, useAppConfig (incl. empty/non-object import), useAppModels (incl. Set-based dedup), useAppActions, useAppBoot, useChatHistory, useChatToggles, useChatCancel, usePendingApproval), API client, App, SettingsTab-related cards, ChatTab child components (ChatHeader, MessageBubble, ChatInput, ConfirmDialog, ContextMenu), StatsCard, ToolItem, AccountCard, ConfigCard, LimitsCard, BehaviorCard, DisplayCard, TabBar, **ARIA patterns (ToastContainer live region, TabBar roving tabindex, AppTooltip)**
 
 ## Documentation
 
