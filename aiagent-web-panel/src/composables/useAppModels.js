@@ -40,8 +40,14 @@ export function useAppModels({ addLog, success, error, maxTokensFallback }) {
   });
 
   function pushModelsUnique(models, source) {
+    if (!Array.isArray(models) || models.length === 0) return;
+    // Build a Set for O(1) lookup. Previous O(n²) `find()` was noticeable
+    // when refreshing from OpenRouter (200+ models) against a growing
+    // local list.
+    const existing = new Set(availableModels.value.map((x) => x.id));
     for (const m of models) {
-      if (!availableModels.value.find((x) => x.id === m.id)) {
+      if (!existing.has(m.id)) {
+        existing.add(m.id);
         availableModels.value.push({
           id: m.id,
           source,

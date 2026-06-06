@@ -154,4 +154,36 @@ describe("useAppModels", () => {
     await promise;
     expect(m.modelName.value).toBe("user-typed-during-fetch");
   });
+
+  it("loadApiBases handles getModels returning no `models` array", async () => {
+    vi.spyOn(client, "getModels").mockResolvedValueOnce({ error: "forbidden" });
+    const deps = makeDeps();
+    const m = useAppModels(deps);
+    m.apiBases.value = [{ url: "http://a/v1", connected: true }];
+    await m.loadApiBases();
+    // No models pushed (data.models is undefined → falsy), no crash.
+    // The error toast path is only triggered when getModels rejects — see
+    // the dedicated 'logs error when getModels rejects' test below.
+    expect(m.availableModels.value).toEqual([]);
+    expect(m.modelName.value).toBe("gemma-4-E4B-it-Q4_K_M.gguf"); // unchanged
+  });
+
+  it("dedupes large lists correctly (Set-based, O(n) not O(n²))", async () => {
+    // Pre-populate with 100 existing models.
+    const m = useAppModels(makeDeps());
+    for (let i = 0; i < 100; i++) {
+      m.availableModels.value.push({ id: `old-${i}`, source: "http://a" });
+    }
+    // Fetch returns 100 new + 20 overlapping with the existing list.
+    const fetched = [];
+    for (let i = 0; i < 100; i++) fetched.push({ id: `new-${i}` });
+    for (let i = 0; i < 20; i++) fetched.push({ id: `old-${i}` });
+    vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: fetched });
+    m.apiBases.value = [{ url: "http://b/v1", connected: true }];
+    await m.loadApiBases();
+    // Total = 100 old + 100 new = 200 (the 20 overlaps are dropped).
+    expect(m.availableModels.value).toHaveLength(200);
+    const ids = m.availableModels.value.map((x) => x.id);
+    expect(new Set(ids).size).toBe(200); // no duplicates
+  });
 });

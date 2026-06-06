@@ -218,6 +218,62 @@ describe("useAppConfig", () => {
     expect(deps.error).toHaveBeenCalledWith("Ошибка JSON");
   });
 
+  it("importConfig surfaces a specific toast on empty file", async () => {
+    const file = new File([""], "empty.json", { type: "application/json" });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    const origCreateElement = document.createElement;
+    const inputEl = { type: "", accept: "", onchange: null, click: function () {}, files: [file] };
+    vi.spyOn(document, "createElement").mockImplementation((tag) => {
+      if (tag === "input") {
+        setTimeout(() => inputEl.onchange?.({ target: inputEl }), 0);
+        return inputEl;
+      }
+      return origCreateElement(tag);
+    });
+    c.importConfig();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(deps.error).toHaveBeenCalledWith("Файл пустой");
+    expect(deps.success).not.toHaveBeenCalled();
+  });
+
+  it("importConfig rejects JSON that is not an object (array)", async () => {
+    const file = new File(["[1,2,3]"], "array.json", { type: "application/json" });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    const origCreateElement = document.createElement;
+    const inputEl = { type: "", accept: "", onchange: null, click: function () {}, files: [file] };
+    vi.spyOn(document, "createElement").mockImplementation((tag) => {
+      if (tag === "input") {
+        setTimeout(() => inputEl.onchange?.({ target: inputEl }), 0);
+        return inputEl;
+      }
+      return origCreateElement(tag);
+    });
+    c.importConfig();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(deps.error).toHaveBeenCalledWith("Ожидался JSON-объект");
+    expect(deps.success).not.toHaveBeenCalled();
+  });
+
+  it("importConfig rejects JSON null literal", async () => {
+    const file = new File(["null"], "null.json", { type: "application/json" });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    const origCreateElement = document.createElement;
+    const inputEl = { type: "", accept: "", onchange: null, click: function () {}, files: [file] };
+    vi.spyOn(document, "createElement").mockImplementation((tag) => {
+      if (tag === "input") {
+        setTimeout(() => inputEl.onchange?.({ target: inputEl }), 0);
+        return inputEl;
+      }
+      return origCreateElement(tag);
+    });
+    c.importConfig();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(deps.error).toHaveBeenCalledWith("Ожидался JSON-объект");
+  });
+
   it("handleSettingsSave merges data and calls saveSettings with showToast=true", async () => {
     vi.spyOn(client, "updateConfig").mockResolvedValue({ success: true });
     const deps = makeDeps();

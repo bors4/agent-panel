@@ -188,8 +188,19 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
+        const text = (ev.target.result || "").trim();
+        if (!text) {
+          error("Файл пустой");
+          addLog("Config import failed: empty file", "error");
+          return;
+        }
         try {
-          const imported = JSON.parse(ev.target.result);
+          const imported = JSON.parse(text);
+          if (typeof imported !== "object" || imported === null || Array.isArray(imported)) {
+            error("Ожидался JSON-объект");
+            addLog("Config import failed: not an object", "error");
+            return;
+          }
           systemPrompt.value = imported.systemPrompt || "";
           localConfig.value = { ...defaultConfig, ...imported };
           success("Конфигурация импортирована");
