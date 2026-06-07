@@ -1,71 +1,31 @@
 <!--
-  App — корневой компонент. Содержит layout (grid 280px sidebar + main) и
-  монтирует 5 вкладок (Prompt / Settings / Tools / Chat / Logs) и общие
-  виджеты. Вся логика вынесена в composables.
+  App — корневой компонент. Тонкий wrapper вокруг <AppShell>: собирает стейт
+  из composables, пробрасывает его в slot'ы (chat / stats / controls / modals)
+  и монтирует глобальные виджеты (toasts). Вся логика вынесена в composables.
 -->
 <template>
-  <a class="skip-link" href="#main-content">Skip to content</a>
-  <div class="app-container">
-    <Header :status="status" :active-tab="activeTab" @navigate="handleNavigate" />
+  <AppShell
+    :status="status"
+    :stats-collapsed="statsCollapsed"
+    :logs-open="logsOpen"
+    :settings-open="settingsOpen"
+    @top-action="handleTopAction"
+  >
+    <template #controls>
+      <div class="control-strip">
+        <div class="control-strip__spacer" />
+        <AgentControls
+          :is-running="isRunning"
+          :project-path="localConfig.projectPath"
+          @start="handleStart"
+          @stop="handleStop"
+          @restart="handleRestart"
+        />
+      </div>
+    </template>
 
-    <aside class="sidebar">
-      <ControlsCard
-        :is-running="isRunning"
-        :project-path="localConfig.projectPath"
-        @start="handleStart"
-        @stop="handleStop"
-        @restart="handleRestart"
-      />
-      <StatsCard
-        :uptime="stats.uptime"
-        :stats="stats"
-        :token-usage="tokenUsage"
-        :perf-stats="perfStats"
-        :max-tokens="modelContextLength"
-        :show-tokens="localConfig.showTokens"
-        @refresh="refreshStatus"
-      />
-      <BotCheckCard :token="localConfig.token" />
-    </aside>
-
-    <main id="main-content" class="main-content">
-      <TabBar v-model:active-tab="activeTab" :tabs="tabs" />
-
-      <PromptTab
-        v-if="activeTab === 'prompt'"
-        id="panel-prompt"
-        v-model="systemPrompt"
-        role="tabpanel"
-        aria-label="Редактор системного промпта"
-        @save="savePrompt"
-        @reset="resetPrompt"
-        @format="formatPrompt"
-        @copy="copyPrompt"
-        @export="exportConfig"
-        @import="importConfig"
-      />
-
-      <SettingsTab
-        v-if="activeTab === 'settings'"
-        id="panel-settings"
-        role="tabpanel"
-        aria-labelledby="tab-settings"
-        :config="localConfig"
-        :api-bases="apiBases"
-        :available-models="availableModels"
-        :model-name="modelName"
-        @save="handleSettingsSave"
-        @reset="resetSettings"
-        @models-updated="updateModels"
-        @save-path="handleSaveProjectPath"
-      />
-
-      <ChatTab
-        v-show="activeTab === 'chat'"
-        id="panel-chat"
-        ref="chatTabRef"
-        role="tabpanel"
-        aria-labelledby="tab-chat"
+    <template #chat>
+      <ChatPanel
         :is-active="isRunning"
         :model-name="modelName"
         :server-url="serverUrl"
@@ -78,22 +38,59 @@
         :stream-enabled="localConfig.stream === true"
         @log="addLog"
         @token-usage="handleTokenUsage"
+        @warning="warning"
       />
+    </template>
 
-      <LogsTab
-        v-if="activeTab === 'logs'"
-        id="panel-logs"
-        role="tabpanel"
-        aria-labelledby="tab-logs"
-        :logs="logs"
-        @clear="handleClearLogs"
+    <template #stats>
+      <StatsPanel
+        :stats="stats"
+        :uptime="stats.uptime || 0"
+        :token-usage="tokenUsage"
+        :perf-stats="perfStats"
+        :max-tokens="modelContextLength"
+        :last-request-tokens="lastRequestTokens"
+        :last-request-timestamp="lastRequestTimestamp"
+        :collapsed="statsCollapsed"
+        @collapse="toggleStats"
+        @expand="toggleStats"
       />
+    </template>
 
-      <ToolsTab v-if="activeTab === 'tools'" id="panel-tools" role="tabpanel" aria-labelledby="tab-tools" />
-    </main>
+    <template #settings-modal>
+      <SettingsModal
+        v-model="settingsOpen"
+        :config="localConfig"
+        :api-bases="apiBases"
+        :model-name="modelName"
+        :available-models="availableModels"
+        :model-context-length="modelContextLength"
+        :system-prompt="systemPrompt"
+        :asr-status="asrStatus"
+        @update:config="onConfigUpdate"
+        @update:api-bases="(v) => (apiBases = v)"
+        @update:model-name="(v) => setModel(v)"
+        @update:system-prompt="(v) => (systemPrompt = v)"
+        @save="handleSettingsSave"
+        @reset="resetSettings"
+        @format="onFormatPrompt"
+        @browse="onBrowse"
+        @add-api-base="onAddApiBase"
+        @remove-api-base="onRemoveApiBase"
+        @refresh-models="onRefreshModels"
+        @load-openrouter="onLoadOpenRouter"
+        @test-asr="onTestAsr"
+      />
+    </template>
 
-    <ToastContainer />
-  </div>
+    <template #logs-modal>
+      <LogsModal v-model="logsOpen" :logs="logs" @clear="handleClearLogs" />
+    </template>
+
+    <template #toasts>
+      <ToastContainer />
+    </template>
+  </AppShell>
 </template>
 
 <script setup>
@@ -103,42 +100,32 @@ import { useToast } from "@/composables/useToast";
 import { useAppConfig, defaultConfig } from "@/composables/useAppConfig";
 import { useAppModels } from "@/composables/useAppModels";
 import { useAppActions } from "@/composables/useAppActions";
+import { useAppLayout } from "@/composables/useAppLayout";
+import { useTheme } from "@/composables/useTheme";
+import { useSettingsModal } from "@/composables/useSettingsModal";
+import { useLogsModal } from "@/composables/useLogsModal";
 import { bootApp } from "@/composables/useAppBoot";
 
-import Header from "@/components/layout/Header.vue";
-import TabBar from "@/components/layout/TabBar.vue";
-import ControlsCard from "@/components/features/ControlsCard.vue";
-import StatsCard from "@/components/features/StatsCard.vue";
-import BotCheckCard from "@/components/features/BotCheckCard.vue";
-import PromptTab from "@/components/tabs/PromptTab.vue";
-import SettingsTab from "@/components/tabs/SettingsTab.vue";
-import ChatTab from "@/components/tabs/ChatTab.vue";
-import LogsTab from "@/components/tabs/LogsTab.vue";
-import ToolsTab from "@/components/tabs/ToolsTab.vue";
+import AppShell from "@/components/layout/AppShell.vue";
+import StatsPanel from "@/components/stats/StatsPanel.vue";
+import ChatPanel from "@/components/chat/ChatPanel.vue";
+import SettingsModal from "@/components/modals/SettingsModal.vue";
+import LogsModal from "@/components/modals/LogsModal.vue";
+import AgentControls from "@/components/controls/AgentControls.vue";
 import ToastContainer from "@/components/ui/ToastContainer.vue";
 
-const { status, isRunning, stats, logs, tokenUsage, perfStats, refreshStatus } = useAgent();
+const { status, isRunning, stats, logs, tokenUsage, lastRequestTokens, perfStats, refreshStatus } = useAgent();
 const { success, error, warning } = useToast();
 
-const activeTab = ref("prompt");
-const systemPrompt = ref("");
+const { addLog, handleStart, handleStop, handleRestart, handleClearLogs, handleTokenUsage, formatPrompt } = useAppActions();
+const { statsCollapsed, toggleStats } = useAppLayout();
+useTheme();
+const { isOpen: settingsOpen, open: openSettings, close: closeSettings } = useSettingsModal();
+const { isOpen: logsOpen, open: openLogs, close: closeLogs } = useLogsModal();
 
-const {
-  addLog,
-  handleStart,
-  handleStop,
-  handleRestart,
-  handleClearLogs,
-  handleTokenUsage,
-  formatPrompt: formatPromptRaw,
-  copyPrompt: copyPromptRaw,
-} = useAppActions();
-function formatPrompt() {
-  formatPromptRaw(systemPrompt);
-}
-function copyPrompt() {
-  copyPromptRaw(systemPrompt);
-}
+const lastRequestTimestamp = computed(() => lastRequestTokens.value?.timestamp || "");
+
+const systemPrompt = ref("");
 
 const models = useAppModels({
   addLog,
@@ -146,47 +133,70 @@ const models = useAppModels({
   error,
   maxTokensFallback: computed(() => localConfig.value?.maxTokens),
 });
-const { apiBases, modelName, serverUrl, availableModels, modelContextLength, loadApiBases, updateModels } = models;
+const { apiBases, modelName, serverUrl, availableModels, modelContextLength, loadApiBases, updateModels, setModel } = models;
 
 const {
   localConfig,
-  savePrompt,
-  resetPrompt,
   resetSettings,
-  exportConfig,
-  importConfig,
   handleSettingsSave,
-  handleSaveProjectPath,
-} = useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, addLog, success, error, warning });
+  handleBrowse,
+  handleAddApiBase,
+  handleRemoveApiBase,
+  handleRefreshModels,
+  handleLoadOpenRouter,
+  handleTestAsr,
+} = useAppConfig({
+  systemPrompt,
+  apiBases,
+  modelName,
+  serverUrl,
+  addLog,
+  success,
+  error,
+  warning,
+});
 
-const chatTabRef = ref(null);
+const asrStatus = ref(null);
 
-const tabs = [
-  { id: "prompt", label: "Системный промпт", symbol: ">" },
-  { id: "settings", label: "Параметры", symbol: "#" },
-  { id: "tools", label: "Инструменты", symbol: "~" },
-  { id: "chat", label: "Чат с агентом", symbol: "@" },
-  { id: "logs", label: "Логи", symbol: "!" },
-];
+function onConfigUpdate(partial) {
+  Object.assign(localConfig.value, partial);
+}
 
-function handleNavigate(action) {
-  switch (action) {
-    case "start":
-      return handleStart();
-    case "stop":
-      return handleStop();
-    case "restart":
-      return handleRestart();
-    case "export":
-      return exportConfig();
-    case "import":
-      return importConfig();
-    case "format":
-      return formatPrompt();
-    default:
-      if (["prompt", "settings", "chat", "logs", "tools"].includes(action)) {
-        activeTab.value = action;
-      }
+function onFormatPrompt() {
+  if (typeof formatPrompt === "function") formatPrompt(systemPrompt);
+}
+
+function onBrowse() {
+  handleBrowse();
+}
+
+function onAddApiBase() {
+  handleAddApiBase(apiBases);
+}
+
+function onRemoveApiBase(idx) {
+  handleRemoveApiBase(apiBases, idx);
+}
+
+function onRefreshModels() {
+  handleRefreshModels(loadApiBases);
+}
+
+function onLoadOpenRouter() {
+  handleLoadOpenRouter(updateModels, localConfig.value.openrouterApiKey);
+}
+
+function onTestAsr() {
+  handleTestAsr(asrStatus);
+}
+
+function handleTopAction(actionId) {
+  if (actionId === "logs") {
+    if (logsOpen.value) closeLogs();
+    else openLogs();
+  } else if (actionId === "settings") {
+    if (settingsOpen.value) closeSettings();
+    else openSettings();
   }
 }
 
@@ -217,87 +227,22 @@ onMounted(async () => {
 <style>
 @import "@/styles/main.css";
 
-/* ═══════════════════════════════════════════════
-   APP LAYOUT — Space Flight Mission Control v2.0
-   ═══════════════════════════════════════════════ */
-
-.app-container {
-  position: relative;
-  padding: 16px 20px 20px;
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 16px;
-  min-height: 100vh;
-  background: var(--bg-primary);
-  z-index: var(--z-elevated);
-}
-
-/* ═══════════════════════════════════════════════
-   SIDEBAR (Left Panel — Telemetry & Controls)
-   ═══════════════════════════════════════════════ */
-
-.sidebar {
+.control-strip {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: relative;
-  overflow-y: auto;
-  overflow-x: hidden;
-  max-height: calc(100vh - 90px);
-  scrollbar-width: thin;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
-.sidebar::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: -1px;
-  width: 1px;
-  height: 100%;
-  background: linear-gradient(180deg, transparent, var(--accent), transparent);
-  opacity: 0.15;
+.control-strip__spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
 }
 
-/* ═══════════════════════════════════════════════
-   MAIN CONTENT (Right Panel)
-   ═══════════════════════════════════════════════ */
-
-.main-content {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-}
-
-/* ═══════════════════════════════════════════════
-   RESPONSIVE
-   ═══════════════════════════════════════════════ */
-
-@media (max-width: 1024px) {
-  .app-container {
-    grid-template-columns: 1fr;
-    padding: 14px;
-  }
-  .sidebar {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    max-height: none;
-  }
-  .sidebar::before {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .app-container {
-    padding: 10px;
-    gap: 10px;
-  }
-  .sidebar {
-    grid-template-columns: 1fr;
-    gap: 10px;
+@media (max-width: 720px) {
+  .control-strip {
+    flex-wrap: wrap;
   }
 }
 </style>

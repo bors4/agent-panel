@@ -69,7 +69,7 @@ export function createConfigRouter(deps) {
         return res.status(400).json({ error: `Cannot access path: ${e.message}` });
       }
       config.projectPath = resolved;
-      loadAccounts(config.projectPath);
+      loadAccounts(process.cwd());
       addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}", accounts: ${getAccounts().length}`, "info");
     } else {
       addLog(`projectPath: skipped (value=${JSON.stringify(body.projectPath)})`, "warning");

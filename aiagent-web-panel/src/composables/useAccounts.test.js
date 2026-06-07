@@ -209,4 +209,56 @@ describe("useAccounts", () => {
     await a.saveAccounts();
     expect(a.accounts.value).toEqual([{ username: "local-precious" }]);
   });
+
+  it("fetchAccounts ignores payload when accounts is not an array", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(client, "getAccounts").mockResolvedValue({ success: true, accounts: "not-an-array" });
+    const a = useAccounts();
+    a.accounts.value = [{ username: "kept" }];
+    await a.fetchAccounts();
+    expect(a.accounts.value).toEqual([{ username: "kept" }]);
+  });
+
+  it("fetchAccounts ignores payload when success is false", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(client, "getAccounts").mockResolvedValue({ success: false, accounts: [{ username: "x" }] });
+    const a = useAccounts();
+    a.accounts.value = [{ username: "kept" }];
+    await a.fetchAccounts();
+    expect(a.accounts.value).toEqual([{ username: "kept" }]);
+  });
+
+  it("toggleAccountTool is a no-op on missing index (accounts.value=undefined)", () => {
+    const a = useAccounts();
+    a.accounts.value = undefined;
+    expect(() => a.toggleAccountTool(0, "read", true)).not.toThrow();
+    expect(a.accounts.value).toBeUndefined();
+  });
+
+  it("toggleAccountTool is a no-op on out-of-bounds index", () => {
+    const a = useAccounts();
+    a.accounts.value = [{ username: "x", permissions: { read: true } }];
+    a.toggleAccountTool(99, "execute", true);
+    expect(a.accounts.value[0].permissions.execute).toBeUndefined();
+  });
+
+  it("onRoleChange is a no-op on missing index", () => {
+    const a = useAccounts();
+    a.accounts.value = undefined;
+    expect(() => a.onRoleChange(0, "system")).not.toThrow();
+  });
+
+  it("addPath is a no-op on missing account", () => {
+    const a = useAccounts();
+    a.accounts.value = undefined;
+    expect(() => a.addPath(0)).not.toThrow();
+  });
+
+  it("removePath is a no-op on missing account or missing paths array", () => {
+    const a = useAccounts();
+    a.accounts.value = [{ username: "x" }];
+    expect(() => a.removePath(0, 0)).not.toThrow();
+    a.accounts.value = undefined;
+    expect(() => a.removePath(0, 0)).not.toThrow();
+  });
 });

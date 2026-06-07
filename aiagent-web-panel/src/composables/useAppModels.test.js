@@ -7,6 +7,13 @@ import { ref } from "vue";
 import { useAppModels } from "@/composables/useAppModels";
 import * as client from "@/api/client";
 
+const TEST_DEFAULT_API_BASES = [
+  { url: "http://192.168.1.101:8080/v1", connected: true },
+  { url: "http://192.168.1.101:1234/v1", connected: false },
+];
+const TEST_DEFAULT_MODEL = "gemma-4-E4B-it-Q4_K_M.gguf";
+const TEST_DEFAULT_SERVER_URL = "http://192.168.1.101:8080/v1";
+
 function makeDeps(overrides = {}) {
   return {
     addLog: vi.fn(),
@@ -26,12 +33,22 @@ describe("useAppModels", () => {
     vi.restoreAllMocks();
   });
 
-  it("exposes initial state with defaults", () => {
+  it("exposes initial state with empty defaults (production)", () => {
     const m = useAppModels(makeDeps());
-    expect(m.modelName.value).toBe("gemma-4-E4B-it-Q4_K_M.gguf");
-    expect(m.serverUrl.value).toBe("http://192.168.1.101:8080/v1");
-    expect(m.apiBases.value).toHaveLength(2);
+    expect(m.modelName.value).toBe("");
+    expect(m.serverUrl.value).toBe("");
+    expect(m.apiBases.value).toEqual([]);
     expect(m.availableModels.value).toEqual([]);
+  });
+
+  it("can be initialized with test defaults", () => {
+    const m = useAppModels(makeDeps());
+    m.apiBases.value = [...TEST_DEFAULT_API_BASES];
+    m.modelName.value = TEST_DEFAULT_MODEL;
+    m.serverUrl.value = TEST_DEFAULT_SERVER_URL;
+    expect(m.modelName.value).toBe(TEST_DEFAULT_MODEL);
+    expect(m.serverUrl.value).toBe(TEST_DEFAULT_SERVER_URL);
+    expect(m.apiBases.value).toHaveLength(TEST_DEFAULT_API_BASES.length);
   });
 
   it("selectedModel returns the model that matches modelName", () => {
@@ -77,6 +94,7 @@ describe("useAppModels", () => {
     vi.spyOn(client, "getModels").mockRejectedValue(new Error("down"));
     const deps = makeDeps();
     const m = useAppModels(deps);
+    m.apiBases.value = [{ url: "http://a/v1", connected: true }];
     await m.loadApiBases();
     expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("Failed"), "error");
   });
@@ -84,6 +102,7 @@ describe("useAppModels", () => {
   it("loadApiBases selects first available model if modelName is unknown", async () => {
     vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: [{ id: "m1" }] });
     const m = useAppModels(makeDeps());
+    m.apiBases.value = [{ url: "http://a/v1", connected: true }];
     await m.loadApiBases();
     expect(m.modelName.value).toBe("m1");
   });
@@ -113,6 +132,7 @@ describe("useAppModels", () => {
     vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: [{ id: "m1" }] });
     const deps = makeDeps();
     const m = useAppModels(deps);
+    m.apiBases.value = [{ url: "http://a/v1", connected: true }];
     m.availableModels.value = [{ id: "stale" }];
     await m.updateModels();
     expect(m.availableModels.value.find((x) => x.id === "stale")).toBeUndefined();
@@ -148,6 +168,7 @@ describe("useAppModels", () => {
         })
     );
     const m = useAppModels(makeDeps());
+    m.apiBases.value = [{ url: "http://a/v1", connected: true }];
     const promise = m.loadApiBases();
     m.modelName.value = "user-typed-during-fetch";
     resolveFetch({ models: [{ id: "m1" }] });
@@ -165,7 +186,7 @@ describe("useAppModels", () => {
     // The error toast path is only triggered when getModels rejects — see
     // the dedicated 'logs error when getModels rejects' test below.
     expect(m.availableModels.value).toEqual([]);
-    expect(m.modelName.value).toBe("gemma-4-E4B-it-Q4_K_M.gguf"); // unchanged
+    expect(m.modelName.value).toBe(""); // unchanged (no defaults in production)
   });
 
   it("dedupes large lists correctly (Set-based, O(n) not O(n²))", async () => {
@@ -185,5 +206,95 @@ describe("useAppModels", () => {
     expect(m.availableModels.value).toHaveLength(200);
     const ids = m.availableModels.value.map((x) => x.id);
     expect(new Set(ids).size).toBe(200); // no duplicates
+  });
+
+  describe("loadApiBases — serverUrl override behaviour (regression: user-saved IP is lost)", () => {
+    it("keeps user-saved serverUrl when it matches an active apiBase (even if model is on multiple)", async () => {
+      // Model is hosted on BOTH bases. Discovery will tag it with the FIRST
+      // base (apiBases[0]). The user's saved serverUrl points to the SECOND
+      // base — that value must survive loadApiBases.
+      vi.spyOn(client, "getModels").mockImplementation(async (url) => {
+        if (url === "http://192.168.1.101:8080/v1") return { models: [{ id: "qwen" }] };
+        if (url === "http://192.168.1.103:8080/v1") return { models: [{ id: "qwen" }] };
+        return { models: [] };
+      });
+      const m = useAppModels(makeDeps());
+      m.modelName.value = "qwen";
+      m.serverUrl.value = "http://192.168.1.103:8080/v1";
+      m.apiBases.value = [
+        { url: "http://192.168.1.101:8080/v1", connected: true },
+        { url: "http://192.168.1.103:8080/v1", connected: true },
+      ];
+      await m.loadApiBases();
+      expect(m.serverUrl.value).toBe("http://192.168.1.103:8080/v1");
+    });
+
+    it("falls back to discovery source when user-saved serverUrl is not in active apiBases", async () => {
+      vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: [{ id: "m1" }] });
+      const m = useAppModels(makeDeps());
+      m.modelName.value = "m1";
+      m.serverUrl.value = "http://192.168.1.999:8080/v1"; // not in active list
+      m.apiBases.value = [{ url: "http://192.168.1.101:8080/v1", connected: true }];
+      await m.loadApiBases();
+      expect(m.serverUrl.value).toBe("http://192.168.1.101:8080/v1");
+    });
+
+    it("falls back to discovery source when serverUrl is empty", async () => {
+      vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: [{ id: "m1" }] });
+      const m = useAppModels(makeDeps());
+      m.modelName.value = "m1";
+      m.serverUrl.value = "";
+      m.apiBases.value = [{ url: "http://192.168.1.101:8080/v1", connected: true }];
+      await m.loadApiBases();
+      expect(m.serverUrl.value).toBe("http://192.168.1.101:8080/v1");
+    });
+  });
+
+  describe("setModel", () => {
+    it("updates modelName and syncs serverUrl to the model's discovered source", async () => {
+      vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: [{ id: "m1" }, { id: "m2" }] });
+      const m = useAppModels(makeDeps());
+      m.apiBases.value = [{ url: "http://192.168.1.103:8080/v1", connected: true }];
+      await m.loadApiBases();
+      // Pre-state: m1 is current, source is 192.168.1.103
+      m.modelName.value = "m1";
+      m.serverUrl.value = "http://192.168.1.103:8080/v1";
+
+      m.setModel("m2");
+      expect(m.modelName.value).toBe("m2");
+      // m2 is also on the same base, so URL should follow
+      expect(m.serverUrl.value).toBe("http://192.168.1.103:8080/v1");
+    });
+
+    it("updates serverUrl when switching between models on different bases", async () => {
+      // Two api bases, each hosts a different model
+      vi.spyOn(client, "getModels").mockImplementation(async (url) => {
+        if (url === "http://a/v1") return { models: [{ id: "modelA" }] };
+        if (url === "http://b/v1") return { models: [{ id: "modelB" }] };
+        return { models: [] };
+      });
+      const m = useAppModels(makeDeps());
+      m.apiBases.value = [
+        { url: "http://a/v1", connected: true },
+        { url: "http://b/v1", connected: true },
+      ];
+      await m.loadApiBases();
+
+      m.setModel("modelB");
+      expect(m.modelName.value).toBe("modelB");
+      expect(m.serverUrl.value).toBe("http://b/v1");
+    });
+
+    it("keeps serverUrl as-is if the new model is not in availableModels (validation will catch it later)", async () => {
+      vi.spyOn(client, "getModels").mockResolvedValueOnce({ models: [{ id: "m1" }] });
+      const m = useAppModels(makeDeps());
+      m.apiBases.value = [{ url: "http://192.168.1.101:8080/v1", connected: true }];
+      await m.loadApiBases();
+      m.serverUrl.value = "http://custom:9000/v1";
+
+      m.setModel("not-discovered");
+      expect(m.modelName.value).toBe("not-discovered");
+      expect(m.serverUrl.value).toBe("http://custom:9000/v1"); // unchanged
+    });
   });
 });

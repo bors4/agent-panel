@@ -53,7 +53,7 @@ export function useAccounts() {
   async function fetchAccounts() {
     try {
       const data = await getAccounts();
-      if (data.success) {
+      if (data?.success && Array.isArray(data.accounts)) {
         accounts.value = data.accounts;
       }
     } catch (error) {
@@ -77,30 +77,38 @@ export function useAccounts() {
   }
 
   function onRoleChange(idx, role) {
-    accounts.value[idx].role = role;
-    accounts.value[idx].permissions = { ...ROLE_DEFAULTS[role] };
+    const account = accounts.value?.[idx];
+    if (!account) return;
+    account.role = role;
+    account.permissions = { ...ROLE_DEFAULTS[role] };
   }
 
   function toggleAccountTool(idx, toolName, checked) {
-    if (!accounts.value[idx].permissions) {
-      accounts.value[idx].permissions = {};
+    const account = accounts.value?.[idx];
+    if (!account) return;
+    if (!account.permissions) {
+      account.permissions = {};
     }
-    accounts.value[idx].permissions[toolName] = checked;
+    account.permissions[toolName] = checked;
   }
 
   function addPath(idx) {
-    accounts.value[idx].include_paths.push("");
+    const account = accounts.value?.[idx];
+    if (!account || !Array.isArray(account.include_paths)) return;
+    account.include_paths.push("");
   }
 
   function removePath(idx, pi) {
-    accounts.value[idx].include_paths.splice(pi, 1);
+    const account = accounts.value?.[idx];
+    if (!account || !Array.isArray(account.include_paths)) return;
+    account.include_paths.splice(pi, 1);
   }
 
   async function saveAccounts() {
     try {
       const data = await postAccounts({ accounts: accounts.value });
       if (data.success) {
-        accounts.value = data.accounts;
+        if (Array.isArray(data.accounts)) accounts.value = data.accounts;
         toastSuccess("Аккаунты сохранены");
       } else {
         toastError("Ошибка: " + (data.error || "Неизвестная ошибка"));
@@ -128,7 +136,7 @@ export function useAccounts() {
       }
       const data = await postImportAccounts({ accounts: imported });
       if (data.success) {
-        accounts.value = data.accounts;
+        if (Array.isArray(data.accounts)) accounts.value = data.accounts;
         toastSuccess(`Импортировано ${accounts.value.length} аккаунтов`);
       } else {
         toastError("Ошибка импорта: " + (data.error || "Неизвестная ошибка"));

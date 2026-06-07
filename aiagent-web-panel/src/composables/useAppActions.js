@@ -80,16 +80,20 @@ export function useAppActions(overrides = {}) {
 
   /**
    * Аккумулировать usage в реактивный tokenUsage.
-   * @param {{ prompt_tokens?: number, completion_tokens?: number, total_tokens?: number, prompt_tokens_details?: { cached_tokens?: number } }} usage
+   * Принимает как канонический формат ({ prompt, completion, total, cached }),
+   * так и OpenAI формат ({ prompt_tokens, completion_tokens, total_tokens }).
+   * @param {{ prompt?: number, completion?: number, total?: number, cached?: number, prompt_tokens?: number, completion_tokens?: number, total_tokens?: number }|null} usage
    */
   function handleTokenUsage(usage) {
     if (!usage) return;
-    tokenUsage.value.prompt += usage.prompt_tokens || 0;
-    tokenUsage.value.completion += usage.completion_tokens || 0;
-    tokenUsage.value.total += usage.total_tokens || 0;
-    if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-      tokenUsage.value.cached += usage.prompt_tokens_details.cached_tokens;
-    }
+    const prompt = usage.prompt ?? usage.prompt_tokens ?? 0;
+    const completion = usage.completion ?? usage.completion_tokens ?? 0;
+    const total = usage.total ?? usage.total_tokens ?? (prompt + completion);
+    const cached = usage.cached ?? usage.prompt_tokens_details?.cached_tokens ?? 0;
+    tokenUsage.value.prompt += prompt;
+    tokenUsage.value.completion += completion;
+    tokenUsage.value.total += total;
+    tokenUsage.value.cached += cached;
   }
 
   /**

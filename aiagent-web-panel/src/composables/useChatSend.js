@@ -8,6 +8,28 @@ import { ref, nextTick } from "vue";
 import { directChat, directChatStream, agentChat } from "@/api/client";
 
 /**
+ * Normalize token usage to canonical format { prompt, completion, total, cached }.
+ * Handles both OpenAI format ({ prompt_tokens, ... }) and canonical.
+ */
+function normalizeUsage(usage) {
+  if (!usage) return null;
+  if (typeof usage.prompt === "number" && typeof usage.completion === "number") {
+    return {
+      prompt: usage.prompt,
+      completion: usage.completion,
+      total: usage.total ?? (usage.prompt + usage.completion),
+      cached: usage.cached ?? 0,
+    };
+  }
+  return {
+    prompt: usage.prompt_tokens ?? 0,
+    completion: usage.completion_tokens ?? 0,
+    total: usage.total_tokens ?? ((usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0)),
+    cached: usage.prompt_tokens_details?.cached_tokens ?? usage.cached ?? 0,
+  };
+}
+
+/**
  * @param {{
  *   messages: import("vue").Ref<Array>,
  *   approvalMessages: import("vue").Ref<Array>,
@@ -16,7 +38,8 @@ import { directChat, directChatStream, agentChat } from "@/api/client";
  *   cancel: ReturnType<typeof import("./useChatCancel").useChatCancel>,
  *   pending: ReturnType<typeof import("./usePendingApproval").usePendingApproval>,
  *   toggles: { agentMode: import("vue").Ref<boolean> },
- *   options: { modelName: string, serverUrl: string, projectPath: string, systemPrompt: string, streamEnabled: boolean, verbose: boolean, soundEnabled: boolean, soundVolume: number }
+ *   options: { modelName: string, serverUrl: string, projectPath: string, systemPrompt: string, streamEnabled: boolean, verbose: boolean, soundEnabled: boolean, soundVolume: number },
+ *   emitWarning: (message: string) => void
  * }} deps
  */
 export function useChatSend({
@@ -28,6 +51,7 @@ export function useChatSend({
   pending,
   toggles,
   options,
+  emitWarning,
 }) {
   const isTyping = ref(false);
   const isStreaming = ref(false);
@@ -35,7 +59,7 @@ export function useChatSend({
   const streamingReasoning = ref("");
   const reasoningDone = ref(false);
 
-  const { playSend, playReceive, setVolume, cancelVoice } = options.sound;
+  const { send: playSend, receive: playReceive, setVolume, cleanup: cancelVoice } = options.sound;
   void setVolume;
   void cancelVoice;
 
@@ -57,6 +81,16 @@ export function useChatSend({
   async function sendMessage(text, emitLog, emitTokenUsage) {
     if (!text.trim()) return;
     if (isTyping.value || isStreaming.value) return;
+
+    // API-BASE guard: блокируем запрос, если в настройках не задан endpoint.
+    // Покрывает случай, когда пользователь не настроил `apiBases` в Параметрах
+    // и/или `serverUrl` остался пустым после `loadApiBases`.
+    if (!options.serverUrl || !options.serverUrl.trim()) {
+      const msg = "API-BASE не задан. Укажите его в разделе Параметры → API-BASE.";
+      emitWarning?.(msg);
+      emitLog({ message: `[ERROR] ${msg}`, type: "error" });
+      return;
+    }
 
     const controller = cancel.createController();
     const startTime = Date.now();
@@ -132,14 +166,15 @@ export function useChatSend({
       }
 
       if (result.reply) {
+        const normalized = normalizeUsage(result.tokenUsage);
         messages.value.push({
           role: "bot",
           content: result.reply,
           reasoning: result.reasoning || "",
           reasoningExpanded: false,
-          usage: result.tokenUsage || null,
+          usage: normalized,
         });
-        if (result.tokenUsage) emitTokenUsage(result.tokenUsage);
+        if (normalized) emitTokenUsage(normalized);
       }
 
       pending.addToolMessages(
@@ -223,10 +258,11 @@ export function useChatSend({
             nextTick(() => scrollToBottom());
           },
           onDone: (usage) => {
-            lastUsage = usage;
+            const normalized = normalizeUsage(usage);
+            lastUsage = normalized;
             messages.value[botMsgIdx].streaming = false;
-            messages.value[botMsgIdx].usage = usage || null;
-            if (usage) emitTokenUsage(usage);
+            messages.value[botMsgIdx].usage = normalized;
+            if (normalized) emitTokenUsage(normalized);
           },
           onError: (error) => {
             throw new Error(error);
@@ -298,11 +334,12 @@ export function useChatSend({
       const latency = Date.now() - startTime;
       isTyping.value = false;
 
+      const normalized = normalizeUsage(data.usage);
       const botMsg = {
         role: "bot",
         content: data.reply || "Пустой ответ",
         reasoning: data.reasoning || "",
-        usage: data.usage || null,
+        usage: normalized,
       };
       messages.value.push(botMsg);
 
@@ -311,9 +348,9 @@ export function useChatSend({
           message: `[VERBOSE] Response ← model (${latency}ms): ${data.reply || "empty"}`,
           type: "success",
         });
-        if (data.usage) {
+        if (normalized) {
           emitLog({
-            message: `[VERBOSE] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}, cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`,
+            message: `[VERBOSE] Tokens: prompt=${normalized.prompt}, completion=${normalized.completion}, total=${normalized.total}, cached=${normalized.cached}`,
             type: "info",
           });
         }
@@ -324,7 +361,7 @@ export function useChatSend({
         });
       }
 
-      if (data.usage) emitTokenUsage(data.usage);
+      if (normalized) emitTokenUsage(normalized);
     } catch (error) {
       const latency = Date.now() - startTime;
       isTyping.value = false;

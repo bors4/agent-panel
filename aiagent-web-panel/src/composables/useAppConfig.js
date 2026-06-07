@@ -7,7 +7,7 @@
 
 import { ref } from "vue";
 import { configDefaults } from "@backend/lib/configDefaults.js";
-import { updateConfig } from "@/api/client";
+import { browseFolder, testAsrConnection, updateConfig } from "@/api/client";
 
 const LS_KEY = "agent-config";
 const TOKEN_SANITIZE_REGEX = /[^\x00-\x7F]/g;
@@ -216,16 +216,16 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
   }
 
   function handleSettingsSave(data) {
-    if (data.config) {
+    if (data?.config) {
       Object.assign(localConfig.value, data.config);
     }
-    if (data.apiBases) {
+    if (data?.apiBases) {
       apiBases.value = data.apiBases;
     }
-    if (data.modelName !== undefined) {
+    if (data?.modelName !== undefined) {
       modelName.value = data.modelName;
     }
-    if (data.serverUrl !== undefined) {
+    if (data?.serverUrl !== undefined) {
       serverUrl.value = data.serverUrl;
     }
     return saveSettings(true);
@@ -236,6 +236,108 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
       localConfig.value.projectPath = data.projectPath;
     }
     return saveSettings();
+  }
+
+  /**
+   * Открывает системный диалог выбора директории (через backend /api/browse-folder)
+   * и записывает выбранный путь в localConfig.projectPath.
+   * Бэкенд возвращает { path: "..." } при выборе, { path: null } при отмене,
+   * { error: "..." } при ошибке. Поля `success` нет.
+   */
+  async function handleBrowse() {
+    try {
+      const data = await browseFolder();
+      if (data?.path) {
+        localConfig.value.projectPath = data.path;
+        addLog(`Selected project path: ${data.path}`, "info");
+        success("Путь выбран");
+      } else if (data?.error) {
+        warning(data.error);
+        addLog(`Browse folder: ${data.error}`, "warning");
+      }
+    } catch (e) {
+      error("Не удалось открыть диалог выбора папки: " + e.message);
+      addLog(`Browse folder failed: ${e.message}`, "error");
+    }
+  }
+
+  /**
+   * Добавить новую запись в apiBases (с пустым URL).
+   * @param {import("vue").Ref<Array>} apiBasesRef
+   */
+  function handleAddApiBase(apiBasesRef) {
+    if (!apiBasesRef?.value) return;
+    apiBasesRef.value.push({ url: "", connected: false });
+  }
+
+  /**
+   * Удалить запись apiBases по индексу.
+   * @param {import("vue").Ref<Array>} apiBasesRef
+   * @param {number} idx
+   */
+  function handleRemoveApiBase(apiBasesRef, idx) {
+    if (!apiBasesRef?.value || !Array.isArray(apiBasesRef.value)) return;
+    if (idx < 0 || idx >= apiBasesRef.value.length) return;
+    apiBasesRef.value.splice(idx, 1);
+  }
+
+  /**
+   * Обновить список моделей из локальных API баз.
+   * @param {Function} loadApiBases
+   */
+  async function handleRefreshModels(loadApiBases) {
+    if (typeof loadApiBases !== "function") return;
+    try {
+      await loadApiBases();
+      success("Модели обновлены");
+    } catch (e) {
+      error("Не удалось обновить модели: " + e.message);
+    }
+  }
+
+  /**
+   * Загрузить модели OpenRouter по сохранённому ключу.
+   * @param {Function} updateModels
+   * @param {string} openrouterApiKey
+   */
+  async function handleLoadOpenRouter(updateModels, openrouterApiKey) {
+    if (typeof updateModels !== "function") return;
+    if (!openrouterApiKey) {
+      warning("Сначала укажите OpenRouter API ключ");
+      return;
+    }
+    try {
+      await updateModels("https://openrouter.ai/api/v1", openrouterApiKey);
+    } catch (e) {
+      error("Не удалось загрузить модели OpenRouter: " + e.message);
+    }
+  }
+
+  /**
+   * Проверить доступность ASR-сервера, обновить asrStatus ref.
+   * @param {import("vue").Ref<Object|null>} asrStatusRef
+   */
+  async function handleTestAsr(asrStatusRef) {
+    if (!asrStatusRef) return;
+    try {
+      const data = await testAsrConnection();
+      asrStatusRef.value = {
+        configured: !!data?.configured,
+        reachable: !!data?.reachable,
+        url: data?.url || "",
+        status: data?.status,
+      };
+      if (data?.reachable) {
+        success("ASR сервер доступен");
+        addLog(`ASR reachable: ${data.url}`, "success");
+      } else {
+        warning("ASR сервер недоступен");
+        addLog(`ASR unreachable: ${data?.url || "(not configured)"}`, "warning");
+      }
+    } catch (e) {
+      asrStatusRef.value = { configured: false, reachable: false, url: "", error: e.message };
+      error("Не удалось проверить ASR: " + e.message);
+    }
   }
 
   return {
@@ -249,5 +351,11 @@ export function useAppConfig({ systemPrompt, apiBases, modelName, serverUrl, add
     importConfig,
     handleSettingsSave,
     handleSaveProjectPath,
+    handleBrowse,
+    handleAddApiBase,
+    handleRemoveApiBase,
+    handleRefreshModels,
+    handleLoadOpenRouter,
+    handleTestAsr,
   };
 }

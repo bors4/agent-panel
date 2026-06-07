@@ -18,7 +18,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { nextTick } from "vue";
 import { mount } from "@vue/test-utils";
 import ToastContainer from "@/components/ui/ToastContainer.vue";
-import TabBar from "@/components/layout/TabBar.vue";
 import AppTooltip from "@/components/ui/AppTooltip.vue";
 import { toasts } from "@/composables/useToast.js";
 
@@ -84,67 +83,20 @@ describe("ARIA — ToastContainer", () => {
   });
 });
 
-// ─── TabBar ─────────────────────────────────────────────────────────────
-
-describe("ARIA — TabBar", () => {
-  const tabsFixture = [
-    { id: "chat", label: "Chat", symbol: "C" },
-    { id: "settings", label: "Settings", symbol: "S" },
-    { id: "logs", label: "Logs", symbol: "L" },
-  ];
-
-  it("renders a tablist with a stable label", () => {
-    const wrapper = mount(TabBar, { props: { tabs: tabsFixture, activeTab: "chat" } });
-    const list = wrapper.find('[role="tablist"]');
-    expect(list.exists()).toBe(true);
-    expect(list.attributes("aria-label")).toBe("Навигация по разделам");
-  });
-
-  it("marks each tab with role=tab and links to its panel via aria-controls", () => {
-    const wrapper = mount(TabBar, { props: { tabs: tabsFixture, activeTab: "chat" } });
-    const tabs = wrapper.findAll('[role="tab"]');
-    expect(tabs).toHaveLength(3);
-    expect(tabs[0].attributes("aria-controls")).toBe("panel-chat");
-    expect(tabs[1].attributes("aria-controls")).toBe("panel-settings");
-    expect(tabs[2].attributes("aria-controls")).toBe("panel-logs");
-  });
-
-  it("sets aria-selected=true on the active tab and false on others", () => {
-    const wrapper = mount(TabBar, { props: { tabs: tabsFixture, activeTab: "settings" } });
-    const tabs = wrapper.findAll('[role="tab"]');
-    expect(tabs[0].attributes("aria-selected")).toBe("false");
-    expect(tabs[1].attributes("aria-selected")).toBe("true");
-    expect(tabs[2].attributes("aria-selected")).toBe("false");
-  });
-
-  it("uses roving tabindex — only the active tab is tabbable", () => {
-    const wrapper = mount(TabBar, { props: { tabs: tabsFixture, activeTab: "logs" } });
-    const tabs = wrapper.findAll('[role="tab"]');
-    expect(tabs[0].attributes("tabindex")).toBe("-1");
-    expect(tabs[1].attributes("tabindex")).toBe("-1");
-    expect(tabs[2].attributes("tabindex")).toBe("0");
-  });
-
-  it("hides the decorative tab symbol from screen readers", () => {
-    const wrapper = mount(TabBar, { props: { tabs: tabsFixture, activeTab: "chat" } });
-    const symbol = wrapper.find(".tab__indicator");
-    expect(symbol.exists()).toBe(true);
-    expect(symbol.attributes("aria-hidden")).toBe("true");
-  });
-});
-
 // ─── AppTooltip ─────────────────────────────────────────────────────────
 
 describe("ARIA — AppTooltip", () => {
-  it("exposes its content as role=tooltip so screen readers announce it", () => {
+  it("exposes its content as role=tooltip so screen readers announce it", async () => {
     const wrapper = mountTracked(AppTooltip, {
       slots: {
         trigger: '<button id="trig">hover me</button>',
         default: "Help text",
       },
     });
-    const tooltip = wrapper.find('[role="tooltip"]');
-    expect(tooltip.exists()).toBe(true);
-    expect(tooltip.text()).toBe("Help text");
+    await wrapper.trigger("mouseenter");
+    await nextTick();
+    const tooltip = document.body.querySelector('.tooltip-content[role="tooltip"]');
+    expect(tooltip).not.toBeNull();
+    expect(tooltip.textContent.trim()).toBe("Help text");
   });
 });

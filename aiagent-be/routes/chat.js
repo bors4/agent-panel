@@ -10,6 +10,7 @@ import { agentLoopStep, MAX_AGENT_ITERATIONS } from "../lib/agent/agentLoop.js";
 import { executeTool } from "../lib/agent/executeTool.js";
 import { getAccountByUsername } from "../lib/accounts.js";
 import { parseStreamedResponse } from "../lib/parseSSE.js";
+import { normalizeUsage } from "../lib/responseNormalizer.js";
 
 /**
  * @param {Object} deps
@@ -123,12 +124,19 @@ export function createChatRouter(deps) {
 
         const { toolCalls, toolResults } = extractToolData(result.messages);
         if (result.tokenUsage) {
-          tu.prompt += result.tokenUsage.prompt || 0;
-          tu.completion += result.tokenUsage.completion || 0;
-          tu.total += result.tokenUsage.total || 0;
-          tu.cached += result.tokenUsage.cached || 0;
-          wsBroadcast("tokenUsage", { ...tu });
+          const delta = {
+            prompt: result.tokenUsage.prompt || 0,
+            completion: result.tokenUsage.completion || 0,
+            total: result.tokenUsage.total || 0,
+            cached: result.tokenUsage.cached || 0,
+          };
+          tu.prompt += delta.prompt;
+          tu.completion += delta.completion;
+          tu.total += delta.total;
+          tu.cached += delta.cached;
+          wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
         }
+        wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
         if (result.timings) {
           wsBroadcast("perfStats", buildPerfStats(result.timings));
         }
@@ -213,29 +221,34 @@ export function createChatRouter(deps) {
           onFinish: (reason) => res.write(`data: ${JSON.stringify({ finishReason: reason })}\n\n`),
           onUsage: (u) => {
             if (u) {
-              tu.prompt += u.prompt_tokens || 0;
-              tu.completion += u.completion_tokens || 0;
-              tu.total += u.total_tokens || 0;
-              if (u.prompt_tokens_details?.cached_tokens !== undefined) {
-                tu.cached += u.prompt_tokens_details.cached_tokens;
-              }
-              wsBroadcast("tokenUsage", { ...tu });
+              const nu = normalizeUsage(u);
+              tu.prompt += nu.prompt;
+              tu.completion += nu.completion;
+              tu.total += nu.total;
+              tu.cached += nu.cached;
+              wsBroadcast("tokenUsage", { ...nu, timestamp: Date.now() });
             }
           },
           onTimings: (t) => {
             if (t) {
-              tu.prompt += t.prompt_n || 0;
-              tu.completion += t.predicted_n || 0;
-              tu.total += (t.prompt_n || 0) + (t.predicted_n || 0);
-              if (t.cache_n) tu.cached += t.cache_n;
+              const delta = {
+                prompt: t.prompt_n || 0,
+                completion: t.predicted_n || 0,
+                total: (t.prompt_n || 0) + (t.predicted_n || 0),
+                cached: t.cache_n || 0,
+              };
+              tu.prompt += delta.prompt;
+              tu.completion += delta.completion;
+              tu.total += delta.total;
+              tu.cached += delta.cached;
               if (t.tokens_cached) tu.tokensCached = t.tokens_cached;
-              wsBroadcast("tokenUsage", { ...tu });
+              wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
               if (!t.prompt_n && !t.predicted_n) return;
               perfStatsSent = true;
               wsBroadcast("perfStats", buildPerfStats(t));
             }
           },
-        });
+        }, actualServerUrl);
         const totalMs = performance.now() - t0;
 
         if (!perfStatsSent && fullContent) {
@@ -261,24 +274,25 @@ export function createChatRouter(deps) {
         let finalUsage = sseUsage;
         if (!finalUsage) {
           if (finalTimings?.prompt_n) {
-            finalUsage = {
-              prompt_tokens: finalTimings.prompt_n || 0,
-              completion_tokens: finalTimings.predicted_n || 0,
-              total_tokens: (finalTimings.prompt_n || 0) + (finalTimings.predicted_n || 0),
-              prompt_tokens_details: { cached_tokens: finalTimings.tokens_cached ?? tokensCached ?? 0 },
-            };
+            finalUsage = normalizeUsage({
+              prompt: finalTimings.prompt_n || 0,
+              completion: finalTimings.predicted_n || 0,
+              cached: finalTimings.tokens_cached ?? tokensCached ?? 0,
+            });
           } else if (fullContent) {
             const promptText = systemContext + (message || "");
             const promptN = Math.ceil(promptText.length / 4);
             const predictedN = Math.ceil(fullContent.length / 4);
-            finalUsage = { prompt_tokens: promptN, completion_tokens: predictedN, total_tokens: promptN + predictedN };
-            tu.prompt += promptN;
-            tu.completion += predictedN;
-            tu.total += promptN + predictedN;
-            wsBroadcast("tokenUsage", { ...tu });
+            const delta = { prompt: promptN, completion: predictedN, total: promptN + predictedN, cached: 0 };
+            tu.prompt += delta.prompt;
+            tu.completion += delta.completion;
+            tu.total += delta.total;
+            wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
+            finalUsage = delta;
           }
         }
 
+        wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
         res.write(`data: ${JSON.stringify({ reply: "", usage: finalUsage, done: true })}\n\n`);
         res.write("data: [DONE]\n\n");
         res.end();
@@ -293,28 +307,32 @@ export function createChatRouter(deps) {
 
         if (usage || timings) {
           if (usage) {
-            tu.prompt += usage.prompt_tokens || 0;
-            tu.completion += usage.completion_tokens || 0;
-            tu.total += usage.total_tokens || 0;
-            if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-              tu.cached += usage.prompt_tokens_details.cached_tokens;
-            } else if (timings?.cache_n) {
-              tu.cached += timings.cache_n;
-            }
+            const nu = normalizeUsage(usage);
+            tu.prompt += nu.prompt;
+            tu.completion += nu.completion;
+            tu.total += nu.total;
+            tu.cached += nu.cached;
+            wsBroadcast("tokenUsage", { ...nu, timestamp: Date.now() });
           } else if (timings) {
-            tu.prompt += timings.prompt_n || 0;
-            tu.completion += timings.predicted_n || 0;
-            tu.total += (timings.prompt_n || 0) + (timings.predicted_n || 0);
-            if (timings.cache_n) tu.cached += timings.cache_n;
+            const delta = {
+              prompt: timings.prompt_n || 0,
+              completion: timings.predicted_n || 0,
+              total: (timings.prompt_n || 0) + (timings.predicted_n || 0),
+              cached: timings.cache_n || 0,
+            };
+            tu.prompt += delta.prompt;
+            tu.completion += delta.completion;
+            tu.total += delta.total;
+            tu.cached += delta.cached;
+            wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
           }
-          if (timings?.tokens_cached) tu.tokensCached = timings.tokens_cached;
-          wsBroadcast("tokenUsage", { ...tu });
         }
         if (timings && (timings.prompt_n || timings.predicted_n)) {
           wsBroadcast("perfStats", buildPerfStats(timings));
         }
         wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
-        res.json({ success: true, reply, reasoning, usage, timings });
+        const normalizedUsage = usage ? normalizeUsage(usage) : null;
+        res.json({ success: true, reply, reasoning, usage: normalizedUsage, timings });
       }
     } catch (error) {
       st.errors++;
@@ -417,6 +435,7 @@ export function createChatRouter(deps) {
       }
 
       const { toolCalls, toolResults } = extractToolData(result.messages);
+      wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
       res.json({
         success: true,
         reply: result.response || "",

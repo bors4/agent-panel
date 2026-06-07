@@ -23,7 +23,19 @@ export const REPLY_OPTS = {
  */
 export function sanitizeTelegramHtml(text) {
   return text.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g, (match, slash, tag) => {
-    const allowed = new Set(["b", "i", "u", "s", "code", "pre", "tg-spoiler", "a", "strong", "em"]);
+    const allowed = new Set([
+      "b",
+      "i",
+      "u",
+      "s",
+      "code",
+      "pre",
+      "tg-spoiler",
+      "a",
+      "strong",
+      "em",
+      "blockquote",
+    ]);
     if (allowed.has(tag.toLowerCase())) return match;
     return `&lt;${slash}${tag}${match.slice(1 + slash.length + tag.length, match.length - 1)}&gt;`;
   });

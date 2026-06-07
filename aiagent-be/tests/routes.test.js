@@ -220,8 +220,41 @@ describe("routes/chat — agent loop result shapes", () => {
     expect(res.body.toolResults).toHaveLength(1);
     expect(res.body.toolResults[0].success).toBe(true);
     expect(res.body.tokenUsage).toEqual({ prompt: 5, completion: 3, total: 8, cached: 0 });
-    expect(deps.wsBroadcast).toHaveBeenCalledWith("tokenUsage", expect.objectContaining({ prompt: 5 }));
+    expect(deps.wsBroadcast).toHaveBeenCalledWith(
+      "tokenUsage",
+      expect.objectContaining({ prompt: 5, completion: 3, total: 8, cached: 0, timestamp: expect.any(Number) })
+    );
     expect(deps.wsBroadcast).toHaveBeenCalledWith("perfStats", expect.objectContaining({ prompt_n: 5 }));
+  });
+
+  it("broadcasts tokenUsage exactly once per agent request with per-request delta", async () => {
+    agentLoopStep.mockResolvedValue({
+      response: "ok",
+      messages: [],
+      tokenUsage: { prompt: 10, completion: 20, total: 30, cached: 2 },
+    });
+    const deps = makeBaseDeps();
+    const app = mount(createChatRouter, deps);
+    await supertest(app).post("/api/chat").send({ message: "hi", useAgentLoop: true });
+    const tokenUsageCalls = deps.wsBroadcast.mock.calls.filter((c) => c[0] === "tokenUsage");
+    expect(tokenUsageCalls).toHaveLength(1);
+    const payload = tokenUsageCalls[0][1];
+    expect(payload).toEqual({
+      prompt: 10,
+      completion: 20,
+      total: 30,
+      cached: 2,
+      timestamp: expect.any(Number),
+    });
+  });
+
+  it("does not broadcast tokenUsage when agent result has no tokenUsage", async () => {
+    agentLoopStep.mockResolvedValue({ response: "ok", messages: [] });
+    const deps = makeBaseDeps();
+    const app = mount(createChatRouter, deps);
+    await supertest(app).post("/api/chat").send({ message: "hi", useAgentLoop: true });
+    const tokenUsageCalls = deps.wsBroadcast.mock.calls.filter((c) => c[0] === "tokenUsage");
+    expect(tokenUsageCalls).toHaveLength(0);
   });
 
   it("handles error result (no response)", async () => {
@@ -456,7 +489,7 @@ describe("routes/chat — POST /api/chat direct (no agent loop)", () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.reply).toBe("reply");
-    expect(res.body.usage).toEqual({ prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 });
+    expect(res.body.usage).toEqual({ prompt: 5, completion: 3, total: 8, cached: 0 });
     fetchMock.mockRestore();
   });
 });

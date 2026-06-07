@@ -344,4 +344,69 @@ describe("useAppConfig", () => {
     await c.handleSaveProjectPath({ projectPath: "E:\\data" });
     expect(c.localConfig.value.projectPath).toBe("E:\\data");
   });
+
+  it("handleSettingsSave(undefined) does not throw and saves with current state", async () => {
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ success: true });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await expect(c.handleSettingsSave(undefined)).resolves.not.toThrow();
+    expect(client.updateConfig).toHaveBeenCalledOnce();
+    expect(deps.success).toHaveBeenCalledWith("Настройки сохранены");
+  });
+
+  it("handleSettingsSave(null) does not throw on missing config/apiBases/modelName/serverUrl", async () => {
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ success: true });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await expect(c.handleSettingsSave(null)).resolves.not.toThrow();
+    expect(deps.apiBases.value[0].url).toBe("http://a/v1");
+    expect(deps.modelName.value).toBe("model-1");
+    expect(deps.serverUrl.value).toBe("http://a/v1");
+  });
+
+  it("handleSettingsSave({}) merges no fields and still saves", async () => {
+    vi.spyOn(client, "updateConfig").mockResolvedValue({ success: true });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await c.handleSettingsSave({});
+    expect(c.localConfig.value.maxTokens).toBe(defaultConfig.maxTokens);
+    expect(client.updateConfig).toHaveBeenCalledOnce();
+  });
+
+  it("handleBrowse sets projectPath when backend returns { path: '...' } (no success field)", async () => {
+    vi.spyOn(client, "browseFolder").mockResolvedValue({ path: "C:\\Users\\me\\project" });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await c.handleBrowse();
+    expect(c.localConfig.value.projectPath).toBe("C:\\Users\\me\\project");
+    expect(deps.success).toHaveBeenCalledWith("Путь выбран");
+  });
+
+  it("handleBrowse does not throw and does not set path when user cancels ({ path: null })", async () => {
+    vi.spyOn(client, "browseFolder").mockResolvedValue({ path: null });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    const before = c.localConfig.value.projectPath;
+    await c.handleBrowse();
+    expect(c.localConfig.value.projectPath).toBe(before);
+    expect(deps.success).not.toHaveBeenCalled();
+  });
+
+  it("handleBrowse surfaces backend error as a warning", async () => {
+    vi.spyOn(client, "browseFolder").mockResolvedValue({ error: "Folder picker crashed" });
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    const before = c.localConfig.value.projectPath;
+    await c.handleBrowse();
+    expect(c.localConfig.value.projectPath).toBe(before);
+    expect(deps.warning).toHaveBeenCalledWith("Folder picker crashed");
+  });
+
+  it("handleBrowse surfaces thrown error as toast", async () => {
+    vi.spyOn(client, "browseFolder").mockRejectedValue(new Error("network down"));
+    const deps = makeDeps();
+    const c = useAppConfig(deps);
+    await expect(c.handleBrowse()).resolves.not.toThrow();
+    expect(deps.error).toHaveBeenCalledWith(expect.stringContaining("network down"));
+  });
 });

@@ -223,16 +223,45 @@ describe("useWebSocket", () => {
     expect(c.logs.value[219].message).toBe("log-219");
   });
 
-  it("dispatches 'tokenUsage' message: replaces tokenUsage", async () => {
+  it("dispatches 'tokenUsage' message: accumulates per-request delta into tokenUsage", async () => {
+    const { composable } = mountUseWebSocket();
+    MockWebSocket.last().simulateOpen();
+    await nextTick();
+    expect(composable.tokenUsage.value).toEqual({ prompt: 0, completion: 0, total: 0, cached: 0 });
+    MockWebSocket.last().simulateMessage({
+      type: "tokenUsage",
+      data: { prompt: 100, completion: 50, total: 150, cached: 10, timestamp: Date.now() },
+    });
+    await nextTick();
+    expect(composable.tokenUsage.value).toEqual({ prompt: 100, completion: 50, total: 150, cached: 10 });
+    MockWebSocket.last().simulateMessage({
+      type: "tokenUsage",
+      data: { prompt: 5, completion: 3, total: 8, cached: 1, timestamp: Date.now() },
+    });
+    await nextTick();
+    expect(composable.tokenUsage.value).toEqual({ prompt: 105, completion: 53, total: 158, cached: 11 });
+  });
+
+  it("dispatches 'tokenUsage' message: lastRequestTokens mirrors the latest delta (not cumulative)", async () => {
     const { composable } = mountUseWebSocket();
     MockWebSocket.last().simulateOpen();
     await nextTick();
     MockWebSocket.last().simulateMessage({
       type: "tokenUsage",
-      data: { prompt: 100, completion: 50, total: 150, cached: 10 },
+      data: { prompt: 100, completion: 50, total: 150, cached: 10, timestamp: Date.now() },
     });
     await nextTick();
-    expect(composable.tokenUsage.value).toEqual({ prompt: 100, completion: 50, total: 150, cached: 10 });
+    expect(composable.lastRequestTokens.value.prompt).toBe(100);
+    MockWebSocket.last().simulateMessage({
+      type: "tokenUsage",
+      data: { prompt: 5, completion: 3, total: 8, cached: 1, timestamp: Date.now() },
+    });
+    await nextTick();
+    expect(composable.lastRequestTokens.value.prompt).toBe(5);
+    expect(composable.lastRequestTokens.value.completion).toBe(3);
+    expect(composable.lastRequestTokens.value.total).toBe(8);
+    expect(composable.lastRequestTokens.value.cached).toBe(1);
+    expect(composable.lastRequestTokens.value.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("dispatches 'perfStats' message: replaces perfStats", async () => {

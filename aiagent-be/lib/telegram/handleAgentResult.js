@@ -138,7 +138,12 @@ export function createHandleAgentResult(deps) {
       let cleanResponse = result.response.replace(/\[TOOL APPROVAL REQUIRED\].*/gi, "").trim();
       if (!cleanResponse) cleanResponse = "✅ Done.";
       const hasReasoning = result.reasoning && result.reasoning.length > 0;
-      const reasoningBlock = hasReasoning ? `💭 Reasoning:\n\`\`\`\n${result.reasoning}\n\`\`\`\n\n` : "";
+      // Escape every '<' in the reasoning so the model can never break out
+      // of the outer <blockquote expandable> by emitting its own closing tag.
+      const safeReasoning = hasReasoning ? result.reasoning.replace(/</g, "&lt;") : "";
+      const reasoningBlock = hasReasoning
+        ? `<b>💭 Reasoning</b> <i>(tap to expand)</i>:\n<blockquote expandable>${safeReasoning}</blockquote>\n\n`
+        : "";
       if (typeof draftMsgId === "number") {
         await editDraftMessage(ctx, draftMsgId, reasoningBlock + cleanResponse);
       } else if (ctx.chat?.type === "private") {

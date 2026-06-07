@@ -9,14 +9,6 @@ import { ref, computed } from "vue";
 import { getModels } from "@/api/client";
 import { configDefaults } from "@backend/lib/configDefaults.js";
 
-const DEFAULT_API_BASES = [
-  { url: "http://192.168.1.101:8080/v1", connected: true },
-  { url: "http://192.168.1.101:1234/v1", connected: false },
-];
-
-const DEFAULT_MODEL = "gemma-4-E4B-it-Q4_K_M.gguf";
-const DEFAULT_SERVER_URL = "http://192.168.1.101:8080/v1";
-
 /**
  * Composable для моделей и API баз.
  * @param {Object} deps
@@ -26,9 +18,9 @@ const DEFAULT_SERVER_URL = "http://192.168.1.101:8080/v1";
  * @param {import("vue").Ref<number>} [deps.maxTokensFallback] - fallback для modelContextLength
  */
 export function useAppModels({ addLog, success, error, maxTokensFallback }) {
-  const apiBases = ref([...DEFAULT_API_BASES]);
-  const modelName = ref(DEFAULT_MODEL);
-  const serverUrl = ref(DEFAULT_SERVER_URL);
+  const apiBases = ref([]);
+  const modelName = ref("");
+  const serverUrl = ref("");
   const availableModels = ref([]);
 
   const selectedModel = computed(() => availableModels.value.find((m) => m.id === modelName.value) || null);
@@ -60,6 +52,8 @@ export function useAppModels({ addLog, success, error, maxTokensFallback }) {
   /**
    * Загрузить модели из всех локальных API баз с флагом `connected: true`.
    * Также обновляет `modelName`/`serverUrl` на первый доступный, если текущий не найден.
+   * Сохранённый пользователем `serverUrl` имеет приоритет — он не перезаписывается
+   * discovery-источником, пока всё ещё входит в активный список `apiBases`.
    */
   async function loadApiBases() {
     const initialModelName = modelName.value;
@@ -77,13 +71,32 @@ export function useAppModels({ addLog, success, error, maxTokensFallback }) {
     }
     if (availableModels.value.length > 0) {
       const saved = availableModels.value.find((m) => m.id === initialModelName);
-      if (saved) {
+      const activeApiUrls = new Set(apiBases.value.filter((a) => a.connected).map((a) => a.url));
+      const userSavedIsValid = serverUrl.value && activeApiUrls.has(serverUrl.value);
+      if (saved && !userSavedIsValid) {
+        // saved model found, but user has no (or invalid) serverUrl — use the discovery source
         serverUrl.value = saved.source;
-      } else if (modelName.value === initialModelName) {
+      } else if (!saved && modelName.value === initialModelName) {
+        // saved model not found anywhere — pick first available as a default
         const first = availableModels.value[0];
         modelName.value = first.id;
         serverUrl.value = first.source;
       }
+    }
+  }
+
+  /**
+   * Установить выбранную модель. Параллельно обновляет `serverUrl` на тот
+   * endpoint, где эта модель была обнаружена. Если модель не найдена в
+   * `availableModels` — `serverUrl` остаётся прежним (валидация поймает
+   * несоответствие в sendMessage).
+   * @param {string} id
+   */
+  function setModel(id) {
+    modelName.value = id;
+    const m = availableModels.value.find((x) => x.id === id);
+    if (m) {
+      serverUrl.value = m.source;
     }
   }
 
@@ -124,5 +137,6 @@ export function useAppModels({ addLog, success, error, maxTokensFallback }) {
     modelContextLength,
     loadApiBases,
     updateModels,
+    setModel,
   };
 }

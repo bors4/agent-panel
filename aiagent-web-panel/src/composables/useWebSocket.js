@@ -19,6 +19,7 @@ export function useWebSocket() {
   const perfStats = ref({});
   const statusMessage = ref("");
   const startTime = ref(null);
+  const lastRequestTokens = ref({ prompt: 0, completion: 0, total: 0, cached: 0, timestamp: "" });
 
   let ws = null;
   let reconnectTimer = null;
@@ -71,7 +72,21 @@ export function useWebSocket() {
             if (logs.value.length > 220) logs.value.splice(0, 20);
             break;
           case "tokenUsage":
-            tokenUsage.value = { ...data };
+            tokenUsage.value = {
+              prompt: tokenUsage.value.prompt + (data.prompt || 0),
+              completion: tokenUsage.value.completion + (data.completion || 0),
+              total: tokenUsage.value.total + (data.total || 0),
+              cached: tokenUsage.value.cached + (data.cached || 0),
+            };
+            lastRequestTokens.value = {
+              prompt: data.prompt || 0,
+              completion: data.completion || 0,
+              total: data.total || 0,
+              cached: data.cached || 0,
+              timestamp: data.timestamp
+                ? new Date(data.timestamp).toISOString()
+                : new Date().toISOString(),
+            };
             break;
           case "perfStats":
             perfStats.value = data;
@@ -140,6 +155,7 @@ export function useWebSocket() {
     stats,
     logs,
     tokenUsage,
+    lastRequestTokens,
     perfStats,
     statusMessage,
     startTime,

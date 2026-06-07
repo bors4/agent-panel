@@ -125,7 +125,7 @@ export function createAdminRouter(deps) {
         await deps.bot.stop();
         await new Promise((r) => setTimeout(r, 1000));
       }
-      loadAccounts(config.projectPath);
+      loadAccounts(process.cwd());
       deps.addLog(`Accounts reloaded: ${getAccounts().length}`, "info");
       deps.bot.start();
       deps.updateStatus("running", "Работает");

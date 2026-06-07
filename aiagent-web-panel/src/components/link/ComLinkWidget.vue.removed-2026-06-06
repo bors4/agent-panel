@@ -1,0 +1,310 @@
+<template>
+  <div class="comlink" :class="`comlink--${statusClass}`">
+    <div class="comlink__left">
+      <div class="comlink__icon" :class="`comlink__icon--${statusClass}`">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+      </div>
+      <div class="comlink__info">
+        <div class="comlink__top">
+          <span class="comlink__label">COM://LINK</span>
+          <span class="comlink__status">{{ statusText }}</span>
+        </div>
+        <div class="comlink__bottom">
+          <span v-if="hasToken" class="comlink__token mono">
+            <span class="comlink__token-prefix">TG</span>
+            <span class="comlink__token-mask">{{ maskedToken }}</span>
+          </span>
+          <span v-else class="comlink__token comlink__token--missing mono">No token</span>
+        </div>
+      </div>
+    </div>
+
+    <button
+      class="comlink__btn comlink__btn--edit"
+      title="Edit TELEGRAM_TOKEN in Settings"
+      @click="$emit('edit-token')"
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+      </svg>
+    </button>
+
+    <a
+      v-if="botInfo && botInfo.username"
+      :href="`https://t.me/${botInfo.username}`"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="comlink__link"
+      :title="`Open @${botInfo.username} in Telegram`"
+    >
+      <span class="comlink__bot-name">@{{ botInfo.username }}</span>
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+        <polyline points="15 3 21 3 21 9" />
+        <line x1="10" y1="14" x2="21" y2="3" />
+      </svg>
+    </a>
+  </div>
+</template>
+
+<script setup>
+import { computed } from "vue";
+import { useTelegramCheck } from "@/composables/useTelegramCheck";
+
+const props = defineProps({
+  token: { type: String, default: "" },
+});
+
+defineEmits(["edit-token"]);
+
+const { checkState, botInfo } = useTelegramCheck();
+
+const effectiveToken = computed(() => (props.token ? props.token.trim().replace(/[^\x00-\x7F]/g, "") : ""));
+const hasToken = computed(() => !!effectiveToken.value);
+const maskedToken = computed(() => {
+  if (!effectiveToken.value) return "";
+  const t = effectiveToken.value;
+  if (t.length <= 8) return "•".repeat(t.length);
+  return `${t.slice(0, 3)}…${t.slice(-4)}`;
+});
+
+const statusClass = computed(() => {
+  if (!hasToken.value) return "missing";
+  if (checkState.value === "error") return "error";
+  if (checkState.value === "success") return "success";
+  if (checkState.value === "loading") return "loading";
+  return "ready";
+});
+
+const statusText = computed(() => {
+  if (!hasToken.value) return "no token";
+  if (checkState.value === "error") return "unreachable";
+  if (checkState.value === "success") return "online";
+  if (checkState.value === "loading") return "checking";
+  return "ready";
+});
+</script>
+
+<style scoped>
+.comlink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: var(--t);
+  min-height: 50px;
+}
+
+.comlink:hover {
+  border-color: var(--border-strong);
+}
+
+.comlink--success {
+  border-color: var(--success-soft);
+}
+
+.comlink--error {
+  border-color: var(--error-soft);
+}
+
+.comlink--missing {
+  border-style: dashed;
+}
+
+.comlink__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.comlink__icon {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: var(--t);
+}
+
+.comlink__icon--success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.comlink__icon--error {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.comlink__icon--ready {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.comlink__icon--loading {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.comlink__info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.comlink__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comlink__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.comlink__status {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.comlink--success .comlink__status {
+  color: var(--success);
+}
+
+.comlink--error .comlink__status {
+  color: var(--error);
+}
+
+.comlink__bottom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.comlink__token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comlink__token-prefix {
+  font-size: 9px;
+  padding: 1px 4px;
+  background: var(--bg-3);
+  color: var(--text-3);
+  border-radius: var(--radius-xs);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.comlink__token-mask {
+  font-weight: 500;
+  color: var(--text-1);
+}
+
+.comlink__token--missing {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.comlink__btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  color: var(--text-2);
+  transition: var(--t-fast);
+}
+
+.comlink__btn--edit:hover {
+  background: var(--bg-4);
+  color: var(--text-1);
+}
+
+.comlink__link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-3);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-2);
+  text-decoration: none;
+  font-weight: 500;
+  transition: var(--t-fast);
+  flex-shrink: 0;
+}
+
+.comlink__link:hover {
+  background: var(--accent);
+  color: white;
+  text-decoration: none;
+}
+
+.comlink__bot-name {
+  font-family: var(--font-mono);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+</style>

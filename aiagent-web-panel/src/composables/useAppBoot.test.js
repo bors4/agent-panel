@@ -18,6 +18,7 @@ function makeDeps(overrides = {}) {
       token: "",
       projectPath: "",
       serverUrl: "",
+      openrouterApiKey: "",
       maxTokens: 1024,
       temperature: 0.1,
       timeout: 300000,
@@ -83,6 +84,7 @@ describe("useAppBoot", () => {
         maxTokens: 4096,
       })
     );
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
     const deps = makeDeps();
     await bootApp(deps);
     expect(deps.refs.localConfig.value.projectPath).toBe("C:\\from-ls");
@@ -95,6 +97,7 @@ describe("useAppBoot", () => {
 
   it("ignores localStorage when JSON is malformed and logs a warning", async () => {
     localStorage.setItem("agent-config", "not-json");
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
     const deps = makeDeps();
     await bootApp(deps);
     expect(deps.addLog).toHaveBeenCalledWith("App initialized", "system");
@@ -119,6 +122,7 @@ describe("useAppBoot", () => {
   });
 
   it("keeps local token if both backend and local have one", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ token: "local-tok" }));
     vi.spyOn(client, "getConfig").mockResolvedValue({ config: { token: "be-tok" } });
     const deps = makeDeps({ localConfig: { token: "local-tok" } });
     await bootApp(deps);
@@ -147,13 +151,143 @@ describe("useAppBoot", () => {
     expect(deps.refs.localConfig.value.token).toBe("be-tok");
   });
 
-  it("does not call getConfig when localStorage has both projectPath and token", async () => {
+  it("calls getConfig once on boot to check for additional backend fields (even when localStorage is fully populated)", async () => {
     localStorage.setItem("agent-config", JSON.stringify({ projectPath: "C:\\from-ls", token: "ls-tok" }));
-    const getConfigSpy = vi.spyOn(client, "getConfig");
-    vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    const getConfigSpy = vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
     const deps = makeDeps();
     await bootApp(deps);
-    expect(getConfigSpy).not.toHaveBeenCalled();
+    expect(getConfigSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT sync to backend on boot when all critical fields are present in localStorage AND backend", async () => {
+    const updateSpy = vi.spyOn(client, "updateConfig");
+    vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { projectPath: "C:\\proj", telegramToken: "be-tok" },
+    });
+    const deps = makeDeps({ localConfig: { projectPath: "C:\\proj", token: "ls-tok" } });
+    await bootApp(deps);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("syncs token to backend when backend has no token but localStorage does (regression: /api/start returned 400 after backend restart)", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ token: "ls-tok" }));
+    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(updateSpy).toHaveBeenCalledOnce();
+    expect(updateSpy.mock.calls[0][0]).toEqual({ token: "ls-tok" });
+    expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("Synced to backend: token"), "info");
+  });
+
+  it("does NOT sync token when backend already has a token (preserves backend-configured values)", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ token: "ls-tok" }));
+    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: { telegramToken: "be-tok" } });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT sync empty token (avoids wiping backend's value with empty string)", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ token: "" }));
+    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("syncs projectPath to backend when backend has no projectPath but localStorage does", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ projectPath: "C:\\proj" }));
+    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(updateSpy).toHaveBeenCalledOnce();
+    expect(updateSpy.mock.calls[0][0]).toEqual({ projectPath: "C:\\proj" });
+  });
+
+  it("syncs multiple critical fields in one payload when all are missing in backend", async () => {
+    localStorage.setItem(
+      "agent-config",
+      JSON.stringify({ token: "ls-tok", projectPath: "C:\\proj", openrouterApiKey: "or-key" })
+    );
+    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(updateSpy).toHaveBeenCalledOnce();
+    expect(updateSpy.mock.calls[0][0]).toEqual({
+      token: "ls-tok",
+      projectPath: "C:\\proj",
+      openrouterApiKey: "or-key",
+    });
+  });
+
+  it("does NOT sync serverUrl/modelName (those are handled by loadFromBackend, not syncToBackend)", async () => {
+    localStorage.setItem("agent-config", JSON.stringify({ serverUrl: "http://ls/v1", modelName: "ls-model" }));
+    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
+    vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { serverUrl: "http://be/v1", modelName: "be-model" },
+    });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("syncToBackend failure is non-fatal — boot continues and logs a warning", async () => {
+    vi.spyOn(client, "getConfig").mockResolvedValue({ config: {} });
+    vi.spyOn(client, "updateConfig").mockRejectedValue(new Error("Network down"));
+    localStorage.setItem("agent-config", JSON.stringify({ token: "ls-tok" }));
+    const deps = makeDeps();
+    await expect(bootApp(deps)).resolves.toBeUndefined();
+    expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("Failed to sync to backend"), "warning");
+  });
+
+  it("loads serverUrl and modelName from backend when localStorage is empty", async () => {
+    vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { serverUrl: "http://be/v1", modelName: "be-model" },
+    });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(deps.refs.serverUrl.value).toBe("http://be/v1");
+    expect(deps.refs.modelName.value).toBe("be-model");
+    expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("serverUrl from backend"), "info");
+    expect(deps.addLog).toHaveBeenCalledWith(expect.stringContaining("modelName from backend"), "info");
+  });
+
+  it("keeps localStorage serverUrl and modelName when present (onlyIfMissing=true)", async () => {
+    localStorage.setItem(
+      "agent-config",
+      JSON.stringify({ serverUrl: "http://ls/v1", modelName: "ls-model" })
+    );
+    vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { serverUrl: "http://be/v1", modelName: "be-model" },
+    });
+    const deps = makeDeps();
+    await bootApp(deps);
+    expect(deps.refs.serverUrl.value).toBe("http://ls/v1");
+    expect(deps.refs.modelName.value).toBe("ls-model");
+  });
+
+  it("adds backend serverUrl to apiBases when not already present (for model discovery)", async () => {
+    vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { serverUrl: "http://be/v1" },
+    });
+    const deps = makeDeps({ apiBases: [{ url: "http://default/v1", connected: true }] });
+    await bootApp(deps);
+    expect(deps.refs.apiBases.value).toContainEqual({ url: "http://be/v1", connected: true });
+  });
+
+  it("does not duplicate serverUrl in apiBases if already present", async () => {
+    vi.spyOn(client, "getConfig").mockResolvedValue({
+      config: { serverUrl: "http://be/v1" },
+    });
+    const deps = makeDeps({ apiBases: [{ url: "http://be/v1", connected: true }] });
+    await bootApp(deps);
+    const matches = deps.refs.apiBases.value.filter((a) => a.url === "http://be/v1");
+    expect(matches).toHaveLength(1);
   });
 
   it("skips backend sync if no projectPath is known", async () => {
@@ -161,16 +295,6 @@ describe("useAppBoot", () => {
     const deps = makeDeps();
     await bootApp(deps);
     expect(updateSpy).not.toHaveBeenCalled();
-  });
-
-  it("syncs to backend when projectPath is present", async () => {
-    const updateSpy = vi.spyOn(client, "updateConfig").mockResolvedValue({ ok: true });
-    const deps = makeDeps({ localConfig: { projectPath: "C:\\proj" } });
-    await bootApp(deps);
-    expect(updateSpy).toHaveBeenCalledOnce();
-    const payload = updateSpy.mock.calls[0][0];
-    expect(payload.projectPath).toBe("C:\\proj");
-    expect(payload.modelName).toBe("m1");
   });
 
   it("triggers auto-start when autoStart, token, and projectPath are all set", async () => {

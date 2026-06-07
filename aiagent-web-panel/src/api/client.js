@@ -149,8 +149,8 @@ export async function updateConfig(config) {
   return response.json();
 }
 
-export async function startBot() {
-  const response = await apiFetch("/start", { method: "POST" });
+export async function startBot(signal) {
+  const response = await apiFetch("/start", { method: "POST", signal });
   return response.json();
 }
 

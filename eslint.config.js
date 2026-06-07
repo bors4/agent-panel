@@ -10,6 +10,7 @@ export default [
       "dist/",
       "docs/",
       "coverage/",
+      "**/coverage/",
       "*.json",
       ".env",
       "aiagent-be/logs/",

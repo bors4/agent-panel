@@ -286,6 +286,10 @@ export async function agentLoopStep(
   let currentTemperature = cfg.temperature ?? configDefaults.temperature;
   let emptyRetries = 0;
 
+  if (!cfg.serverUrl) {
+    return { error: "AI server URL is not configured. Set it in the panel settings." };
+  }
+
   while (iterations < maxIterations) {
     iterations++;
     // Проверка отмены в начале каждой итерации (для случаев между tool calls)
@@ -403,7 +407,7 @@ export async function agentLoopStep(
             onFinish: (reason) => {
               onProgress?.({ type: "finish", reason });
             },
-          });
+          }, cfg.serverUrl);
           totalMs = performance.now() - t0;
           usage = u;
           if (t) latestTimings = t;

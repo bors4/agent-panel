@@ -31,9 +31,9 @@ export function createAccountsRouter(deps) {
     if (!Array.isArray(accounts)) {
       return res.status(400).json({ error: "accounts array required" });
     }
-    saveAccounts(config.projectPath, accounts);
+    saveAccounts(process.cwd(), accounts);
     addLog(`Accounts saved: ${accounts.length}`, "info");
-    res.json({ success: true, count: accounts.length });
+    res.json({ success: true, count: accounts.length, accounts: getAccounts() });
   });
 
   /**
@@ -56,12 +56,12 @@ export function createAccountsRouter(deps) {
       const existing = getAccounts();
       const byUsername = new Map(existing.map((a) => [a.username, a]));
       for (const acc of parsed) byUsername.set(acc.username, acc);
-      saveAccounts(config.projectPath, Array.from(byUsername.values()));
+      saveAccounts(process.cwd(), Array.from(byUsername.values()));
     } else {
-      saveAccounts(config.projectPath, parsed);
+      saveAccounts(process.cwd(), parsed);
     }
     addLog(`Accounts imported: ${parsed.length} (merge=${!!merge})`, "info");
-    res.json({ success: true, count: getAccounts().length });
+    res.json({ success: true, count: getAccounts().length, accounts: getAccounts() });
   });
 
   return router;

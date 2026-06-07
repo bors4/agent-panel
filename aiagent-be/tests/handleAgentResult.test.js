@@ -161,7 +161,7 @@ describe("createHandleAgentResult", () => {
     expect(deps.sendLongMessage).toHaveBeenCalledWith(ctx, "Group reply");
   });
 
-  it("4d) final response with reasoning: shows reasoning in code block", async () => {
+  it("4d) final response with reasoning: shows reasoning in a collapsible blockquote", async () => {
     const ctx = makeCtx();
     const result = {
       response: "Final answer",
@@ -170,8 +170,10 @@ describe("createHandleAgentResult", () => {
     };
     await handleAgentResult(ctx, "123", result, {}, 999);
     const called = deps.editDraftMessage.mock.calls[0][2];
-    expect(called).toContain("💭 Reasoning:");
+    expect(called).toContain("💭 Reasoning");
     expect(called).toContain("thinking process");
+    expect(called).toContain("<blockquote expandable>");
+    expect(called).toContain("</blockquote>");
     expect(called).toContain("Final answer");
   });
 
@@ -181,6 +183,25 @@ describe("createHandleAgentResult", () => {
     await handleAgentResult(ctx, "123", result, {}, 999);
     const called = deps.editDraftMessage.mock.calls[0][2];
     expect(called).toBe("✅ Done.");
+  });
+
+  it("4f) reasoning with HTML-like content: < is escaped so model can't break out of blockquote", async () => {
+    const ctx = makeCtx();
+    const result = {
+      response: "Final answer",
+      reasoning: "user said </blockquote> inject this",
+      messages: [],
+    };
+    await handleAgentResult(ctx, "123", result, {}, 999);
+    const called = deps.editDraftMessage.mock.calls[0][2];
+    // The model-injected opening '<' is escaped to '&lt;' (handler pre-escapes),
+    // so the '>' is not double-escaped by sanitize. What matters: the '<' is gone,
+    // so the attacker's </blockquote> cannot close the outer blockquote.
+    expect(called).toContain("&lt;/blockquote> inject this");
+    expect(called).not.toMatch(/<blockquote expandable>[^<]*<\/blockquote> inject this/);
+    // The outer blockquote is still well-formed
+    expect(called).toContain("<blockquote expandable>");
+    expect(called).toContain("</blockquote>\n\nFinal answer");
   });
 
   it("5) continue: recurses via agentLoopStep", async () => {

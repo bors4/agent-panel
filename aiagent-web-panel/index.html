@@ -30,6 +30,29 @@
       name="twitter:description"
       content="Mission control for your local AI agent: Telegram bot, voice input, file tools, and OpenRouter support."
     />
+
+    <script>
+      // Inline theme application: runs BEFORE CSS loads, so the correct theme
+      // is applied to <html> on the very first paint. Eliminates FOUC when
+      // a saved theme differs from the default. Mirrors readTheme/applyTheme
+      // from src/composables/useTheme.js — keep both in sync.
+      (function () {
+        try {
+          var VALID = ["light", "dark", "system"];
+          var t = localStorage.getItem("app-theme");
+          if (!VALID.includes(t)) {
+            var legacy = localStorage.getItem("theme");
+            t = legacy === "light" ? "light" : "dark";
+          }
+          if (t === "system") {
+            t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          /* keep default data-theme from <html> */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

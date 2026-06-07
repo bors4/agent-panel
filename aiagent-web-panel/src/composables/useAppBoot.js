@@ -6,8 +6,17 @@
  */
 
 import { getConfig, updateConfig } from "@/api/client";
+import { readTheme, applyTheme } from "./useTheme.js";
 
 const LS_KEY = "agent-config";
+
+/**
+ * Применить сохранённую тему ДО любых асинхронных операций, чтобы избежать
+ * flash of wrong theme (FOUC) при перезагрузке страницы с сохранённой dark-темой.
+ * Inline-скрипт в index.html уже ставит атрибут до парсинга CSS; этот вызов —
+ * второй уровень защиты на случай, если inline-скрипт по какой-то причине не сработал.
+ */
+applyTheme(readTheme());
 
 /**
  * Применить сохранённый JSON к реактивным refs.
@@ -25,55 +34,88 @@ function applyLocalStorage(parsed, { systemPrompt, localConfig, apiBases, modelN
   for (const key of Object.keys(defaultConfig)) {
     if (parsed[key] !== undefined) localConfig.value[key] = parsed[key];
   }
+  if (typeof localConfig.value.temperature === "number" && localConfig.value.temperature > 1.0) {
+    localConfig.value.temperature = 1.0;
+  }
   if (parsed.apiBases) apiBases.value = parsed.apiBases;
   if (parsed.modelName) modelName.value = parsed.modelName;
   if (parsed.serverUrl) serverUrl.value = parsed.serverUrl;
 }
 
-async function loadFromBackend({ localConfig, addLog }) {
+async function loadFromBackend({ localConfig, modelName, serverUrl, apiBases, addLog, onlyIfMissing }) {
   try {
     const backendConfig = await getConfig();
-    applyBackendConfig(backendConfig, { localConfig, addLog });
+    applyBackendConfig(backendConfig, { localConfig, modelName, serverUrl, apiBases, addLog, onlyIfMissing });
+    return backendConfig;
   } catch (e) {
     addLog(`Failed to load backend config: ${e.message}`, "warning");
+    return null;
   }
 }
 
-function applyBackendConfig(backendConfig, { localConfig, addLog }) {
+function applyBackendConfig(backendConfig, { localConfig, modelName, serverUrl, apiBases, addLog, onlyIfMissing }) {
   if (!backendConfig?.config) return false;
   let applied = false;
-  if (backendConfig.config.projectPath) {
-    localConfig.value.projectPath = backendConfig.config.projectPath;
-    addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
+  const c = backendConfig.config;
+  const shouldApply = (frontendValue) => !onlyIfMissing || !frontendValue;
+  if (c.projectPath && shouldApply(localConfig.value.projectPath)) {
+    localConfig.value.projectPath = c.projectPath;
+    addLog(`Loaded projectPath from backend: ${c.projectPath}`, "info");
     applied = true;
   }
-  if (backendConfig.config.token && !localConfig.value.token) {
-    localConfig.value.token = backendConfig.config.token;
+  if (c.token && shouldApply(localConfig.value.token)) {
+    localConfig.value.token = c.token;
     addLog("Loaded Telegram token from backend", "info");
+  }
+  if (c.serverUrl && shouldApply(serverUrl.value)) {
+    serverUrl.value = c.serverUrl;
+    addLog(`Loaded serverUrl from backend: ${c.serverUrl}`, "info");
+    applied = true;
+  }
+  // Always add backend serverUrl to apiBases for model discovery, even if the
+  // frontend value was preserved from localStorage. This ensures loadApiBases()
+  // can discover models from the configured server even when shouldApply is false.
+  if (c.serverUrl && apiBases && Array.isArray(apiBases.value) && !apiBases.value.some((a) => a.url === c.serverUrl)) {
+    apiBases.value.push({ url: c.serverUrl, connected: true });
+  }
+  if (c.modelName && shouldApply(modelName.value)) {
+    modelName.value = c.modelName;
+    addLog(`Loaded modelName from backend: ${c.modelName}`, "info");
+    applied = true;
   }
   return applied;
 }
 
-async function syncToBackend(refs, addLog) {
+/**
+ * Условная синхронизация критичных полей с backend.
+ * Синхронизирует ТОЛЬКО поля, где backend ещё не имеет значения, а frontend уже знает.
+ * Это гарантирует, что localStorage-сохранённый токен дойдёт до backend (для /api/start),
+ * но не перезапишет backend-конфигурацию, заданную извне (env var / другая сессия).
+ *
+ * НЕ синхронизирует serverUrl/modelName — это делает loadFromBackend через onlyIfMissing.
+ * @param {Object} deps
+ * @param {import("vue").Ref<Object>} deps.localConfig
+ * @param {Function} deps.addLog
+ * @param {Object|null} deps.backendConfig - результат GET /api/config (для проверки текущих значений backend)
+ */
+async function syncToBackend({ localConfig, addLog, backendConfig }) {
   try {
-    await updateConfig({
-      projectPath: refs.localConfig.value.projectPath,
-      serverUrl: refs.serverUrl.value,
-      modelName: refs.modelName.value,
-      systemPrompt: refs.systemPrompt.value,
-      maxTokens: refs.localConfig.value.maxTokens,
-      temperature: refs.localConfig.value.temperature,
-      timeout: refs.localConfig.value.timeout,
-      maxFileChars: refs.localConfig.value.maxFileChars,
-      maxHistoryPairs: refs.localConfig.value.maxHistoryPairs,
-      maxSearchResults: refs.localConfig.value.maxSearchResults,
-      maxFilesInPrompt: refs.localConfig.value.maxFilesInPrompt,
-      stream: refs.localConfig.value.stream,
-      token: refs.localConfig.value.token || "",
-    });
-    addLog(`Synced config to backend (projectPath: ${refs.localConfig.value.projectPath})`, "info");
+    const cfg = backendConfig?.config || {};
+    const payload = {};
+    if (!cfg.telegramToken && localConfig.value.token) {
+      payload.token = localConfig.value.token;
+    }
+    if (!cfg.projectPath && localConfig.value.projectPath) {
+      payload.projectPath = localConfig.value.projectPath;
+    }
+    if (!cfg.openrouterApiKey && localConfig.value.openrouterApiKey) {
+      payload.openrouterApiKey = localConfig.value.openrouterApiKey;
+    }
+    if (Object.keys(payload).length === 0) return;
+    await updateConfig(payload);
+    addLog(`Synced to backend: ${Object.keys(payload).join(", ")}`, "info");
   } catch (e) {
-    addLog(`Failed to sync config: ${e.message}`, "warning");
+    addLog(`Failed to sync to backend: ${e.message}`, "warning");
   }
 }
 
@@ -110,28 +152,26 @@ export async function bootApp({ refreshStatus, handleStart, addLog, warning, ref
   addLog("App initialized", "system");
 
   const saved = localStorage.getItem(LS_KEY);
+  let localStorageApplied = false;
   if (saved) {
     try {
       applyLocalStorage(JSON.parse(saved), { ...refs, defaultConfig });
+      localStorageApplied = true;
     } catch (e) {
       addLog(`localStorage "${LS_KEY}" is corrupt — settings reset to defaults: ${e.message}`, "warning");
     }
   }
 
-  let hasProjectPath = !!refs.localConfig.value.projectPath;
-  if (!hasProjectPath) {
-    hasProjectPath = await loadFromBackend({ localConfig: refs.localConfig, addLog });
-  } else if (!refs.localConfig.value.token) {
-    try {
-      const backendConfig = await getConfig();
-      if (backendConfig?.config?.token) {
-        refs.localConfig.value.token = backendConfig.config.token;
-        addLog("Loaded Telegram token from backend", "info");
-      }
-    } catch (e) {
-      addLog(`Failed to load backend config: ${e.message}`, "warning");
-    }
-  }
+  // Always load from backend to fill in any missing fields (serverUrl, modelName, projectPath, token).
+  // - localStorage is empty: apply ALL backend values (overwrite code defaults)
+  // - localStorage has values: apply only MISSING backend values (preserve user's choices)
+  const backendConfig = await loadFromBackend({ ...refs, addLog, onlyIfMissing: localStorageApplied });
+
+  // Push critical user-input fields (token, projectPath, openrouterApiKey) to backend
+  // ONLY when backend's value is empty. This handles the case where the backend was
+  // restarted (env var empty) but localStorage still has the user's saved values.
+  // Does NOT sync serverUrl/modelName — those are handled by loadFromBackend above.
+  await syncToBackend({ localConfig: refs.localConfig, addLog, backendConfig });
 
   if (!refs.localConfig.value.projectPath) {
     warning("Путь к проекту не указан. Укажите его в разделе Параметры.");
@@ -139,9 +179,17 @@ export async function bootApp({ refreshStatus, handleStart, addLog, warning, ref
 
   await loadApiBases();
 
-  if (hasProjectPath) {
-    await syncToBackend(refs, addLog);
-  }
-
   await maybeAutoStart({ localConfig: refs.localConfig, addLog, handleStart, refreshStatus });
+
+  // Retry backend config load if it failed initially (backend wasn't ready on first attempt).
+  // After maybeAutoStart, the server should be reachable.
+  if (!backendConfig) {
+    addLog("Retrying backend config load...", "info");
+    const retryConfig = await loadFromBackend({ ...refs, addLog, onlyIfMissing: localStorageApplied });
+    if (retryConfig) {
+      addLog("Backend config loaded on retry", "success");
+      // Re-discover models with the now-populated apiBases
+      await loadApiBases();
+    }
+  }
 }
