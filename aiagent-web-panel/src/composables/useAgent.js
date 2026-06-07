@@ -20,7 +20,7 @@ export function useAgent() {
 
   const isProcessing = ref(false);
   const currentChatId = ref(null);
-  const { status, isRunning, stats, logs, tokenUsage, perfStats } = ws;
+  const { status, isRunning, stats, logs, tokenUsage, lastRequestTokens, perfStats } = ws;
 
   async function clearLogsAction() {
     try {
@@ -42,13 +42,15 @@ export function useAgent() {
         tokenUsage.value = statusData.tokenUsage;
       }
 
-      try {
-        const logsData = await getLogs();
-        if (logsData?.logs) {
-          logs.value = logsData.logs;
+      if (logs.value.length === 0) {
+        try {
+          const logsData = await getLogs();
+          if (logsData?.logs) {
+            logs.value = logsData.logs;
+          }
+        } catch (_e) {
+          console.debug("[useAgent] Logs fetch skipped");
         }
-      } catch (_e) {
-        console.debug("[useAgent] Logs fetch skipped");
       }
     } catch (_error) {
       status.value = "error";
@@ -57,10 +59,13 @@ export function useAgent() {
 
   async function startAgent() {
     isProcessing.value = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
-      const result = await apiStartBot();
+      const result = await apiStartBot(controller.signal);
       return result;
     } finally {
+      clearTimeout(timeoutId);
       isProcessing.value = false;
     }
   }
@@ -91,6 +96,7 @@ export function useAgent() {
     stats,
     logs,
     tokenUsage,
+    lastRequestTokens,
     perfStats,
     isProcessing,
     currentChatId,

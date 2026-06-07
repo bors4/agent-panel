@@ -3,6 +3,8 @@
  * @module parseSSE
  */
 
+import { detectServerType, createStreamNormalizer, normalizeUsage } from "./responseNormalizer.js";
+
 /**
  * Разбирает SSE-поток из fetch Response.
  *
@@ -13,11 +15,12 @@
  * @param {Function} [callbacks.onReasoningDone] - Вызывается когда reasoning закончился и начался content
  * @param {Function} [callbacks.onToolCall] - Вызывается при tool_call (toolCallIndex, toolCallDelta)
  * @param {Function} [callbacks.onFinish] - Вызывается при получении finish_reason (finishReason)
- * @param {Function} [callbacks.onUsage] - Вызывается при получении usage (usage)
+ * @param {Function} [callbacks.onUsage] - Вызывается при получении usage (usage, already normalized)
  * @param {Function} [callbacks.onTimings] - Вызывается при получении timings от llama.cpp (timings c injected tokens_cached)
+ * @param {string} [serverUrl] - URL AI сервера для авто-детекции формата ответов
  * @returns {Promise<{content: string, reasoningContent: string, toolCalls: Array|null, finishReason: string|null, usage: Object|null, timings: Object|null, tokensCached: number}>}
  */
-export async function parseStreamedResponse(response, callbacks = {}) {
+export async function parseStreamedResponse(response, callbacks = {}, serverUrl = "") {
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(`AI API error: ${response.status} ${text}`);
@@ -29,6 +32,8 @@ export async function parseStreamedResponse(response, callbacks = {}) {
   }
 
   const decoder = new TextDecoder();
+  const serverType = detectServerType(serverUrl);
+  const normalizer = createStreamNormalizer(serverType);
   let buffer = "";
   let content = "";
   let reasoningContent = "";
@@ -64,6 +69,11 @@ export async function parseStreamedResponse(response, callbacks = {}) {
           continue;
         }
 
+        // Normalize for server-specific formats (e.g. <think> tag extraction)
+        normalizer.normalize(parsed);
+        // Normalize usage to canonical format
+        if (parsed.usage) parsed.usage = normalizeUsage(parsed.usage);
+
         const choices = parsed.choices;
 
         if (parsed.usage) {
@@ -85,7 +95,10 @@ export async function parseStreamedResponse(response, callbacks = {}) {
         if (parsed.stats) {
           if (!timings) timings = {};
           timings.draft_n = Math.max(timings.draft_n || 0, parsed.stats.total_draft_tokens_count || 0);
-          timings.draft_n_accepted = Math.max(timings.draft_n_accepted || 0, parsed.stats.accepted_draft_tokens_count || 0);
+          timings.draft_n_accepted = Math.max(
+            timings.draft_n_accepted || 0,
+            parsed.stats.accepted_draft_tokens_count || 0
+          );
           callbacks.onTimings?.(timings);
         }
 
@@ -163,7 +176,8 @@ export async function parseStreamedResponse(response, callbacks = {}) {
           if (parsed.stats) {
             if (!timings) timings = {};
             timings.draft_n = (timings.draft_n || 0) + (parsed.stats.total_draft_tokens_count || 0);
-            timings.draft_n_accepted = (timings.draft_n_accepted || 0) + (parsed.stats.accepted_draft_tokens_count || 0);
+            timings.draft_n_accepted =
+              (timings.draft_n_accepted || 0) + (parsed.stats.accepted_draft_tokens_count || 0);
           }
         } catch {
           // ignore

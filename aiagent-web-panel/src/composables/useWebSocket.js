@@ -7,7 +7,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { getStatus, getLogs } from "../api/client.js";
 
-const WS_URL = "ws://127.0.0.1:3000/ws";
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:3000/ws`;
 
 export function useWebSocket() {
   const connected = ref(false);
@@ -19,6 +19,7 @@ export function useWebSocket() {
   const perfStats = ref({});
   const statusMessage = ref("");
   const startTime = ref(null);
+  const lastRequestTokens = ref({ prompt: 0, completion: 0, total: 0, cached: 0, timestamp: "" });
 
   let ws = null;
   let reconnectTimer = null;
@@ -65,10 +66,27 @@ export function useWebSocket() {
             break;
           case "log":
             logs.value.push(data);
-            if (logs.value.length > 200) logs.value.shift();
+            // Batched splice: trim 20 items at a time once we exceed 220,
+            // keeping the buffer in the [180, 220] range with amortised O(1)
+            // per push. Replaces the previous O(n) shift() on every push.
+            if (logs.value.length > 220) logs.value.splice(0, 20);
             break;
           case "tokenUsage":
-            tokenUsage.value = { ...data };
+            tokenUsage.value = {
+              prompt: tokenUsage.value.prompt + (data.prompt || 0),
+              completion: tokenUsage.value.completion + (data.completion || 0),
+              total: tokenUsage.value.total + (data.total || 0),
+              cached: tokenUsage.value.cached + (data.cached || 0),
+            };
+            lastRequestTokens.value = {
+              prompt: data.prompt || 0,
+              completion: data.completion || 0,
+              total: data.total || 0,
+              cached: data.cached || 0,
+              timestamp: data.timestamp
+                ? new Date(data.timestamp).toISOString()
+                : new Date().toISOString(),
+            };
             break;
           case "perfStats":
             perfStats.value = data;
@@ -86,9 +104,7 @@ export function useWebSocket() {
       status.value = statusData.status || "idle";
       isRunning.value = statusData.isRunning || false;
       stats.value = { ...statusData.stats, uptime: statusData.uptime || 0 };
-      startTime.value =
-        statusData.startTime ||
-        (statusData.uptime ? Date.now() - statusData.uptime * 1000 : null);
+      startTime.value = statusData.startTime || (statusData.uptime ? Date.now() - statusData.uptime * 1000 : null);
       if (statusData.tokenUsage) {
         tokenUsage.value = statusData.tokenUsage;
       }
@@ -139,6 +155,7 @@ export function useWebSocket() {
     stats,
     logs,
     tokenUsage,
+    lastRequestTokens,
     perfStats,
     statusMessage,
     startTime,

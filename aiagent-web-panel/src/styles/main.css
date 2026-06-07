@@ -1,270 +1,70 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Orbitron:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import "./variables.css";
 
 /* ============================================================
-   SPACE FLIGHT MISSION CONTROL — Design System v2.0
-   AI Agent Control Panel
-   ============================================================ */
-
-:root {
-  /* ─── Галактическая палитра (Deep Space / Nebula) ─── */
-  --space-black: #06060f;
-  --space-deep: #090b1a;
-  --space-mid: #0b0e22;
-  --space-surface: #10142e;
-  --space-elevated: #161b3a;
-  --space-border: #1c2248;
-  --space-border-light: #28305a;
-
-  /* ─── Фоны ─── */
-  --bg-primary: var(--space-black);
-  --bg-secondary: var(--space-deep);
-  --bg-tertiary: var(--space-mid);
-  --bg-card: var(--space-surface);
-  --bg-hover: var(--space-elevated);
-  --bg-selected: #1a2250;
-
-  /* ─── Текст (повышенная контрастность) ─── */
-  --text-primary: #e8edf5;
-  --text-secondary: #b8cce0;
-  --text-muted: #7a8aaa;
-  --text-tertiary: #5a6a8a;
-
-  /* ─── Акценты (Starship / Military / Desert) ─── */
-  --accent: #2a7fff;
-  --accent-hover: #4a9fff;
-  --accent-glow: rgba(42, 127, 255, 0.35);
-  --accent-secondary: #d4874a;
-  --accent-secondary-hover: #e4a05a;
-  --accent-secondary-glow: rgba(212, 135, 74, 0.35);
-  --accent-tertiary: #d44040;
-  --accent-tertiary-glow: rgba(212, 64, 64, 0.35);
-
-  /* ─── Градиенты (Туманности) ─── */
-  --gradient-accent: linear-gradient(135deg, #2a7fff, #d44040);
-  --gradient-warm: linear-gradient(135deg, #d4874a, #f59e0b);
-  --gradient-bg: linear-gradient(180deg, var(--space-black) 0%, var(--space-deep) 100%);
-  --gradient-nebula: radial-gradient(ellipse at 20% 50%, rgba(212, 64, 64, 0.08) 0%, transparent 60%),
-                     radial-gradient(ellipse at 80% 20%, rgba(42, 127, 255, 0.06) 0%, transparent 50%);
-
-  /* ─── Glass-эффект ─── */
-  --glass-bg: rgba(42, 127, 255, 0.04);
-  --glass-border: rgba(42, 127, 255, 0.1);
-
-  /* ─── Границы ─── */
-  --border: var(--space-border);
-  --border-focus: var(--accent);
-  --border-hover: var(--space-border-light);
-
-  /* ─── Статусы ─── */
-  --success: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.12);
-  --success-border: rgba(16, 185, 129, 0.25);
-  --warning: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --warning-border: rgba(245, 158, 11, 0.25);
-  --error: #ef4444;
-  --error-bg: rgba(239, 68, 68, 0.12);
-  --error-border: rgba(239, 68, 68, 0.3);
-
-  /* ─── Скругления (используем clip-path, не border-radius) ─── */
-  --radius: 0px;
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-
-  /* ─── Тени и Glow ─── */
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
-  --glow-accent: 0 0 6px var(--accent-glow), 0 0 20px var(--accent-glow);
-  --glow-accent-sm: 0 0 4px var(--accent-glow), 0 0 10px var(--accent-glow);
-  --glow-accent-lg: 0 0 10px var(--accent-glow), 0 0 30px var(--accent-glow), 0 0 60px var(--accent-glow);
-  --glow-orange: 0 0 6px var(--accent-secondary-glow), 0 0 20px var(--accent-secondary-glow);
-
-  /* ─── Переходы ─── */
-  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-digital: all 0.15s steps(3);
-}
-
-/* ═══════════════════════════════════════════════
-   СВЕТЛАЯ ТЕМА — Дневное небо неизвестной планеты
-   ═══════════════════════════════════════════════ */
-[data-theme="light"] {
-  --space-black: #f2ede4;
-  --space-deep: #eae3d6;
-  --space-mid: #e0d7c6;
-  --space-surface: #f7f2ea;
-  --space-elevated: #ede5d6;
-  --space-border: #d0c4b0;
-  --space-border-light: #dcd0be;
-
-  --bg-primary: var(--space-black);
-  --bg-secondary: var(--space-deep);
-  --bg-tertiary: var(--space-mid);
-  --bg-card: var(--space-surface);
-  --bg-hover: var(--space-elevated);
-  --bg-selected: #d8ccb8;
-
-  --text-primary: #2a2218;
-  --text-secondary: #5a4e3e;
-  --text-muted: #8a7e6e;
-  --text-tertiary: #a89e8e;
-
-  --accent: #2a6fd0;
-  --accent-hover: #4a8fe0;
-  --accent-glow: rgba(42, 111, 208, 0.2);
-  --accent-secondary: #c4773a;
-  --accent-secondary-hover: #d4874a;
-  --accent-secondary-glow: rgba(196, 119, 58, 0.2);
-  --accent-tertiary: #c44040;
-  --accent-tertiary-glow: rgba(196, 64, 64, 0.2);
-
-  --gradient-bg: linear-gradient(180deg, var(--space-black) 0%, var(--space-deep) 100%);
-  --gradient-nebula: radial-gradient(ellipse at 50% 0%, rgba(42, 111, 208, 0.06) 0%, transparent 60%);
-
-  --glass-bg: rgba(42, 111, 208, 0.06);
-  --glass-border: rgba(42, 111, 208, 0.12);
-
-  --border: var(--space-border);
-  --border-focus: var(--accent);
-  --border-hover: var(--space-border-light);
-
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.08);
-}
-
-/* ============================================================
-   БАЗОВЫЙ СБРОС
+   MODERN DASHBOARD — Base styles
    ============================================================ */
 
 *,
 *::before,
 *::after {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
-/* ============================================================
-   HTML / BODY
-   ============================================================ */
-
-html {
-  font-size: 16px;
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-1);
+  background: var(--bg-0);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-body {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 0.9375rem;
-  line-height: 1.6;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  min-height: 100vh;
-  overflow-x: hidden;
-  position: relative;
+#app {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--gradient-bg);
 }
 
-/* ─── Туманность + Звёздное поле (галактический фон) ─── */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background:
-    /* Ночная тема: звёзды */
-    radial-gradient(1px 1px at 10% 20%, rgba(255, 255, 255, 0.6), transparent),
-    radial-gradient(1px 1px at 30% 60%, rgba(255, 255, 255, 0.5), transparent),
-    radial-gradient(1.5px 1.5px at 50% 10%, rgba(255, 255, 255, 0.7), transparent),
-    radial-gradient(1px 1px at 70% 40%, rgba(255, 255, 255, 0.4), transparent),
-    radial-gradient(1px 1px at 90% 80%, rgba(255, 255, 255, 0.5), transparent),
-    radial-gradient(1.5px 1.5px at 15% 85%, rgba(255, 255, 255, 0.6), transparent),
-    radial-gradient(1px 1px at 45% 45%, rgba(255, 255, 255, 0.3), transparent),
-    radial-gradient(1px 1px at 80% 15%, rgba(255, 255, 255, 0.5), transparent),
-    radial-gradient(1.5px 1.5px at 60% 70%, rgba(255, 255, 255, 0.4), transparent),
-    radial-gradient(1px 1px at 25% 35%, rgba(255, 255, 255, 0.6), transparent),
-    /* Туманность */
-    radial-gradient(ellipse at 20% 50%, rgba(212, 64, 64, 0.08) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 20%, rgba(42, 127, 255, 0.06) 0%, transparent 50%);
-  pointer-events: none;
-  z-index: 0;
-  animation: starTwinkle 4s ease-in-out infinite alternate;
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
-/* ─── Светлая тема: облака вместо звёзд ─── */
-[data-theme="light"] body::before {
-  background:
-    radial-gradient(60px 60px at 15% 30%, rgba(74, 143, 192, 0.05), transparent),
-    radial-gradient(80px 80px at 60% 20%, rgba(212, 132, 74, 0.04), transparent),
-    radial-gradient(70px 70px at 80% 60%, rgba(139, 92, 246, 0.03), transparent),
-    radial-gradient(50px 50px at 30% 70%, rgba(74, 143, 192, 0.04), transparent);
-  animation: none;
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
-/* ─── Сетка координат (навигационная сетка) ─── */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(42, 127, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(42, 127, 255, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
-  pointer-events: none;
-  z-index: 0;
+a {
+  color: var(--accent);
+  text-decoration: none;
 }
 
-[data-theme="light"] body::after {
-  background-image:
-    linear-gradient(rgba(42, 111, 208, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(42, 111, 208, 0.05) 1px, transparent 1px);
+a:hover {
+  text-decoration: underline;
 }
-
-/* ============================================================
-   ТИПОГРАФИКА
-   ============================================================ */
-
-h1, h2, h3, h4, h5, h6 {
-  font-family: "Orbitron", "Space Grotesk", monospace;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-
-h1 { font-size: 2.5rem; letter-spacing: 0.08em; }
-h2 { font-size: 1.75rem; letter-spacing: 0.06em; }
-h3 { font-size: 1.25rem; letter-spacing: 0.04em; }
-h4 { font-size: 1rem; letter-spacing: 0.03em; }
-
-code, pre, .mono {
-  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
-}
-
-.orbitron {
-  font-family: "Orbitron", "Space Grotesk", monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.telemetry {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.8rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-/* ============================================================
-   СКОЛЛБАР
-   ============================================================ */
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -272,57 +72,63 @@ code, pre, .mono {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--space-border);
-  border-radius: 3px;
-  transition: var(--transition);
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
-}
-
-/* Firefox */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--space-border) transparent;
+  background: var(--border-strong);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
 /* ============================================================
-   ВЫДЕЛЕНИЕ ТЕКСТА
+   UTILITIES
    ============================================================ */
 
-::selection {
-  background: var(--accent);
-  color: var(--space-black);
+.mono {
+  font-family: var(--font-mono);
+}
+
+.muted {
+  color: var(--text-2);
+}
+
+.subtle {
+  color: var(--text-3);
+}
+
+.uppercase {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* ============================================================
-   АНИМАЦИИ
+   ANIMATIONS
    ============================================================ */
 
-/* Мерцание звёзд */
-@keyframes starTwinkle {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-
-/* Пульс маячка */
-@keyframes beaconPulse {
-  0%, 100% {
-    box-shadow: 0 0 4px var(--glow-accent);
-    opacity: 1;
-  }
-  50% {
-    box-shadow: 0 0 8px var(--glow-accent), 0 0 20px var(--glow-accent);
-    opacity: 0.8;
-  }
-}
-
-/* Появление сдвигом вверх */
-@keyframes slideUp {
+@keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(2px);
   }
   to {
     opacity: 1;
@@ -330,202 +136,94 @@ code, pre, .mono {
   }
 }
 
-/* Плавное появление */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes fade-in-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
-/* Вращение орбиты */
-@keyframes orbitSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
 }
 
-/* Шиммер загрузки */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-/* Сканирующая линия (радар) */
-@keyframes radarSweep {
-  0% { transform: translateY(-10%); opacity: 0; }
-  10% { opacity: 0.4; }
-  90% { opacity: 0.4; }
-  100% { transform: translateY(110%); opacity: 0; }
-}
-
-/* Пульс текста телеметрии */
-@keyframes telemetryPulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
-}
-
-/* Мигание курсора */
-@keyframes cursorBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ============================================================
-   УТИЛИТЫ
+   FOCUS
    ============================================================ */
 
-/* Chamfered corners (срезанные углы) — основной стиль карточек */
-.chamfer {
-  clip-path: polygon(
-    0 8px, 8px 0,
-    calc(100% - 8px) 0, 100% 8px,
-    100% calc(100% - 8px), calc(100% - 8px) 100%,
-    8px 100%, 0 calc(100% - 8px)
-  );
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }
 
-/* Малый срез (для кнопок, инпутов) */
-.chamfer-sm {
-  clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
-  );
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
-/* Отсутствие сколруглений — дополнительные */
-.no-radius {
-  border-radius: 0 !important;
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  box-shadow: var(--accent-glow);
+  border-color: var(--accent);
 }
 
-/* Glow-эффекты */
-.glow-accent {
-  box-shadow: var(--glow-accent);
-}
+/* ============================================================
+   ACCESSIBILITY
+   ============================================================ */
 
-.glow-accent-sm {
-  box-shadow: var(--glow-accent-sm);
-}
-
-.glow-accent-lg {
-  box-shadow: var(--glow-accent-lg);
-}
-
-.glow-orange {
-  box-shadow: var(--glow-orange);
-}
-
-/* Переходы */
-.hover-glow {
-  transition: var(--transition);
-}
-.hover-glow:hover {
-  box-shadow: var(--glow-accent);
-}
-
-.hover-lift {
-  transition: var(--transition);
-}
-.hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-/* Анимации-утилиты */
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
-}
-
-.animate-slide-up {
-  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.animate-beacon {
-  animation: beaconPulse 2s ease-in-out infinite;
-}
-
-.animate-telemetry {
-  animation: telemetryPulse 3s ease-in-out infinite;
-}
-
-/* Загрузка (шиммер) */
-.loading {
-  position: relative;
-  overflow: hidden;
-}
-.loading::after {
-  content: "";
+.sr-only {
   position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(42, 127, 255, 0.08), transparent);
-  animation: shimmer 1.5s infinite;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-/* Стекло (glass-эффект) */
-.glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border);
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 8px;
+  z-index: var(--z-toast);
+  padding: 8px 12px;
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top var(--t);
 }
 
-/* Обводка текста (glow) */
-.text-glow {
-  text-shadow: 0 0 10px var(--accent-glow), 0 0 30px var(--accent-glow);
+.skip-link:focus {
+  top: 8px;
+  text-decoration: none;
 }
-
-.text-glow-orange {
-  text-shadow: 0 0 10px var(--accent-secondary-glow), 0 0 30px var(--accent-secondary-glow);
-}
-
-/* Курсор-печатная машинка */
-.cursor-blink::after {
-  content: "▊";
-  color: var(--accent);
-  animation: cursorBlink 1s step-end infinite;
-  margin-left: 2px;
-}
-
-/* Статусные точки */
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 0;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-  flex-shrink: 0;
-}
-.status-dot.running {
-  background: var(--success);
-  box-shadow: 0 0 6px var(--success), 0 0 12px rgba(16, 185, 129, 0.4);
-}
-.status-dot.stopped {
-  background: var(--error);
-}
-.status-dot.checking {
-  background: var(--warning);
-  animation: telemetryPulse 1s ease-in-out infinite;
-}
-.status-dot.idle {
-  background: var(--text-muted);
-}
-
-/* ============================================================
-   РЕСПОНСИВ
-   ============================================================ */
-
-@media (max-width: 640px) {
-  html { font-size: 14px; }
-  h1 { font-size: 1.75rem; }
-  h2 { font-size: 1.35rem; }
-  h3 { font-size: 1.1rem; }
-}
-
-/* ============================================================
-   PREFERS REDUCED MOTION
-   ============================================================ */
 
 @media (prefers-reduced-motion: reduce) {
   *,

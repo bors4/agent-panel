@@ -21,7 +21,7 @@
  * @property {string} openrouterApiKey - API ключ OpenRouter, опционально ("")
  */
 export const configDefaults = {
-  serverUrl: "http://192.168.1.101:8080/v1",
+  serverUrl: "",
   projectPath: "",
   systemPrompt: "",
   apiKey: "agent-secret-key",

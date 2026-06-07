@@ -39,7 +39,7 @@ describe("api/client accounts", () => {
           "Content-Type": "application/json",
           "x-api-key": expect.any(String),
         }),
-      }),
+      })
     );
     expect(result.success).toBe(true);
   });
@@ -52,7 +52,7 @@ describe("api/client accounts", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining("test"),
-      }),
+      })
     );
   });
 
@@ -61,7 +61,7 @@ describe("api/client accounts", () => {
     await postImportAccounts({ accounts: [{ username: "imported" }] });
     expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/accounts/import"),
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ method: "POST" })
     );
   });
 });
@@ -74,10 +74,7 @@ describe("api/client models", () => {
   it("getModels calls GET /api/models with serverUrl param", async () => {
     globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ models: [] }) });
     const result = await getModels("http://localhost:8080/v1");
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/models?serverUrl="),
-      expect.any(Object),
-    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("/models?serverUrl="), expect.any(Object));
     expect(result.models).toEqual([]);
   });
 
@@ -105,10 +102,7 @@ describe("api/client with new API_KEY behavior", () => {
   it("checkPath calls GET /api/validate-path with path param", async () => {
     globalThis.fetch.mockResolvedValue({ ok: true, json: async () => ({ valid: true }) });
     const result = await checkPath("/some/path");
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/validate-path?path="),
-      expect.any(Object),
-    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining("/validate-path?path="), expect.any(Object));
     expect(result.valid).toBe(true);
   });
 });

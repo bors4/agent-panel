@@ -111,7 +111,9 @@ export function useVoiceInput(options = {}) {
 
   function stopWebSpeech() {
     if (recognition) {
-      try { recognition.stop(); } catch {}
+      try {
+        recognition.stop();
+      } catch {}
     }
   }
 
@@ -267,11 +269,15 @@ export function useVoiceInput(options = {}) {
 
   function cancel() {
     if (recognition) {
-      try { recognition.abort(); } catch {}
+      try {
+        recognition.abort();
+      } catch {}
       recognition = null;
     }
     if (mediaRecorder && mediaRecorder.state === "recording") {
-      try { mediaRecorder.stop(); } catch {}
+      try {
+        mediaRecorder.stop();
+      } catch {}
     }
     // НЕМЕДЛЕННАЯ очистка stream треков (даже если onstop ещё не сработал)
     if (activeStream) {

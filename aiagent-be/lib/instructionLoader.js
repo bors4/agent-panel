@@ -157,7 +157,9 @@ export class InstructionLoader {
     if (useFunctionCalling) {
       parts.push("Use function calling.");
     } else {
-      parts.push("Use: \u003ctool_call\u003e\u003cfunction\u003emove\u003c/function\u003e\u003cparameter name=\"source\"\u003etest.txt");
+      parts.push(
+        'Use: \u003ctool_call\u003e\u003cfunction\u003emove\u003c/function\u003e\u003cparameter name="source"\u003etest.txt'
+      );
     }
 
     return parts.join("\n\n");
@@ -171,7 +173,9 @@ export class InstructionLoader {
  */
 export function getInstructionLoader(instructionsDir) {
   if (!instance) {
-    const dir = instructionsDir || path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")), "..", "instructions");
+    const dir =
+      instructionsDir ||
+      path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")), "..", "instructions");
     instance = new InstructionLoader(dir);
     logInfo("[InstructionLoader] Loaded instructions from: " + dir);
   }

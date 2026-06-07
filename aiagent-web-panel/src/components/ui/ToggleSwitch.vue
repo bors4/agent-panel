@@ -1,6 +1,6 @@
 <template>
   <div class="toggle-container">
-    <span class="toggle-label">{{ label }}</span>
+    <span v-if="label" class="toggle-label">{{ label }}</span>
     <label class="toggle">
       <input type="checkbox" :checked="modelValue" @change="$emit('update:modelValue', $event.target.checked)" />
       <span class="toggle-slider" />
@@ -11,7 +11,7 @@
 <script setup>
 defineProps({
   modelValue: Boolean,
-  label: { type: String, required: true },
+  label: { type: String, default: "" },
 });
 
 defineEmits(["update:modelValue"]);
@@ -19,37 +19,40 @@ defineEmits(["update:modelValue"]);
 
 <style scoped>
 .toggle-container {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  padding: 8px 0;
+  gap: 8px;
+  padding: 0;
 }
 
 .toggle-label {
   font-size: 11px;
-  color: var(--text-secondary);
-  min-width: 400px;
+  color: var(--text-2);
 }
 
 .toggle {
   position: relative;
+  display: inline-block;
   width: 34px;
   height: 20px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .toggle input {
   opacity: 0;
   width: 0;
   height: 0;
+  position: absolute;
 }
 
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background: var(--bg-tertiary);
+  background: var(--bg-3);
   border: 1px solid var(--border);
-  border-radius: 100px;
-  transition: var(--transition);
+  border-radius: var(--radius-pill);
+  transition: var(--t);
 }
 
 .toggle-slider::before {
@@ -59,9 +62,9 @@ defineEmits(["update:modelValue"]);
   height: 14px;
   left: 2px;
   top: 2px;
-  background: var(--text-muted);
+  background: var(--text-3);
   border-radius: 50%;
-  transition: var(--transition);
+  transition: var(--t);
 }
 
 .toggle input:checked + .toggle-slider {
@@ -71,10 +74,6 @@ defineEmits(["update:modelValue"]);
 
 .toggle input:checked + .toggle-slider::before {
   transform: translateX(14px);
-  background: var(--text-primary);
-}
-
-.toggle-divider {
-  border-top: 1px solid var(--border);
+  background: white;
 }
 </style>

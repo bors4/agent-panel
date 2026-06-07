@@ -30,7 +30,8 @@ export function loadAccounts(projectPath) {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(raw);
-    accounts = parsed.accounts || [];
+    const loaded = parsed.accounts || [];
+    accounts = loaded.map(sanitizeAccount);
   } catch (e) {
     if (e.code === "ENOENT") {
       // File doesn't exist - graceful no-op (accounts remain unchanged)
@@ -38,10 +39,31 @@ export function loadAccounts(projectPath) {
     }
     // Handle other errors (corrupted JSON, permissions, etc.)
     const backupPath = filePath + `.bak.${Date.now()}`;
-    try { fs.renameSync(filePath, backupPath); } catch {}
+    try {
+      fs.renameSync(filePath, backupPath);
+    } catch {}
     console.error(`[accounts] Corrupted ${filePath}, backed up to ${backupPath}:`, e.message);
     accounts = [];
   }
+}
+
+/**
+ * Drop unknown permission keys so stale `accounts.json` (e.g. after tool
+ * removal/rename) cannot grant access to non-existent tools.
+ * @param {Object} account
+ * @returns {Object}
+ */
+function sanitizeAccount(account) {
+  if (!account || typeof account !== "object" || !account.permissions) return account;
+  const cleaned = {};
+  for (const [tool, allowed] of Object.entries(account.permissions)) {
+    if (ALL_TOOLS.includes(tool)) {
+      cleaned[tool] = allowed;
+    } else {
+      console.warn(`[accounts] Dropped unknown permission '${tool}' for @${account.username || "?"}`);
+    }
+  }
+  return { ...account, permissions: cleaned };
 }
 
 /**
@@ -95,7 +117,8 @@ export function getRoleDefaultPermissions(role) {
  *   Проверяет:
  *   1. Явный запрет инструмента в account.permissions
  *   2. include_paths — если заданы, путь инструмента должен быть внутри одной из директорий
- *   3. Для инструмента "execute" проверка include_paths не применяется
+ *   3. Для инструмента "execute" с include_paths требуется роль "system"
+ *      (shell-команды не имеют надёжного пути для проверки границ директорий)
  */
 export function checkAccountToolPermission(account, toolName, args, projectPath) {
   if (!account) return { allowed: true };
@@ -104,12 +127,19 @@ export function checkAccountToolPermission(account, toolName, args, projectPath)
     return { allowed: false, reason: `Tool '${toolName}' is not available for your account` };
   }
 
+  if (toolName === "execute" && account.role !== "system" && account.include_paths?.length > 0) {
+    return {
+      allowed: false,
+      reason: 'Tool "execute" is not available with include_paths for non-system accounts',
+    };
+  }
+
   if (account.include_paths?.length > 0) {
     const toolPath = args.filePath || args.path || args.source || args.destination || "";
     if (toolPath) {
       const resolved = path.resolve(projectPath, toolPath);
       const isWindows = process.platform === "win32";
-      const normalize = (p) => isWindows ? p.toLowerCase().replace(/\\/g, "/") : p.replace(/\\/g, "/");
+      const normalize = (p) => (isWindows ? p.toLowerCase().replace(/\\/g, "/") : p.replace(/\\/g, "/"));
       const normalizedResolved = normalize(resolved);
 
       const allowed = account.include_paths.some((p) => {

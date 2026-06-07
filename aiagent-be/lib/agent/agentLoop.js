@@ -130,17 +130,15 @@ async function executeToolAndWait(toolCall, toolExecConfig) {
  * @returns {Array} Обрезанный массив
  */
 function filterOutEmptyAssistant(messages) {
-  return messages.filter(
-    (m) => !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length)
-  );
+  return messages.filter((m) => !(m.role === "assistant" && !m.content?.trim() && !m.tool_calls?.length));
 }
 
 function truncateHistory(messages, maxPairs) {
   if (!maxPairs || maxPairs <= 0) return messages;
   // Убираем system message — agentLoopStep сам добавит новый
-  const nonSystem = filterOutEmptyAssistant(messages.filter(
-    (m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")
-  ));
+  const nonSystem = filterOutEmptyAssistant(
+    messages.filter((m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]"))
+  );
   const maxMsgs = maxPairs * 2;
   let startIdx = Math.max(0, nonSystem.length - maxMsgs);
   // Найти ближайший user перед startIdx
@@ -161,7 +159,7 @@ function truncateHistory(messages, maxPairs) {
 
 function validateAndFixHistory(messages) {
   // Находим первое сообщение после system
-  const firstNonSystem = messages.find(m => m.role !== "system");
+  const firstNonSystem = messages.find((m) => m.role !== "system");
 
   if (!firstNonSystem) {
     // Нет сообщений кроме system - добавляем пустой user
@@ -171,10 +169,10 @@ function validateAndFixHistory(messages) {
 
   if (firstNonSystem.role !== "user") {
     // Первое сообщение не user - добавляем placeholder в начало
-    const systemIdx = messages.findIndex(m => m.role === "system");
+    const systemIdx = messages.findIndex((m) => m.role === "system");
     messages.splice(systemIdx + 1, 0, {
       role: "user",
-      content: "Continue from where we left off."
+      content: "Continue from where we left off.",
     });
   }
 
@@ -191,7 +189,7 @@ function validateAndFixHistory(messages) {
         messages.splice(i + 1, 0, {
           role: "tool",
           tool_call_id: msg.tool_calls[0].id,
-          content: JSON.stringify({ error: "Tool execution was interrupted" })
+          content: JSON.stringify({ error: "Tool execution was interrupted" }),
         });
       }
     }
@@ -249,7 +247,16 @@ function buildToolExecConfig(account, cfg) {
  * @param {AbortSignal} [abortSignal] - Внешний сигнал отмены (из Telegram /cancel или фронтенда)
  * @returns {Promise<Object>} Результат: { response?, error?, requiresApproval?, toolName?, args?, messages?, tokenUsage?, timings?, cancelled? }
  */
-export async function agentLoopStep(message, chatId, history = [], cfg, maxIterations = MAX_AGENT_ITERATIONS, account = null, onProgress = null, abortSignal = null) {
+export async function agentLoopStep(
+  message,
+  chatId,
+  history = [],
+  cfg,
+  maxIterations = MAX_AGENT_ITERATIONS,
+  account = null,
+  onProgress = null,
+  abortSignal = null
+) {
   const toolConfig = getToolConfig();
   let messages = [
     {
@@ -279,11 +286,22 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
   let currentTemperature = cfg.temperature ?? configDefaults.temperature;
   let emptyRetries = 0;
 
+  if (!cfg.serverUrl) {
+    return { error: "AI server URL is not configured. Set it in the panel settings." };
+  }
+
   while (iterations < maxIterations) {
     iterations++;
     // Проверка отмены в начале каждой итерации (для случаев между tool calls)
     if (abortSignal?.aborted) {
-      return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+      return {
+        response: "Cancelled",
+        reasoning: finalReasoning,
+        cancelled: true,
+        messages,
+        tokenUsage: accumulatedUsage,
+        timings: latestTimings,
+      };
     }
     try {
       const body = {
@@ -310,9 +328,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       const timeout = cfg.timeout ?? configDefaults.timeout;
       let timeoutId = setTimeout(() => controller.abort(), timeout);
       // Объединяем таймаут и внешний сигнал отмены
-      const fetchSignal = abortSignal
-        ? AbortSignal.any([controller.signal, abortSignal])
-        : controller.signal;
+      const fetchSignal = abortSignal ? AbortSignal.any([controller.signal, abortSignal]) : controller.signal;
       const isOpenRouter = cfg.serverUrl.includes("openrouter.ai");
       const loopHeaders = { "Content-Type": "application/json" };
       if (isOpenRouter) {
@@ -334,7 +350,14 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         clearTimeout(timeoutId);
         if (e.name === "AbortError") {
           if (abortSignal?.aborted) {
-            return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+            return {
+              response: "Cancelled",
+              reasoning: finalReasoning,
+              cancelled: true,
+              messages,
+              tokenUsage: accumulatedUsage,
+              timings: latestTimings,
+            };
           }
           return { error: "Request timed out. Generate a shorter response or increase the timeout setting." };
         }
@@ -355,7 +378,13 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         try {
           const t0 = performance.now();
           firstTokenMs = 0;
-          const { content, reasoningContent, toolCalls, usage: u, timings: t } = await parseStreamedResponse(resp, {
+          const {
+            content,
+            reasoningContent,
+            toolCalls,
+            usage: u,
+            timings: t,
+          } = await parseStreamedResponse(resp, {
             onContent: (chunk, accumulated) => {
               if (!firstTokenMs) firstTokenMs = performance.now() - t0;
               // Per-chunk timeout reset — длинные генерации не обрываются
@@ -378,7 +407,7 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             onFinish: (reason) => {
               onProgress?.({ type: "finish", reason });
             },
-          });
+          }, cfg.serverUrl);
           totalMs = performance.now() - t0;
           usage = u;
           if (t) latestTimings = t;
@@ -400,7 +429,14 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         } catch (e) {
           if (e.name === "AbortError") {
             if (abortSignal?.aborted) {
-              return { response: "Cancelled", reasoning: finalReasoning, cancelled: true, messages, tokenUsage: accumulatedUsage, timings: latestTimings };
+              return {
+                response: "Cancelled",
+                reasoning: finalReasoning,
+                cancelled: true,
+                messages,
+                tokenUsage: accumulatedUsage,
+                timings: latestTimings,
+              };
             }
             return { error: "Generation timed out. Try again or increase the timeout setting." };
           }
@@ -424,7 +460,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
       if (!msg.content?.trim() && !msg.tool_calls?.length) {
         emptyRetries++;
         if (emptyRetries > 2) {
-          return { error: "Model returned empty responses repeatedly. Check model configuration or increase max tokens." };
+          return {
+            error: "Model returned empty responses repeatedly. Check model configuration or increase max tokens.",
+          };
         }
         currentTemperature = Math.min(currentTemperature + 0.3, 0.99);
         continue;
@@ -444,11 +482,13 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           logWarn("[agentLoop] No usage or timings from model; estimating via char count");
           const completionText = msg.content || "";
           const completionTokens = Math.ceil(completionText.length / 4);
-          const promptText = messages.map((m) => {
-            const c = m.content || "";
-            const tc = m.tool_calls ? JSON.stringify(m.tool_calls) : "";
-            return c + tc;
-          }).join(" ");
+          const promptText = messages
+            .map((m) => {
+              const c = m.content || "";
+              const tc = m.tool_calls ? JSON.stringify(m.tool_calls) : "";
+              return c + tc;
+            })
+            .join(" ");
           const promptTokens = Math.ceil(promptText.length / 4);
           usage = {
             prompt_tokens: promptTokens,
@@ -490,7 +530,13 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
             const remaining = msg.tool_calls.slice(tcIdx + 1).map((rtc) => ({
               id: rtc.id,
               name: rtc.function.name,
-              args: (() => { try { return JSON.parse(rtc.function.arguments); } catch { return {}; } })(),
+              args: (() => {
+                try {
+                  return JSON.parse(rtc.function.arguments);
+                } catch {
+                  return {};
+                }
+              })(),
             }));
             messages.push({
               role: "assistant",
@@ -516,7 +562,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
           if (cfg.insertUserAfterTool) {
             messages.push({ role: "user", content: "Continue" });
             // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
-            const recentUserMessages = messages.slice(-5).filter(m => m.role === "user" && m.content === "Continue").length;
+            const recentUserMessages = messages
+              .slice(-5)
+              .filter((m) => m.role === "user" && m.content === "Continue").length;
             if (recentUserMessages >= 3) {
               break;
             }
@@ -546,7 +594,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         if (cfg.insertUserAfterTool) {
           messages.push({ role: "user", content: "Continue" });
           // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
-          const recentUserMessages = messages.slice(-5).filter(m => m.role === "user" && m.content === "Continue").length;
+          const recentUserMessages = messages
+            .slice(-5)
+            .filter((m) => m.role === "user" && m.content === "Continue").length;
           if (recentUserMessages >= 3) {
             break;
           }
@@ -566,7 +616,9 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
         if (cfg.insertUserAfterTool) {
           messages.push({ role: "user", content: "Continue" });
           // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
-          const recentUserMessages = messages.slice(-5).filter(m => m.role === "user" && m.content === "Continue").length;
+          const recentUserMessages = messages
+            .slice(-5)
+            .filter((m) => m.role === "user" && m.content === "Continue").length;
           if (recentUserMessages >= 3) {
             break;
           }
@@ -606,5 +658,11 @@ export async function agentLoopStep(message, chatId, history = [], cfg, maxItera
     };
   }
 
-  return { response: finalResponse, reasoning: finalReasoning, messages: finalMessages, tokenUsage: accumulatedUsage, timings: latestTimings };
+  return {
+    response: finalResponse,
+    reasoning: finalReasoning,
+    messages: finalMessages,
+    tokenUsage: accumulatedUsage,
+    timings: latestTimings,
+  };
 }

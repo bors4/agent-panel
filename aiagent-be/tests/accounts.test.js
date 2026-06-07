@@ -4,7 +4,7 @@
 
 import path from "path";
 import fs from "fs";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   loadAccounts,
   saveAccounts,
@@ -185,10 +185,44 @@ describe("checkAccountToolPermission", () => {
     expect(result.allowed).toBe(true);
   });
 
-  it("skips include_paths check for execute tool", () => {
+  it("allows execute for system role even with include_paths", () => {
     const account = {
+      role: "system",
       permissions: { execute: true },
       include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
+    expect(result.allowed).toBe(true);
+  });
+
+  it("denies execute for non-system role when include_paths set", () => {
+    const account = {
+      role: "user",
+      permissions: { execute: true },
+      include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('Tool "execute"');
+  });
+
+  it("denies execute for guest role when include_paths set", () => {
+    const account = {
+      role: "guest",
+      permissions: { execute: true },
+      include_paths: [path.join(testDir, "allowed")],
+    };
+
+    const result = checkAccountToolPermission(account, "execute", { command: "rm -rf /" }, testDir);
+    expect(result.allowed).toBe(false);
+  });
+
+  it("allows execute for non-system role when no include_paths set", () => {
+    const account = {
+      role: "user",
+      permissions: { execute: true },
     };
 
     const result = checkAccountToolPermission(account, "execute", { command: "echo hello" }, testDir);
@@ -223,5 +257,44 @@ describe("isToolEnabledForAccount", () => {
   it("returns true when no config entry", () => {
     const account = { permissions: { read: true } };
     expect(isToolEnabledForAccount(account, "read", {})).toBe(true);
+  });
+});
+
+describe("loadAccounts — permission sanitisation", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("strips unknown permission keys (stale/renamed tool names)", () => {
+    saveAccounts(testDir, [
+      {
+        username: "@old",
+        role: "user",
+        permissions: { read: true, deleted_tool: true, renamed_tool: false, write: true },
+      },
+    ]);
+    loadAccounts(testDir);
+    const loaded = getAccounts()[0];
+    expect(loaded.permissions).toEqual({ read: true, write: true });
+    expect(loaded.permissions.deleted_tool).toBeUndefined();
+    expect(loaded.permissions.renamed_tool).toBeUndefined();
+  });
+
+  it("warns once per dropped unknown permission", () => {
+    saveAccounts(testDir, [{ username: "@alice", role: "user", permissions: { read: true, ghost: true } }]);
+    loadAccounts(testDir);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("ghost"));
+  });
+
+  it("preserves accounts with no permissions field", () => {
+    saveAccounts(testDir, [{ username: "@noperms", role: "user" }]);
+    loadAccounts(testDir);
+    const loaded = getAccounts()[0];
+    expect(loaded.username).toBe("@noperms");
+    expect(loaded.permissions).toBeUndefined();
   });
 });

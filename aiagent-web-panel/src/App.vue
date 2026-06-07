@@ -1,72 +1,31 @@
+<!--
+  App — корневой компонент. Тонкий wrapper вокруг <AppShell>: собирает стейт
+  из composables, пробрасывает его в slot'ы (chat / stats / controls / modals)
+  и монтирует глобальные виджеты (toasts). Вся логика вынесена в composables.
+-->
 <template>
-  <div class="app-container">
-    <Header :status="status" :active-tab="activeTab" @navigate="handleNavigate" />
-
-    <aside class="sidebar">
-      <ControlsCard
-        :is-running="isRunning"
-        :project-path="localConfig.projectPath"
-        @start="handleStart"
-        @stop="handleStop"
-        @restart="handleRestart"
-      />
-      <StatsCard
-        :uptime="stats.uptime"
-        :stats="stats"
-        :token-usage="tokenUsage"
-        :perf-stats="perfStats"
-        :max-tokens="modelContextLength"
-        :show-tokens="localConfig.showTokens"
-        @refresh="refreshStatus"
-      />
-      <BotCheckCard :token="localConfig.token" />
-    </aside>
-
-    <main class="main-content">
-      <div class="tabs" role="tablist" aria-label="Навигация по разделам">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          :class="['tab', { active: activeTab === tab.id }]"
-          role="tab"
-          :aria-selected="activeTab === tab.id"
-          :aria-controls="`panel-${tab.id}`"
-          @click="activeTab = tab.id"
-        >
-          <span class="tab__indicator" aria-hidden="true">{{ tab.symbol }}</span>
-          {{ tab.label }}
-        </button>
+  <AppShell
+    :status="status"
+    :stats-collapsed="statsCollapsed"
+    :logs-open="logsOpen"
+    :settings-open="settingsOpen"
+    @top-action="handleTopAction"
+  >
+    <template #controls>
+      <div class="control-strip">
+        <div class="control-strip__spacer" />
+        <AgentControls
+          :is-running="isRunning"
+          :project-path="localConfig.projectPath"
+          @start="handleStart"
+          @stop="handleStop"
+          @restart="handleRestart"
+        />
       </div>
+    </template>
 
-      <PromptTab
-        v-if="activeTab === 'prompt'"
-        id="panel-prompt"
-        v-model="systemPrompt"
-        role="tabpanel"
-        aria-label="Редактор системного промпта"
-        @save="savePrompt"
-        @reset="resetPrompt"
-        @format="formatPrompt"
-        @copy="copyPrompt"
-        @export="exportConfig"
-        @import="importConfig"
-      />
-
-      <SettingsTab
-        v-if="activeTab === 'settings'"
-        :config="localConfig"
-        :api-bases="apiBases"
-        :available-models="availableModels"
-        :model-name="modelName"
-        @save="handleSettingsSave"
-        @reset="resetSettings"
-        @models-updated="updateModels"
-        @save-path="handleSaveProjectPath"
-      />
-
-      <ChatTab
-        v-show="activeTab === 'chat'"
-        ref="chatTabRef"
+    <template #chat>
+      <ChatPanel
         :is-active="isRunning"
         :model-name="modelName"
         :server-url="serverUrl"
@@ -79,735 +38,211 @@
         :stream-enabled="localConfig.stream === true"
         @log="addLog"
         @token-usage="handleTokenUsage"
+        @warning="warning"
       />
+    </template>
 
-      <LogsTab v-if="activeTab === 'logs'" :logs="logs" @clear="handleClearLogs" />
+    <template #stats>
+      <StatsPanel
+        :stats="stats"
+        :uptime="stats.uptime || 0"
+        :token-usage="tokenUsage"
+        :perf-stats="perfStats"
+        :max-tokens="modelContextLength"
+        :last-request-tokens="lastRequestTokens"
+        :last-request-timestamp="lastRequestTimestamp"
+        :collapsed="statsCollapsed"
+        @collapse="toggleStats"
+        @expand="toggleStats"
+      />
+    </template>
 
-      <ToolsTab v-if="activeTab === 'tools'" />
-    </main>
+    <template #settings-modal>
+      <SettingsModal
+        v-model="settingsOpen"
+        :config="localConfig"
+        :api-bases="apiBases"
+        :model-name="modelName"
+        :available-models="availableModels"
+        :model-context-length="modelContextLength"
+        :system-prompt="systemPrompt"
+        :asr-status="asrStatus"
+        @update:config="onConfigUpdate"
+        @update:api-bases="(v) => (apiBases = v)"
+        @update:model-name="(v) => setModel(v)"
+        @update:system-prompt="(v) => (systemPrompt = v)"
+        @save="handleSettingsSave"
+        @reset="resetSettings"
+        @format="onFormatPrompt"
+        @browse="onBrowse"
+        @add-api-base="onAddApiBase"
+        @remove-api-base="onRemoveApiBase"
+        @refresh-models="onRefreshModels"
+        @load-openrouter="onLoadOpenRouter"
+        @test-asr="onTestAsr"
+      />
+    </template>
 
-    <ToastContainer />
-  </div>
+    <template #logs-modal>
+      <LogsModal v-model="logsOpen" :logs="logs" @clear="handleClearLogs" />
+    </template>
+
+    <template #toasts>
+      <ToastContainer />
+    </template>
+  </AppShell>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { useAgent } from "@/composables/useAgent";
 import { useToast } from "@/composables/useToast";
-import { updateConfig, getConfig, getModels } from "@/api/client";
+import { useAppConfig, defaultConfig } from "@/composables/useAppConfig";
+import { useAppModels } from "@/composables/useAppModels";
+import { useAppActions } from "@/composables/useAppActions";
+import { useAppLayout } from "@/composables/useAppLayout";
+import { useTheme } from "@/composables/useTheme";
+import { useSettingsModal } from "@/composables/useSettingsModal";
+import { useLogsModal } from "@/composables/useLogsModal";
+import { bootApp } from "@/composables/useAppBoot";
 
-// Components
-import Header from "@/components/layout/Header.vue";
-import ControlsCard from "@/components/features/ControlsCard.vue";
-import StatsCard from "@/components/features/StatsCard.vue";
-import BotCheckCard from "@/components/features/BotCheckCard.vue";
-import PromptTab from "@/components/tabs/PromptTab.vue";
-import SettingsTab from "@/components/tabs/SettingsTab.vue";
-import ChatTab from "@/components/tabs/ChatTab.vue";
-import LogsTab from "@/components/tabs/LogsTab.vue";
-import ToolsTab from "@/components/tabs/ToolsTab.vue";
+import AppShell from "@/components/layout/AppShell.vue";
+import StatsPanel from "@/components/stats/StatsPanel.vue";
+import ChatPanel from "@/components/chat/ChatPanel.vue";
+import SettingsModal from "@/components/modals/SettingsModal.vue";
+import LogsModal from "@/components/modals/LogsModal.vue";
+import AgentControls from "@/components/controls/AgentControls.vue";
 import ToastContainer from "@/components/ui/ToastContainer.vue";
-import { configDefaults } from "@backend/lib/configDefaults.js";
 
-const defaultConfig = {
-  token: "",
-  projectPath: configDefaults.projectPath,
-  serverUrl: configDefaults.serverUrl,
-  modelName: "",
-  maxFileChars: configDefaults.maxFileChars,
-  maxHistoryPairs: configDefaults.maxHistoryPairs,
-  maxSearchResults: configDefaults.maxSearchResults,
-  maxFilesInPrompt: configDefaults.maxFilesInPrompt,
-  maxTokens: configDefaults.maxTokens,
-  timeout: configDefaults.timeout,
-  temperature: configDefaults.temperature,
-  stream: configDefaults.stream,
-  insertUserAfterTool: configDefaults.insertUserAfterTool,
-  openrouterApiKey: "",
-  autoSave: true,
-  verbose: false,
-  autoStart: false,
-  showTokens: true,
-  soundEnabled: true,
-  soundVolume: 50,
-};
-
-const localConfig = ref({ ...defaultConfig });
-
-// Composables
-const {
-  status,
-  isRunning,
-  stats,
-  logs,
-  tokenUsage,
-  perfStats,
-  refreshStatus,
-  startAgent,
-  stopAgent,
-  restartAgent,
-  clearLogs,
-} = useAgent();
-
+const { status, isRunning, stats, logs, tokenUsage, lastRequestTokens, perfStats, refreshStatus } = useAgent();
 const { success, error, warning } = useToast();
 
-// State
-const activeTab = ref("prompt");
+const { addLog, handleStart, handleStop, handleRestart, handleClearLogs, handleTokenUsage, formatPrompt } = useAppActions();
+const { statsCollapsed, toggleStats } = useAppLayout();
+useTheme();
+const { isOpen: settingsOpen, open: openSettings, close: closeSettings } = useSettingsModal();
+const { isOpen: logsOpen, open: openLogs, close: closeLogs } = useLogsModal();
+
+const lastRequestTimestamp = computed(() => lastRequestTokens.value?.timestamp || "");
+
 const systemPrompt = ref("");
 
-const apiBases = ref([
-  { url: "http://192.168.1.101:8080/v1", connected: true },
-  { url: "http://192.168.1.101:1234/v1", connected: false },
-]);
+const models = useAppModels({
+  addLog,
+  success,
+  error,
+  maxTokensFallback: computed(() => localConfig.value?.maxTokens),
+});
+const { apiBases, modelName, serverUrl, availableModels, modelContextLength, loadApiBases, updateModels, setModel } = models;
 
-const modelName = ref("gemma-4-E4B-it-Q4_K_M.gguf");
-const serverUrl = ref("http://192.168.1.101:8080/v1");
-const availableModels = ref([]);
-
-const selectedModel = computed(() =>
-  availableModels.value.find((m) => m.id === modelName.value) || null
-);
-const modelContextLength = computed(() =>
-  selectedModel.value?.maxContextLength || localConfig.value.maxTokens || configDefaults.maxTokens
-);
-
-/**
- * Добавить запись в локальный лог (на стороне фронтенда).
- * @param {string} message - Текст сообщения
- * @param {"info"|"error"|"warning"|"success"|"system"} [type="info"] - Тип записи
- */
-const addLog = (message, type = "info") => {
-  logs.value.push({
-    time: new Date().toLocaleTimeString(),
-    message,
-    type,
-  });
-  if (logs.value.length > 200) logs.value.shift();
-};
-
-const handleClearLogs = async () => {
-  try {
-    await clearLogs();
-    success("Логи очищены");
-  } catch {
-    error("Не удалось очистить логи");
-  }
-};
-
-const tabs = [
-  { id: "prompt", label: "Системный промпт", symbol: ">" },
-  { id: "settings", label: "Параметры", symbol: "#" },
-  { id: "tools", label: "Инструменты", symbol: "~" },
-  { id: "chat", label: "Чат с агентом", symbol: "@" },
-  { id: "logs", label: "Логи", symbol: "!" },
-];
-
-// Initialize
-const loadApiBases = async () => {
-  for (const api of apiBases.value) {
-    if (api.connected) {
-      try {
-        const data = await getModels(api.url);
-        if (data.models) {
-          const models = data.models || [];
-          models.forEach((m) => {
-            if (!availableModels.value.find((x) => x.id === m.id)) {
-              availableModels.value.push({
-                id: m.id,
-                source: api.url,
-                maxContextLength: m.max_context_length || null,
-              });
-            }
-          });
-          addLog(`Connected to ${api.url} - ${models.length} models`, "success");
-        }
-      } catch (e) {
-        addLog(`Failed to connect ${api.url}: ${e.message}`, "error");
-      }
-    }
-  }
-  if (availableModels.value.length > 0) {
-    const saved = availableModels.value.find((m) => m.id === modelName.value);
-    if (saved) {
-      serverUrl.value = saved.source;
-    } else {
-      modelName.value = availableModels.value[0].id;
-      serverUrl.value = availableModels.value[0].source;
-    }
-  }
-};
-
-/**
- * Обновить список моделей. Если передан openrouterUrl — загружает модели из OpenRouter
- * с использованием openrouterApiKey. Иначе загружает модели из локальных API баз.
- * Вызывается из SettingsTab через событие @models-updated.
- * @param {string} [openrouterUrl] - URL OpenRouter API (например, "https://openrouter.ai/api/v1")
- * @param {string} [openrouterApiKey] - Ключ API OpenRouter
- */
-const updateModels = async (openrouterUrl, openrouterApiKey) => {
-  if (openrouterUrl) {
-    try {
-      const data = await getModels(openrouterUrl, openrouterApiKey);
-      if (data.models) {
-        const models = data.models || [];
-        models.forEach((m) => {
-          if (!availableModels.value.find((x) => x.id === m.id)) {
-            availableModels.value.push({
-              id: m.id,
-              source: openrouterUrl,
-              maxContextLength: m.max_context_length || null,
-            });
-          }
-        });
-        addLog(`Connected to OpenRouter - ${models.length} models`, "success");
-      }
-    } catch (e) {
-      addLog(`Failed to connect OpenRouter: ${e.message}`, "error");
-    }
-    success("Модели OpenRouter загружены");
-  } else {
-    availableModels.value = [];
-    await loadApiBases();
-    success("Модели обновлены");
-  }
-  addLog("Models refreshed", "success");
-};
-
-onMounted(async () => {
-  await refreshStatus();
-
-  addLog("App initialized", "system");
-
-  // 1. Load localStorage saved preferences first
-  const saved = localStorage.getItem("agent-config");
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved);
-      if (parsed.systemPrompt) systemPrompt.value = parsed.systemPrompt;
-
-      Object.keys(defaultConfig).forEach((key) => {
-        if (parsed[key] !== undefined) {
-          localConfig.value[key] = parsed[key];
-        }
-      });
-
-      if (parsed.apiBases) apiBases.value = parsed.apiBases;
-      if (parsed.modelName) modelName.value = parsed.modelName;
-      if (parsed.serverUrl) serverUrl.value = parsed.serverUrl;
-    } catch {}
-  }
-
-  // 2. If localStorage has projectPath, prepare to sync
-  let hasProjectPath = !!localConfig.value.projectPath;
-  if (!hasProjectPath) {
-    // No saved projectPath — load from backend (.env)
-    try {
-      const backendConfig = await getConfig();
-      if (backendConfig?.config?.projectPath) {
-        localConfig.value.projectPath = backendConfig.config.projectPath;
-        hasProjectPath = true;
-        addLog(`Loaded projectPath from backend (.env): ${backendConfig.config.projectPath}`, "info");
-      }
-      if (backendConfig?.config?.token && !localConfig.value.token) {
-        localConfig.value.token = backendConfig.config.token;
-        addLog("Loaded Telegram token from backend", "info");
-      }
-    } catch (e) {
-      addLog(`Failed to load backend config: ${e.message}`, "warning");
-    }
-  }
-
-  if (!localConfig.value.projectPath) {
-    warning("Путь к проекту не указан. Укажите его в разделе Параметры.");
-  }
-
-  await loadApiBases();
-
-  // 3. Sync all settings to backend (overrides .env defaults)
-  if (hasProjectPath) {
-    try {
-      await updateConfig({
-        projectPath: localConfig.value.projectPath,
-        serverUrl: serverUrl.value,
-        modelName: modelName.value,
-        systemPrompt: systemPrompt.value,
-        maxTokens: localConfig.value.maxTokens,
-        temperature: localConfig.value.temperature,
-        timeout: localConfig.value.timeout,
-        maxFileChars: localConfig.value.maxFileChars,
-        maxHistoryPairs: localConfig.value.maxHistoryPairs,
-        maxSearchResults: localConfig.value.maxSearchResults,
-        maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
-        stream: localConfig.value.stream,
-        token: localConfig.value.token || "",
-      });
-      addLog(`Synced config to backend (projectPath: ${localConfig.value.projectPath})`, "info");
-    } catch (e) {
-      addLog(`Failed to sync config: ${e.message}`, "warning");
-    }
-  }
-
-  // AUTO START
-  const autoStartEnabled = localConfig.value.autoStart;
-  const hasToken = !!localConfig.value.token;
-  const hasPath = !!localConfig.value.projectPath;
-  addLog(`AUTO START check: enabled=${autoStartEnabled}, token=${hasToken}, projectPath=${hasPath}`, "system");
-  if (autoStartEnabled && hasToken && hasPath) {
-    addLog("AUTO START triggered — starting bot...", "system");
-    await handleStart();
-    await refreshStatus();
-  } else if (autoStartEnabled) {
-    const missing = [];
-    if (!hasToken) missing.push("token");
-    if (!hasPath) missing.push("projectPath");
-    addLog(`AUTO START skipped — missing: ${missing.join(", ")}`, "warning");
-  }
+const {
+  localConfig,
+  resetSettings,
+  handleSettingsSave,
+  handleBrowse,
+  handleAddApiBase,
+  handleRemoveApiBase,
+  handleRefreshModels,
+  handleLoadOpenRouter,
+  handleTestAsr,
+} = useAppConfig({
+  systemPrompt,
+  apiBases,
+  modelName,
+  serverUrl,
+  addLog,
+  success,
+  error,
+  warning,
 });
 
-/**
- * Запустить Telegram бота через API.
- */
-const handleStart = async () => {
+const asrStatus = ref(null);
+
+function onConfigUpdate(partial) {
+  Object.assign(localConfig.value, partial);
+}
+
+function onFormatPrompt() {
+  if (typeof formatPrompt === "function") formatPrompt(systemPrompt);
+}
+
+function onBrowse() {
+  handleBrowse();
+}
+
+function onAddApiBase() {
+  handleAddApiBase(apiBases);
+}
+
+function onRemoveApiBase(idx) {
+  handleRemoveApiBase(apiBases, idx);
+}
+
+function onRefreshModels() {
+  handleRefreshModels(loadApiBases);
+}
+
+function onLoadOpenRouter() {
+  handleLoadOpenRouter(updateModels, localConfig.value.openrouterApiKey);
+}
+
+function onTestAsr() {
+  handleTestAsr(asrStatus);
+}
+
+function handleTopAction(actionId) {
+  if (actionId === "logs") {
+    if (logsOpen.value) closeLogs();
+    else openLogs();
+  } else if (actionId === "settings") {
+    if (settingsOpen.value) closeSettings();
+    else openSettings();
+  }
+}
+
+onMounted(async () => {
   try {
-    await startAgent();
-    success("Агент запущен");
+    await bootApp({
+      refreshStatus,
+      handleStart,
+      addLog,
+      warning,
+      loadApiBases,
+      defaultConfig,
+      refs: {
+        localConfig,
+        systemPrompt,
+        apiBases,
+        modelName,
+        serverUrl,
+      },
+    });
   } catch (e) {
-    error(e.message);
+    error("Ошибка инициализации приложения: " + e.message);
+    addLog("bootApp failed: " + e.message, "error");
   }
-};
-
-/**
- * Остановить Telegram бота через API.
- */
-const handleStop = async () => {
-  try {
-    await stopAgent();
-    warning("Агент остановлен");
-  } catch (e) {
-    error(e.message);
-  }
-};
-
-/**
- * Перезапустить Telegram бота через API.
- */
-const handleRestart = async () => {
-  try {
-    await restartAgent();
-    success("Агент перезапущен");
-  } catch (e) {
-    error(e.message);
-  }
-};
-
-const handleNavigate = (action) => {
-  switch (action) {
-    case "start":
-      handleStart();
-      break;
-    case "stop":
-      handleStop();
-      break;
-    case "restart":
-      handleRestart();
-      break;
-    case "export":
-      exportConfig();
-      break;
-    case "import":
-      importConfig();
-      break;
-    case "format":
-      formatPrompt();
-      break;
-    default:
-      if (["prompt", "settings", "quick", "chat", "logs", "tools"].includes(action)) {
-        activeTab.value = action;
-      }
-  }
-};
-
-/**
- * Сохранить системный промпт в localStorage.
- */
-const savePrompt = async () => {
-  try {
-    localStorage.setItem(
-      "agent-config",
-      JSON.stringify({
-        ...localConfig.value,
-        systemPrompt: systemPrompt.value,
-        apiBases: apiBases.value,
-        modelName: modelName.value,
-        serverUrl: serverUrl.value,
-      })
-    );
-    if (localConfig.value.autoSave) success("Промпт сохранён");
-    addLog("Prompt saved", "success");
-  } catch (e) {
-    error(e.message);
-  }
-};
-
-const resetPrompt = () => {
-  if (confirm("Сбросить промпт?")) {
-    systemPrompt.value = "";
-    warning("Промпт сброшен");
-    addLog("Prompt reset", "warning");
-  }
-};
-
-/**
- * Отформатировать промпт: удалить лишние пробелы и пустые строки.
- */
-const formatPrompt = () => {
-  systemPrompt.value = systemPrompt.value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
-  success("Отформатировано");
-  addLog("Prompt formatted", "info");
-};
-
-/**
- * Скопировать системный промпт в буфер обмена.
- */
-const copyPrompt = () => {
-  navigator.clipboard.writeText(systemPrompt.value);
-  success("Скопировано");
-  addLog("Prompt copied to clipboard", "info");
-};
-
-/**
- * Экспортировать конфигурацию в JSON-файл и скачать.
- */
-const exportConfig = () => {
-  const data = { ...localConfig.value, systemPrompt: systemPrompt.value };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `agent-config-${new Date().toISOString().split("T")[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  success("Конфигурация экспортирована");
-  addLog("Config exported", "success");
-};
-
-/**
- * Импортировать конфигурацию из JSON-файла (через диалог выбора файла).
- */
-const importConfig = () => {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = ".json";
-  input.onchange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const imported = JSON.parse(ev.target.result);
-        systemPrompt.value = imported.systemPrompt || "";
-        localConfig.value = { ...imported };
-        success("Конфигурация импортирована");
-        addLog("Config imported", "success");
-      } catch {
-        error("Ошибка JSON");
-        addLog("Config import failed", "error");
-      }
-    };
-    reader.readAsText(file);
-  };
-  input.click();
-};
-
-/**
- * Обработать сохранение настроек из SettingsTab.
- * Обновляет локальное состояние (localConfig, apiBases, modelName, serverUrl)
- * и сохраняет в localStorage + backend.
- * @param {{ config?: Object, apiBases?: Array, modelName?: string, serverUrl?: string }} data
- */
-const handleSettingsSave = (data) => {
-  if (data.config) {
-    Object.assign(localConfig.value, data.config);
-  }
-  if (data.apiBases) {
-    apiBases.value = data.apiBases;
-  }
-  if (data.modelName) {
-    modelName.value = data.modelName;
-  }
-  if (data.serverUrl) {
-    serverUrl.value = data.serverUrl;
-  }
-  saveSettings(true);
-};
-
-/**
- * Обработать сохранение пути к проекту из SettingsTab.
- * @param {{ projectPath: string }} data
- */
-const handleSaveProjectPath = (data) => {
-  if (data.projectPath) {
-    localConfig.value.projectPath = data.projectPath;
-  }
-  saveSettings();
-};
-
-const resetSettings = () => {
-  if (confirm("Сбросить настройки?")) {
-    localConfig.value = {};
-    systemPrompt.value = "";
-    warning("Настройки сброшены");
-    addLog("Settings reset", "warning");
-  }
-};
-
-/**
- * Сохранить настройки: записывает в localStorage ("agent-config") и
- * отправляет на backend через POST /api/config.
- * Включает все поля конфигурации, включая openrouterApiKey и token.
- * @param {boolean|null} [showToast=null] - true=всегда показывать, false=никогда, null=по autoSave
- */
-const saveSettings = async (showToast = null) => {
-  try {
-    localStorage.setItem(
-      "agent-config",
-      JSON.stringify({
-        ...localConfig.value,
-        systemPrompt: systemPrompt.value,
-        apiBases: apiBases.value,
-        modelName: modelName.value,
-        serverUrl: serverUrl.value,
-      })
-    );
-    const payload = {
-      modelName: modelName.value,
-      serverUrl: serverUrl.value,
-      projectPath: localConfig.value.projectPath,
-      systemPrompt: systemPrompt.value,
-      maxFileChars: localConfig.value.maxFileChars,
-      maxHistoryPairs: localConfig.value.maxHistoryPairs,
-      maxSearchResults: localConfig.value.maxSearchResults,
-      maxFilesInPrompt: localConfig.value.maxFilesInPrompt,
-      maxTokens: localConfig.value.maxTokens,
-      timeout: localConfig.value.timeout,
-      temperature: localConfig.value.temperature,
-      stream: localConfig.value.stream,
-      insertUserAfterTool: localConfig.value.insertUserAfterTool,
-      openrouterApiKey: localConfig.value.openrouterApiKey || "",
-      token: localConfig.value.token || "",
-    };
-    try {
-      await updateConfig(payload);
-      addLog(`Config updated: ${modelName.value}, projectPath=${localConfig.value.projectPath}`, "info");
-    } catch (e) {
-      error(`Failed to update backend config: ${e.message}`);
-    }
-    const shouldShowToast = showToast !== null ? showToast : localConfig.value.autoSave;
-    if (shouldShowToast) success("Настройки сохранены");
-  } catch (e) {
-    error(e.message);
-  }
-};
-
-
-
-/**
- * Обработать обновление статистики токенов из ChatTab.
- * Аккумулирует usage в реактивный tokenUsage.
- * @param {{ prompt_tokens?: number, completion_tokens?: number, total_tokens?: number, prompt_tokens_details?: { cached_tokens?: number } }} usage
- */
-const handleTokenUsage = (usage) => {
-  if (!usage) return;
-  tokenUsage.value.prompt += usage.prompt_tokens || 0;
-  tokenUsage.value.completion += usage.completion_tokens || 0;
-  tokenUsage.value.total += usage.total_tokens || 0;
-  if (usage.prompt_tokens_details?.cached_tokens !== undefined) {
-    tokenUsage.value.cached += usage.prompt_tokens_details.cached_tokens;
-  }
-};
-
-const chatTabRef = ref(null);
+});
 </script>
 
 <style>
 @import "@/styles/main.css";
 
-/* ═══════════════════════════════════════════════
-   APP LAYOUT — Space Flight Mission Control v2.0
-   ═══════════════════════════════════════════════ */
-
-.app-container {
-  position: relative;
-  padding: 16px 20px 20px;
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 16px;
-  min-height: 100vh;
-  background: var(--bg-primary);
-  z-index: 1;
-}
-
-/* ═══════════════════════════════════════════════
-   SIDEBAR (Left Panel — Telemetry & Controls)
-   ═══════════════════════════════════════════════ */
-
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  position: relative;
-  overflow-y: auto;
-  overflow-x: hidden;
-  max-height: calc(100vh - 90px);
-  scrollbar-width: thin;
-}
-
-.sidebar::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: -1px;
-  width: 1px;
-  height: 100%;
-  background: linear-gradient(180deg, transparent, var(--accent), transparent);
-  opacity: 0.15;
-}
-
-/* ═══════════════════════════════════════════════
-   MAIN CONTENT (Right Panel)
-   ═══════════════════════════════════════════════ */
-
-.main-content {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-}
-
-/* ═══════════════════════════════════════════════
-   TAB BAR — Orbital Mode Selector
-   ═══════════════════════════════════════════════ */
-
-.tabs {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
-  );
-  flex-wrap: wrap;
-  position: relative;
-}
-
-/* Акцентная нижняя черта */
-.tabs::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 4px;
-  right: 4px;
-  height: 1px;
-  background: var(--accent);
-  opacity: 0.2;
-}
-
-.tab {
-  padding: 7px 14px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.65rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  white-space: nowrap;
-  position: relative;
+.control-strip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  clip-path: polygon(
-    0 2px, 2px 0,
-    calc(100% - 2px) 0, 100% 2px,
-    100% calc(100% - 2px), calc(100% - 2px) 100%,
-    2px 100%, 0 calc(100% - 2px)
-  );
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
-.tab:hover:not(.active) {
-  color: var(--text-secondary);
-  background: rgba(42, 127, 255, 0.05);
+.control-strip__spacer {
+  flex: 1 1 auto;
+  min-width: 8px;
 }
 
-.tab.active {
-  background: rgba(42, 127, 255, 0.1);
-  color: var(--accent);
-  border: 1px solid rgba(42, 127, 255, 0.2);
-  box-shadow: 0 0 6px rgba(42, 127, 255, 0.06);
-}
-
-/* Индикатор активного таба (символ в начале) */
-.tab__indicator {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.7rem;
-  font-weight: 700;
-  opacity: 0.5;
-  transition: opacity 0.2s ease;
-}
-
-.tab.active .tab__indicator {
-  opacity: 1;
-  color: var(--accent);
-}
-
-/* ═══════════════════════════════════════════════
-   RESPONSIVE
-   ═══════════════════════════════════════════════ */
-
-@media (max-width: 1024px) {
-  .app-container {
-    grid-template-columns: 1fr;
-    padding: 14px;
-  }
-  .sidebar {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    max-height: none;
-  }
-  .sidebar::before {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .app-container {
-    padding: 10px;
-    gap: 10px;
-  }
-  .sidebar {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  .tabs {
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    -webkit-overflow-scrolling: touch;
-  }
-  .tab {
-    padding: 6px 10px;
-    font-size: 0.6rem;
-    flex-shrink: 0;
+@media (max-width: 720px) {
+  .control-strip {
+    flex-wrap: wrap;
   }
 }
 </style>

@@ -42,7 +42,9 @@ export function getWhisperContext(modelPath) {
 
   // Освобождаем старый контекст при смене модели (предотвращает утечку VRAM)
   if (cachedContext && cachedModelPath !== modelPath) {
-    try { cachedContext.free(); } catch {}
+    try {
+      cachedContext.free();
+    } catch {}
     cachedContext = null;
     cachedModelPath = null;
   }
@@ -92,7 +94,10 @@ export async function transcribeFile(wavPath, modelPath = "large-v3-turbo", lang
     suppress_nst: true,
   });
 
-  return result.segments.map((s) => s.text).join("").trim();
+  return result.segments
+    .map((s) => s.text)
+    .join("")
+    .trim();
 }
 
 /**
@@ -116,7 +121,10 @@ export async function transcribeBuffer(pcmData, modelPath = "large-v3-turbo", la
     suppress_nst: true,
   });
 
-  return result.segments.map((s) => s.text).join("").trim();
+  return result.segments
+    .map((s) => s.text)
+    .join("")
+    .trim();
 }
 
 /**
@@ -151,14 +159,16 @@ function resolveModelPath(modelOrPath) {
 
   throw new Error(
     `Whisper model not found: ${modelOrPath}. Searched: ${candidates.join(", ")}. ` +
-    `Download with: npx whisper-cpp-node download ${modelOrPath}`
+      `Download with: npx whisper-cpp-node download ${modelOrPath}`
   );
 }
 
 // Освобождаем GPU/VRAM ресурсы при завершении процесса
 const shutdownHandler = () => {
   if (cachedContext) {
-    try { cachedContext.free(); } catch {}
+    try {
+      cachedContext.free();
+    } catch {}
     cachedContext = null;
     cachedModelPath = null;
   }

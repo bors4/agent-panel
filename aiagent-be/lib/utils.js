@@ -66,9 +66,12 @@ export function safePath(userPath, projectRoot) {
   const normalizedRealRoot = normalize(realRoot);
   const normalizedRealPath = normalize(realPath);
 
-  const rootPrefix = normalizedRealRoot === "/" ? "/" : normalizedRealRoot.endsWith("/") ? normalizedRealRoot : normalizedRealRoot + "/";
+  const rootPrefix =
+    normalizedRealRoot === "/" ? "/" : normalizedRealRoot.endsWith("/") ? normalizedRealRoot : normalizedRealRoot + "/";
   if (normalizedRealPath !== normalizedRealRoot && !normalizedRealPath.startsWith(rootPrefix)) {
-    throw new Error(`Path outside project is forbidden: ${resolvedPath.replace(/\\/g, "/")} (root: ${normalizedRealRoot})`);
+    throw new Error(
+      `Path outside project is forbidden: ${resolvedPath.replace(/\\/g, "/")} (root: ${normalizedRealRoot})`
+    );
   }
   return resolvedPath.replace(/\\/g, "/");
 }
@@ -81,7 +84,8 @@ export function safePath(userPath, projectRoot) {
  * @returns {string|null} Извлечённый JSON или null при ошибке
  */
 function extractJsonBlock(str, startIdx) {
-  let depth = 0, i = startIdx;
+  let depth = 0,
+    i = startIdx;
   const len = str.length;
 
   for (; i < len; i++) {

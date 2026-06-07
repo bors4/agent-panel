@@ -59,10 +59,14 @@ defineEmits(["click"]);
   cursor: pointer;
   white-space: nowrap;
   clip-path: polygon(
-    0 4px, 4px 0,
-    calc(100% - 4px) 0, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) 100%,
-    4px 100%, 0 calc(100% - 4px)
+    0 4px,
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px)
   );
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
@@ -133,7 +137,9 @@ defineEmits(["click"]);
 .btn--danger:hover:not(.btn--disabled) {
   background: var(--error);
   color: white;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5), 0 0 20px rgba(239, 68, 68, 0.3);
+  box-shadow:
+    0 0 6px rgba(239, 68, 68, 0.5),
+    0 0 20px rgba(239, 68, 68, 0.3);
   border-color: var(--error);
 }
 
@@ -183,19 +189,29 @@ defineEmits(["click"]);
 /* ─── FOCUS ─── */
 .btn:focus-visible {
   outline: none;
-  box-shadow: var(--glow-accent-sm), 0 0 0 1px var(--accent);
+  box-shadow:
+    var(--glow-accent-sm),
+    0 0 0 1px var(--accent);
 }
 
 .btn--danger:focus-visible {
-  box-shadow: 0 0 4px rgba(239, 68, 68, 0.5), 0 0 0 1px var(--error);
+  box-shadow:
+    0 0 4px rgba(239, 68, 68, 0.5),
+    0 0 0 1px var(--error);
 }
 
 .btn--secondary:focus-visible {
-  box-shadow: var(--glow-orange), 0 0 0 1px var(--accent-secondary);
+  box-shadow:
+    var(--glow-orange),
+    0 0 0 1px var(--accent-secondary);
 }
 
 @keyframes btnSpin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>

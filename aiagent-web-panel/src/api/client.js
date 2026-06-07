@@ -24,40 +24,6 @@ const MAX_RECONNECT_DELAY = 5000; // 5 секунд максимум
 const BASE_RECONNECT_DELAY = 1000; // 1 секунда старт
 
 // ─────────────────────────────────────────────────────
-// 🛡️ Глобальная защита от "шквала ошибок" при обрыве связи
-// ─────────────────────────────────────────────────────
-(() => {
-  let suppressUntil = 0;
-  const SUPPRESS_DURATION = 3000; // подавлять 3 секунды после первой ошибки
-
-  // Перехватываем ошибки "send was called before connect"
-  const originalOnError = window.onerror;
-  window.onerror = function (message, source, _lineno, _colno, _error) {
-    if (message?.includes?.("send was called before connect") && source?.includes("client.js")) {
-      const now = Date.now();
-      if (now < suppressUntil) {
-        return true;
-      }
-      suppressUntil = now + SUPPRESS_DURATION;
-      console.debug('[client] Suppressing "send before connect" errors...');
-    }
-    return originalOnError?.apply(this, arguments) ?? false;
-  };
-
-  // Перехватываем неуловимые Promise-ошибки
-  window.addEventListener("unhandledrejection", (event) => {
-    if (event.reason?.message?.includes("send was called before connect")) {
-      event.preventDefault(); // не показывать в консоли
-      const now = Date.now();
-      if (now >= suppressUntil) {
-        console.debug("[client] Suppressed unhandled promise rejection");
-        suppressUntil = now + SUPPRESS_DURATION;
-      }
-    }
-  });
-})();
-
-// ─────────────────────────────────────────────────────
 // 🛡️ Утилита: экспоненциальная задержка
 // ─────────────────────────────────────────────────────
 function getReconnectDelay() {
@@ -183,8 +149,8 @@ export async function updateConfig(config) {
   return response.json();
 }
 
-export async function startBot() {
-  const response = await apiFetch("/start", { method: "POST" });
+export async function startBot(signal) {
+  const response = await apiFetch("/start", { method: "POST", signal });
   return response.json();
 }
 
@@ -243,9 +209,13 @@ export async function directChatStream(options, callbacks = {}, signal = null) {
     if (signal.aborted) {
       reader.cancel().catch(() => {});
     } else {
-      signal.addEventListener("abort", () => {
-        reader.cancel().catch(() => {});
-      }, { once: true });
+      signal.addEventListener(
+        "abort",
+        () => {
+          reader.cancel().catch(() => {});
+        },
+        { once: true }
+      );
     }
   }
 
@@ -316,47 +286,6 @@ export async function updateTools(config) {
   const response = await apiFetch("/tools", {
     method: "POST",
     body: JSON.stringify(config),
-  });
-  return response.json();
-}
-
-export async function getSession(chatId) {
-  const response = await apiFetch(`/session/${chatId}`);
-  return response.json();
-}
-
-export async function addToSession(chatId, role, content) {
-  const response = await apiFetch(`/session/${chatId}`, {
-    method: "POST",
-    body: JSON.stringify({ role, content }),
-  });
-  return response.json();
-}
-
-export async function cleanupSessions(maxAgeMs = 3600000) {
-  const response = await apiFetch("/session/cleanup", {
-    method: "POST",
-    body: JSON.stringify({ maxAgeMs }),
-  });
-  return response.json();
-}
-
-export async function runAgentLoop(agentState) {
-  const response = await apiFetch("/agent/loop", {
-    method: "POST",
-    body: JSON.stringify(agentState),
-  });
-  return response.json();
-}
-
-export async function executeTool(toolCall) {
-  const config = JSON.parse(localStorage.getItem("agent-config") || "{}");
-  const response = await apiFetch("/agent/tool", {
-    method: "POST",
-    body: JSON.stringify({
-      toolCall,
-      projectPath: config.projectPath || undefined,
-    }),
   });
   return response.json();
 }

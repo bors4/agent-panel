@@ -9,12 +9,14 @@ Monorepo with Vue 3 frontend dashboard and Express/GrammY backend for controllin
   - REST API endpoints for status, logs, config management
   - Direct AI communication (no tool loop)
   - Agent tool loop with approval flow
+  - Voice message support: OGG → ffmpeg → whisper (local or remote ASR)
   - Structured logging with rotation
   - Account-based access control
 - **Frontend** (`aiagent-web-panel/`): Vue 3 + Vite
   - Dashboard for monitoring agent activity
   - Real-time status, logs, and configuration controls
   - Tool management and account administration
+  - Voice input with Web Speech API (default) or server ASR (opt-in)
 
 ## Quick Start
 
@@ -84,8 +86,11 @@ cp .env.example .env
 | Variable         | Default                        | Description                                                                     |
 | ---------------- | ------------------------------ | ------------------------------------------------------------------------------- |
 | `API_PORT`       | `3000`                         | Backend API port                                                                |
+| `FFMPEG_PATH`    | (auto-detect)                  | Absolute path to `ffmpeg.exe` — required on Windows for Telegram voice OGG → WAV |
+| `ASR_SERVER_URL` | (empty)                        | Remote ASR server URL (whisper.cpp `/inference`). Empty = use local whisper-cpp |
+| `ASR_TIMEOUT`    | `120000`                       | ASR request timeout in ms                                                       |
 
-All other settings (`SERVER_URL`, `MODEL_NAME`, `SYSTEM_PROMPT`, `MAX_TOKENS`, `TEMPERATURE`, `TIMEOUT`, `PROJECT_PATH`, etc.) have built-in defaults from `configDefaults.js` and are configured via the web UI (Settings tab).
+All other settings (`SERVER_URL`, `MODEL_NAME`, `SYSTEM_PROMPT`, `MAX_TOKENS`, `TEMPERATURE`, `TIMEOUT`, `PROJECT_PATH`, `asrLanguage`, `chatMode`, etc.) have built-in defaults from `configDefaults.js` and are configured via the web UI (Settings tab).
 
 ## Development
 
@@ -106,8 +111,8 @@ npm run backend:test
 npm run frontend:test
 ```
 
-- **Backend**: 165 tests covering safePath, parseToolCall, executeTool, accounts, agentLoop, logger, and API
-- **Frontend**: 32 tests covering composables, stores, API client, ControlsCard, ChatTab, SettingsTab, and StatsCard
+- **Backend**: 352 tests covering safePath, parseToolCall, executeTool, accounts (incl. permission sanitisation), agentLoop (including result shape contract), asrClient (SSRF, sanitization, multipart), handleAgentResult, server, **module loadability (smoke)**, API endpoints, and per-sub-router factory units (config/asr/chat/admin)
+- **Frontend**: 322 tests covering composables (useAgent, useToast, useVoiceInput, useWebSocket (incl. batched ring buffer), useToolsConfig, useAccounts, useSettingsForm, useAppConfig (incl. empty/non-object import), useAppModels (incl. Set-based dedup), useAppActions, useAppBoot, useChatHistory, useChatToggles, useChatCancel, usePendingApproval), API client, App, SettingsTab-related cards, ChatTab child components (ChatHeader, MessageBubble, ChatInput, ConfirmDialog, ContextMenu), StatsCard, ToolItem, AccountCard, ConfigCard, LimitsCard, BehaviorCard, DisplayCard, TabBar, **ARIA patterns (ToastContainer live region, TabBar roving tabindex, AppTooltip)**
 
 ## Documentation
 
@@ -139,11 +144,15 @@ Most endpoints require `x-api-key` header with the value set in `VITE_API_KEY`. 
 | GET    | `/api/logs?limit=N`    | Recent logs                                 |
 | GET    | `/api/config`          | Current configuration                       |
 | GET    | `/api/models`          | Fetch available models from AI server       |
-| POST   | `/api/config`          | Update config                               |
+| POST   | `/api/config`          | Update config (SSRF-validated for ASR URL)  |
 | POST   | `/api/start`           | Start Telegram bot                          |
 | POST   | `/api/stop`            | Stop bot, reset stats, clear chat histories |
 | POST   | `/api/restart`         | Restart Telegram bot                        |
 | POST   | `/api/chat`            | Direct chat with AI                         |
+| POST   | `/api/chat/continue`   | Continue agent loop after tool approval/denial |
+| POST   | `/api/chat/clean-text` | LLM-based cleanup of raw voice transcript    |
+| GET    | `/api/asr/status`      | Probe remote ASR server reachability        |
+| POST   | `/api/asr/transcribe`  | Transcribe audio (multer, max 25 MB)        |
 | GET    | `/api/tools`           | List tools with config                      |
 | POST   | `/api/tools`           | Update tool config                          |
 | POST   | `/api/validate-path`   | Validate a file system path (used by frontend) |
@@ -151,15 +160,36 @@ Most endpoints require `x-api-key` header with the value set in `VITE_API_KEY`. 
 | POST   | `/api/accounts`        | Save user accounts                          |
 | POST   | `/api/accounts/import` | Import accounts from JSON                   |
 | POST   | `/api/agent/tool`      | Direct tool call by agent                   |
-| POST   | `/api/chat/continue`   | Continue agent loop after tool approval/denial |
 
 ## Runtime Details
 
-- **WebSocket**: Real‑time updates (status, stats, logs, token usage) via `/ws`.
+- **WebSocket**: Real‑time updates (status, stats, logs, token usage, perfStats) via `/ws`.
 - **OpenRouter support**: Automatic OpenRouter headers (`Authorization: Bearer`, `HTTP-Referer`, `X-OpenRouter-Title`) when `SERVER_URL` contains `openrouter.ai`. API key configurable via UI (`openrouterApiKey`). The `/api/models` endpoint can use an `x-openrouter-key` header override for model discovery.
 - **Chat mode**: When `chatMode` is true the system prompt is minimal and the agent ignores `projectPath`; enables pure conversation.
 - **Auth middleware**: All API routes (except `/health`) require `x‑api‑key` header matching `VITE_API_KEY`.
 - **`include_paths`**: No special root‑drive handling – paths are resolved relative to `projectPath` and must stay within that directory.
+
+## Voice Input
+
+Voice messages are supported in both the Telegram bot and the web panel.
+
+**Telegram bot:**
+
+- OGG voice messages are downloaded, converted to 16 kHz mono WAV via `ffmpeg`, then transcribed.
+- Transcription uses the **remote ASR server** (`ASR_SERVER_URL`, whisper.cpp `/inference` endpoint) if set, otherwise falls back to local `whisper-cpp-node`.
+- The transcript is passed to the same `agentLoopStep()` as text messages (no separate path).
+- Limits: 5 min duration, 25 MB file size, OGG only. Errors are sanitized before display.
+- The TTS cleaning step uses `/api/chat/clean-text` (LLM with `temperature: 0.1`) to fix punctuation, casing, and remove filler words from the raw whisper output.
+- `ffmpeg` is auto-detected on PATH, or set explicitly via `FFMPEG_PATH` in `.env`.
+
+**Web panel:**
+
+- **Web Speech API** (browser-native, real-time) is the default mode — free, no server round-trip.
+- **Server ASR** (opt-in via Settings tab) uploads the recorded blob to `/api/asr/transcribe` and uses the same remote ASR server as Telegram.
+- 5 min auto-stop with `setTimeout` safety; `MediaRecorder` stream tracks are stopped synchronously to release the mic indicator.
+- A TEST button in the Settings tab probes `/api/asr/status` to verify connectivity.
+
+**SSRF protection:** `ASR_SERVER_URL` is validated server-side. Loopback (`127.0.0.0/8`, `::1`), link-local (`169.254.0.0/16`, `fe80::/10`), `0.0.0.0/8`, `localhost`, `.local`, `.internal`, embedded credentials, and non-HTTP(S) schemes are blocked. Private LAN ranges (`10/8`, `172.16-31/12`, `192.168/16`) are allowed for self-hosted ASR servers.
 
 ## Account System
 
@@ -207,15 +237,28 @@ Stats reset when bot is stopped.
 aiagent-be/
 ├── server.js              # Express + GrammY entry point
 ├── routes/
-│   └── api.js             # API route handlers
+│   ├── api.js             # Thin API aggregator (mounts sub-routers, applies auth)
+│   ├── middleware.js      # x-api-key auth (excludes /health)
+│   ├── health.js          # GET /api/health (no auth)
+│   ├── status.js          # GET /api/status
+│   ├── logs.js            # GET/DELETE /api/logs
+│   ├── tools.js           # GET/POST /api/tools
+│   ├── accounts.js        # GET/POST /api/accounts, /api/accounts/import
+│   ├── paths.js           # GET /api/validate-path, /api/directories, /api/browse-folder
+│   ├── admin.js           # /api/start, /api/stop, /api/restart, /api/agent/tool, /api/tasks
+│   ├── config.js          # GET/POST /api/config, GET /api/models
+│   ├── asr.js             # POST /api/asr/transcribe, GET /api/asr/status
+│   └── chat.js            # POST /api/chat, /api/chat/cancel, /api/chat/continue, /api/chat/clean-text
 ├── lib/
 │   ├── agent/
 │   │   ├── agentLoop.js   # Agent loop with tool execution
 │   │   └── executeTool.js # Tool implementations
+│   ├── asrClient.js       # ASR server client (SSRF-safe, sanitized multipart)
+│   ├── whisper.js         # whisper-cpp-node ESM wrapper
 │   ├── accounts.js        # Account management
 │   ├── logger.js          # Structured logging with rotation
 │   └── utils.js           # Path safety and tool call parsing
-├── tests/                 # Backend tests (Vitest)
+├── tests/                 # Backend tests (Vitest, 352 tests)
 └── logs/                  # Application logs
 
 aiagent-web-panel/
@@ -223,10 +266,10 @@ aiagent-web-panel/
 │   ├── api/
 │   │   └── client.js      # API client with reconnect logic
 │   ├── components/        # Vue components
-│   ├── composables/       # Vue composables (useAgent, useToast)
+│   ├── composables/       # Vue composables (useAgent, useToast, useVoiceInput)
 │   ├── stores/            # Pinia stores (settings)
 │   └── styles/            # CSS styles
-├── src/**/*.test.js       # Frontend tests (Vitest)
+├── src/**/*.test.js       # Frontend tests (Vitest, 34 tests)
 └── vite.config.js
 ```
 
