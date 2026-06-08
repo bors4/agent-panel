@@ -353,7 +353,7 @@ describe("routes/chat — /api/chat/continue", () => {
   });
 
   it("executes tool and continues on approved=true", async () => {
-    executeTool.mockResolvedValue({ success: true, content: "ok" });
+    executeTool.mockResolvedValue({ success: true, data: { content: "ok", filePath: "/x" } });
     agentLoopStep.mockResolvedValue({ response: "Done", messages: [] });
     const deps = makeBaseDeps();
     const app = mount(createChatRouter, deps);

@@ -138,14 +138,26 @@ export function usePendingApproval({ messages, approvalMessages, cancel }) {
         args: approvalArgs,
         toolCallId: approvalToolCallId,
       };
-      messages.value.push({
-        role: "system",
-        type: "approval",
-        toolName: approvalToolName,
-        toolArgsPretty: argsStr,
-        pendingApproval: true,
-        toolCallId: approvalToolCallId,
-      });
+      if (approvalToolName === "question") {
+        messages.value.push({
+          role: "system",
+          type: "question",
+          toolName: approvalToolName,
+          toolArgsPretty: argsStr,
+          _rawArgs: typeof approvalArgs === "string" ? approvalArgs : JSON.stringify(approvalArgs),
+          pendingApproval: true,
+          toolCallId: approvalToolCallId,
+        });
+      } else {
+        messages.value.push({
+          role: "system",
+          type: "approval",
+          toolName: approvalToolName,
+          toolArgsPretty: argsStr,
+          pendingApproval: true,
+          toolCallId: approvalToolCallId,
+        });
+      }
     }
   }
 
@@ -157,7 +169,7 @@ export function usePendingApproval({ messages, approvalMessages, cancel }) {
    * @param {Function} onLog — emit("log", ...) callback
    * @returns {Promise<Object>} result
    */
-  async function handleToolDecision(msg, approved, isTyping, onLog) {
+  async function handleToolDecision(msg, approved, isTyping, onLog, questionAnswers) {
     if (!pendingApproval.value) return null;
 
     const decision = {
@@ -166,6 +178,10 @@ export function usePendingApproval({ messages, approvalMessages, cancel }) {
       args: pendingApproval.value.args,
       toolCallId: pendingApproval.value.toolCallId,
     };
+
+    if (approved && pendingApproval.value.toolName === "question" && questionAnswers) {
+      decision.answers = questionAnswers;
+    }
 
     messages.value = messages.value.filter((m) => m !== msg);
     isTyping.value = true;

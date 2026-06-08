@@ -26,3 +26,8 @@ export async function copy(args, projectPath) {
   await fs.copyFile(source, destination);
   return { success: true, data: { source, destination } };
 }
+
+export function toModelOutput(result) {
+  if (!result.success) return `Copy failed: ${result.error}`;
+  return `Copied: ${result.data.source} -> ${result.data.destination}`;
+}

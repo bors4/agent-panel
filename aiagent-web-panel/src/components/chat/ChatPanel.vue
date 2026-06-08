@@ -62,6 +62,12 @@
             <div class="chat-msg-col">
               <ToolCallBlock v-if="msg.type === 'tool_call'" :msg="msg" />
               <ToolResultBlock v-else-if="msg.type === 'tool_result'" :msg="msg" />
+              <QuestionBlock
+                v-else-if="msg.type === 'question'"
+                :msg="msg"
+                @submit="(payload) => handleQuestionSubmit(payload)"
+                @reject="(m) => handleToolDecision(m, false)"
+              />
               <ApprovalBlock
                 v-else-if="msg.type === 'approval'"
                 :msg="msg"
@@ -134,6 +140,7 @@ import MessageBubble from "./MessageBubble.vue";
 import ToolCallBlock from "./ToolCallBlock.vue";
 import ToolResultBlock from "./ToolResultBlock.vue";
 import ApprovalBlock from "./ApprovalBlock.vue";
+import QuestionBlock from "./QuestionBlock.vue";
 import ChatInput from "./ChatInput.vue";
 import ContextMenu from "./ContextMenu.vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
@@ -235,8 +242,14 @@ async function onResend(msg, index) {
   });
 }
 
-async function handleToolDecision(msg, approved) {
-  await pending.handleToolDecision(msg, approved, isTyping, emitLog);
+async function handleToolDecision(msg, approved, answers) {
+  await pending.handleToolDecision(msg, approved, isTyping, emitLog, answers);
+}
+
+async function handleQuestionSubmit({ answers }) {
+  const msg = messages.value.find((m) => m.type === "question");
+  if (!msg) return;
+  await pending.handleToolDecision(msg, true, isTyping, emitLog, answers);
 }
 
 function handleStop() {

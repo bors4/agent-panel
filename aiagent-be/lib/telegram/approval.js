@@ -4,7 +4,7 @@
  * @module telegram/approval
  */
 import { agentLoopStep, MAX_AGENT_ITERATIONS } from "../agent/agentLoop.js";
-import { executeTool, waitForTask, getToolConfig } from "../agent/executeTool.js";
+import { executeTool, waitForTask, getToolConfig, getToolModelOutput } from "../agent/executeTool.js";
 import { chatHistories, pendingApprovals, config, stats, tokenUsage } from "../state.js";
 import { addLog, wsBroadcast } from "./log.js";
 import { replyMsg, KEYBOARD_YES_NO } from "./reply.js";
@@ -35,10 +35,21 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
   const account = pending.account;
 
   try {
-    let result = await executeTool(
-      { name: pending.toolName, args: pending.args },
-      { projectPath: config.projectPath, account }
-    );
+    let result;
+    if (pending.toolName === "question" && pending.approvalAnswers) {
+      const questions = pending.args.questions || [];
+      const formattedAnswers = [];
+      for (let i = 0; i < questions.length; i++) {
+        formattedAnswers.push(pending.approvalAnswers[i] || []);
+      }
+      result = { success: true, data: { questions, answers: formattedAnswers } };
+      addLog(`Question answers: ${JSON.stringify(formattedAnswers)}`, "info");
+    } else {
+      result = await executeTool(
+        { name: pending.toolName, args: pending.args },
+        { projectPath: config.projectPath, account }
+      );
+    }
 
     if (result.data?.taskId) {
       const taskId = result.data.taskId;
@@ -60,7 +71,7 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
       const errorToolMessage = {
         role: "tool",
         tool_call_id: pending.toolCallId,
-        content: JSON.stringify(result).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+        content: getToolModelOutput(pending.toolName, result),
       };
       const rawH = chatHistories.get(chatId) || pending.messages || [];
       const h = rawH.filter((m) => !m.content?.includes("[TOOL APPROVAL REQUIRED]"));
@@ -76,9 +87,10 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
       return;
     }
 
+    const toolContent = getToolModelOutput(pending.toolName, result);
     const toolMessage = {
       role: "tool",
-      content: JSON.stringify(result).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+      content: toolContent,
     };
     if (pending.toolCallId) {
       toolMessage.tool_call_id = pending.toolCallId;
@@ -89,6 +101,10 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
       (m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]")
     );
     let newHistory = [...cleanHistory, toolMessage];
+
+    if (config.insertUserAfterTool) {
+      newHistory.push({ role: "user", content: "Continue" });
+    }
 
     const remaining = pending.pendingToolCalls || [];
     for (const next of remaining) {
@@ -127,7 +143,7 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
       newHistory.push({
         role: "tool",
         tool_call_id: next.id,
-        content: JSON.stringify(nextResult).replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+        content: getToolModelOutput(next.name, nextResult),
       });
     }
 

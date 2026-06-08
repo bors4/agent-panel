@@ -5,7 +5,7 @@
  */
 
 import { ref, nextTick } from "vue";
-import { directChat, directChatStream, agentChat } from "@/api/client";
+import { directChat, directChatStream, agentChat, agentChatStream } from "@/api/client";
 
 /**
  * Normalize token usage to canonical format { prompt, completion, total, cached }.
@@ -135,6 +135,118 @@ export function useChatSend({
   async function sendAgentFlow(text, controller, attachAbortId, startTime, emitLog, emitTokenUsage) {
     const abortId = crypto.randomUUID();
     attachAbortId(abortId);
+
+    if (options.streamEnabled) {
+      isTyping.value = false;
+      isStreaming.value = true;
+      streamingContent.value = "";
+      streamingReasoning.value = "";
+      reasoningDone.value = false;
+
+      const botMsgIdx = messages.value.length;
+      messages.value.push({ role: "bot", content: "", streaming: true, reasoning: "", reasoningExpanded: false });
+
+      try {
+        const result = await agentChatStream(
+          {
+            message: text,
+            messages: messages.value
+              .filter((m) => !m.type)
+              .map((m) => ({ role: m.role === "bot" ? "assistant" : m.role, content: m.content })),
+            accountName: "",
+            projectPath: options.projectPath,
+            serverUrl: options.serverUrl,
+            modelName: options.modelName,
+            systemPrompt: options.systemPrompt,
+          },
+          {
+            onReasoning: (chunk, accumulated) => {
+              streamingReasoning.value = accumulated;
+              messages.value[botMsgIdx].reasoning = accumulated;
+            },
+            onReasoningDone: () => {
+              reasoningDone.value = true;
+            },
+            onContent: (chunk, accumulated) => {
+              streamingContent.value = accumulated;
+              messages.value[botMsgIdx].content = accumulated;
+              nextTick(() => scrollToBottom());
+            },
+          },
+          controller.signal,
+          abortId
+        );
+
+        isStreaming.value = false;
+        if (options.soundEnabled) playReceive();
+
+        if (result.error && !result.cancelled) {
+          throw new Error(result.error);
+        }
+
+        if (result.cancelled) {
+          messages.value[botMsgIdx].content = "🔴 Cancelled";
+          messages.value[botMsgIdx].streaming = false;
+          emitLog({ message: "Agent loop cancelled", type: "warning" });
+          return;
+        }
+
+        if (result.reply) {
+          messages.value[botMsgIdx].content = result.reply;
+          messages.value[botMsgIdx].streaming = false;
+          if (result.reasoning) {
+            messages.value[botMsgIdx].reasoning = result.reasoning;
+          }
+          const normalized = normalizeUsage(result.tokenUsage);
+          messages.value[botMsgIdx].usage = normalized;
+          if (normalized) emitTokenUsage(normalized);
+        }
+
+        pending.addToolMessages(
+          result.toolCalls,
+          result.toolResults,
+          result.requiresApproval,
+          result.approvalToolName,
+          result.approvalArgs,
+          result.approvalToolCallId
+        );
+
+        approvalMessages.value = result.messages || [];
+        pendingToolCalls.value = result.pendingToolCalls || [];
+
+        const latency = Date.now() - startTime;
+        if (options.verbose) {
+          const toolCount = (result.toolCalls?.length || 0) + (result.toolResults?.length || 0);
+          emitLog({
+            message: `[VERBOSE] Agent loop (${latency}ms): ${result.reply?.substring(0, 100) || "empty"}, tools: ${toolCount}`,
+            type: "success",
+          });
+        } else {
+          emitLog({
+            message: `Agent response (${latency}ms): ${result.reply?.substring(0, 100)}...`,
+            type: "success",
+          });
+        }
+      } catch (error) {
+        const latency = Date.now() - startTime;
+        isStreaming.value = false;
+        if (error.name === "AbortError") {
+          if (messages.value[botMsgIdx]?.streaming) {
+            messages.value[botMsgIdx].content = "🔴 Cancelled";
+            messages.value[botMsgIdx].streaming = false;
+          }
+          emitLog({ message: `Agent cancelled (${latency}ms)`, type: "warning" });
+        } else {
+          messages.value.push({ role: "bot", content: `❌ Ошибка: ${error.message}` });
+          emitLog({ message: `Agent error (${latency}ms): ${error.message}`, type: "error" });
+        }
+      } finally {
+        cancel.clearAbort(controller);
+        cancel.clearAbortId(abortId);
+      }
+      return;
+    }
+
     try {
       const result = await agentChat(
         {

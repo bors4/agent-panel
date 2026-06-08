@@ -35,6 +35,12 @@ export async function read(args, projectPath, config = {}) {
       : content;
   return {
     success: true,
-    data: { content: truncated, fullLength: content.length },
+    data: { content: truncated, fullLength: content.length, filePath: args.filePath },
   };
+}
+
+export function toModelOutput(result) {
+  if (!result.success) return `Read failed: ${result.error}`;
+  if (result.data.content === "[File omitted: max files in prompt reached]") return result.data.content;
+  return `File content (${result.data.filePath}):\n\`\`\`\n${result.data.content}\n\`\`\``;
 }

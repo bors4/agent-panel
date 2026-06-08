@@ -4,12 +4,12 @@
  * @module agentLoop
  */
 
-import { executeTool, waitForTask, getToolConfig } from "./executeTool.js";
+import { executeTool, waitForTask, getToolConfig, getToolModelOutput } from "./executeTool.js";
 import { parseToolCall } from "../utils.js";
 import { isToolEnabledForAccount } from "../accounts.js";
 import { configDefaults } from "../configDefaults.js";
 import { parseStreamedResponse } from "../parseSSE.js";
-import { logWarn, logError } from "../logger.js";
+import { logWarn, logError, logInfo } from "../logger.js";
 import { getInstructionLoader } from "../instructionLoader.js";
 
 /** Максимальное количество итераций (вызовов инструментов) за один запрос. */
@@ -292,7 +292,6 @@ export async function agentLoopStep(
 
   while (iterations < maxIterations) {
     iterations++;
-    // Проверка отмены в начале каждой итерации (для случаев между tool calls)
     if (abortSignal?.aborted) {
       return {
         response: "Cancelled",
@@ -303,6 +302,11 @@ export async function agentLoopStep(
         timings: latestTimings,
       };
     }
+
+    // Estimate total chars; log warning before LLM call.
+    const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0) + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0), 0);
+    logInfo(`agentLoop iteration ${iterations}: ${messages.length} messages, ~${Math.round(totalChars / 4)} estimated tokens (${totalChars} chars)`, {});
+
     try {
       const body = {
         model: cfg.modelName,
@@ -458,14 +462,23 @@ export async function agentLoopStep(
         }
       }
       if (!msg.content?.trim() && !msg.tool_calls?.length) {
-        emptyRetries++;
-        if (emptyRetries > 2) {
-          return {
-            error: "Model returned empty responses repeatedly. Check model configuration or increase max tokens.",
-          };
+        const reasoningTc = finalReasoning?.includes("<tool_call>") ? parseToolCall(finalReasoning) : null;
+        if (reasoningTc) {
+          msg.content = finalReasoning;
+          logWarn(`[agentLoop] Promoted reasoning_content to content (detected tool call: ${reasoningTc.name})`);
+        } else {
+          emptyRetries++;
+          logWarn(
+            `[agentLoop] Empty response #${emptyRetries}: msg keys=${Object.keys(msg).join(",")}, tool_calls=${msg.tool_calls ? "set(" + msg.tool_calls.length + ")" : "none"}, content="${(msg.content || "").slice(0, 80)}"`
+          );
+          if (emptyRetries > 2) {
+            return {
+              error: "Model returned empty responses repeatedly. Check model configuration or increase max tokens.",
+            };
+          }
+          currentTemperature = Math.min(currentTemperature + 0.3, 0.99);
+          continue;
         }
-        currentTemperature = Math.min(currentTemperature + 0.3, 0.99);
-        continue;
       }
       emptyRetries = 0;
       if (!usage && (msg.content || msg.tool_calls?.length)) {
@@ -554,14 +567,17 @@ export async function agentLoopStep(
           onProgress?.({ type: "tool", toolName: tn, args: ta });
           const r = await executeToolAndWait({ name: tn, args: ta }, toolExecConfig);
           if (tn === "read" && r.success) toolExecConfig.filesRead++;
+          let toolContent = getToolModelOutput(tc.function.name, r);
+          if (toolContent.length > 10000) {
+            toolContent = toolContent.slice(0, 10000) + `\n\n[... tool content truncated, ${toolContent.length - 10000} more chars]`;
+          }
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
-            content: JSON.stringify(r),
+            content: toolContent,
           });
           if (cfg.insertUserAfterTool) {
             messages.push({ role: "user", content: "Continue" });
-            // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
             const recentUserMessages = messages
               .slice(-5)
               .filter((m) => m.role === "user" && m.content === "Continue").length;
@@ -586,14 +602,17 @@ export async function agentLoopStep(
         onProgress?.({ type: "tool", toolName: tc.name, args: tc.args });
         const r = await executeToolAndWait(tc, toolExecConfig);
         if (tc.name === "read" && r.success) toolExecConfig.filesRead++;
+        let toolContent = getToolModelOutput(tc.name, r);
+        if (toolContent.length > 10000) {
+          toolContent = toolContent.slice(0, 10000) + `\n\n[... tool content truncated, ${toolContent.length - 10000} more chars]`;
+        }
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: JSON.stringify(r),
+          content: toolContent,
         });
         if (cfg.insertUserAfterTool) {
           messages.push({ role: "user", content: "Continue" });
-          // Prevent infinite loops: stop if too many consecutive tool-inserted user messages
           const recentUserMessages = messages
             .slice(-5)
             .filter((m) => m.role === "user" && m.content === "Continue").length;
@@ -608,10 +627,14 @@ export async function agentLoopStep(
       if (bash && !useFunctionCalling) {
         onProgress?.({ type: "tool", toolName: "execute", args: { command: bash } });
         const r = await executeToolAndWait({ name: "execute", args: { command: bash } }, toolExecConfig);
+        let toolContent = getToolModelOutput("execute", r);
+        if (toolContent.length > 10000) {
+          toolContent = toolContent.slice(0, 10000) + `\n\n[... tool content truncated, ${toolContent.length - 10000} more chars]`;
+        }
         messages.push({
           role: "tool",
           tool_call_id: `bash_${Date.now()}`,
-          content: JSON.stringify(r),
+          content: toolContent,
         });
         if (cfg.insertUserAfterTool) {
           messages.push({ role: "user", content: "Continue" });

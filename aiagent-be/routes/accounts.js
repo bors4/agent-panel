@@ -13,7 +13,7 @@ import { saveAccounts, getAccounts } from "../lib/accounts.js";
  */
 export function createAccountsRouter(deps) {
   const router = Router();
-  const { config, addLog } = deps;
+  const { addLog } = deps;
 
   /**
    * GET /api/accounts — list all registered accounts.

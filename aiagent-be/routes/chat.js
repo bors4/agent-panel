@@ -7,7 +7,8 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { configDefaults } from "../lib/configDefaults.js";
 import { agentLoopStep, MAX_AGENT_ITERATIONS } from "../lib/agent/agentLoop.js";
-import { executeTool } from "../lib/agent/executeTool.js";
+import { executeTool, getToolModelOutput } from "../lib/agent/executeTool.js";
+import { webfetch } from "../lib/agent/tools/webfetch.js";
 import { getAccountByUsername } from "../lib/accounts.js";
 import { parseStreamedResponse } from "../lib/parseSSE.js";
 import { normalizeUsage } from "../lib/responseNormalizer.js";
@@ -56,15 +57,17 @@ export function createChatRouter(deps) {
       }
       if (msg.role === "tool") {
         let parsed;
+        let isJson = true;
         try {
           parsed = JSON.parse(msg.content);
         } catch {
+          isJson = false;
           parsed = msg.content;
         }
         toolResults.push({
           toolCallId: msg.tool_call_id,
-          success: parsed?.success,
-          output: parsed?.stdout || parsed?.content || parsed?.error || msg.content,
+          success: isJson ? parsed?.success : true,
+          output: isJson ? parsed?.stdout || parsed?.content || parsed?.error || msg.content : msg.content,
         });
       }
     }
@@ -90,6 +93,33 @@ export function createChatRouter(deps) {
       if (useAgentLoop) {
         const accountName = req.body.accountName;
         const account = accountName ? getAccountByUsername(accountName) : null;
+
+        if (!actualServerUrl) {
+          const urlMatch = message.match(/https?:\/\/[^\s,;)]+/);
+          if (urlMatch) {
+            const fetchUrl = urlMatch[0];
+            addLog(`Direct fetch (no AI server): ${fetchUrl}`, "info");
+            const result = await webfetch({ url: fetchUrl, format: "text" });
+            st.tools++;
+            wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
+            if (result.success) {
+              return res.json({
+                success: true,
+                reply: `Содержимое страницы ${fetchUrl}:\n\n${result.data.content.slice(0, 10000)}`,
+                toolCalls: [{ name: "webfetch", args: { url: fetchUrl } }],
+                toolResults: [{ success: true, output: result.data.content.slice(0, 10000) }],
+                messages: [],
+              });
+            }
+            return res.json({ success: false, error: `Не удалось загрузить страницу: ${result.error}`, messages: [] });
+          }
+          return res.json({
+            success: false,
+            error: "AI server URL is not configured. Set it in the panel settings.",
+            messages: [],
+          });
+        }
+
         const agentCfg = {
           ...cfg,
           projectPath: workPath,
@@ -101,6 +131,106 @@ export function createChatRouter(deps) {
         const abortId = req.body.abortId || crypto.randomUUID();
         const abortController = new AbortController();
         activeChatControllers.set(abortId, abortController);
+
+        if (isStream) {
+          let responseFinished = false;
+          res.on("close", () => {
+            if (!responseFinished && !abortController.signal.aborted) abortController.abort();
+          });
+
+          res.setHeader("Content-Type", "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          res.setHeader("X-Accel-Buffering", "no");
+
+          const t0 = performance.now();
+          let firstTokenMs = 0;
+          let fullReasoning = "";
+
+          const onProgress = (progress) => {
+            try {
+              if (progress.type === "reasoning" && progress.chunk) {
+                if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+                fullReasoning += progress.chunk;
+                res.write(`data: ${JSON.stringify({ reasoning: progress.chunk, accumulated: fullReasoning })}\n\n`);
+              } else if (progress.type === "reasoning_done") {
+                res.write(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`);
+              } else if (progress.type === "content" && progress.chunk) {
+                if (!firstTokenMs) firstTokenMs = performance.now() - t0;
+                res.write(`data: ${JSON.stringify({ reply: progress.chunk, accumulated: progress.accumulated })}\n\n`);
+              }
+            } catch (_err) {
+              if (!abortController.signal.aborted) abortController.abort();
+            }
+          };
+
+          let result;
+          try {
+            result = await agentLoopStep(
+              message, "web-chat", messages, agentCfg,
+              MAX_AGENT_ITERATIONS, account, onProgress, abortController.signal
+            );
+          } finally {
+            activeChatControllers.delete(abortId);
+          }
+
+          if (result.cancelled) {
+            responseFinished = true;
+            res.write(`data: ${JSON.stringify({ cancelled: true, done: true })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+
+          if (result.error && !result.cancelled) {
+            responseFinished = true;
+            res.write(`data: ${JSON.stringify({ error: result.error, done: true })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+
+          if (result.tokenUsage) {
+            const delta = {
+              prompt: result.tokenUsage.prompt || 0,
+              completion: result.tokenUsage.completion || 0,
+              total: result.tokenUsage.total || 0,
+              cached: result.tokenUsage.cached || 0,
+            };
+            tu.prompt += delta.prompt;
+            tu.completion += delta.completion;
+            tu.total += delta.total;
+            tu.cached += delta.cached;
+            wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
+          }
+          wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
+          if (result.timings) {
+            wsBroadcast("perfStats", buildPerfStats(result.timings));
+          }
+
+          const { toolCalls, toolResults } = extractToolData(result.messages);
+          const finalEvent = {
+            done: true,
+            reply: result.response || "",
+            reasoning: result.reasoning || fullReasoning || "",
+            messages: result.messages || [],
+            toolCalls,
+            toolResults,
+            requiresApproval: result.requiresApproval || false,
+            approvalToolName: result.toolName,
+            approvalArgs: result.args,
+            approvalToolCallId: result.toolCallId,
+            pendingToolCalls: result.pendingToolCalls || null,
+            tokenUsage: result.tokenUsage || null,
+            cancelled: false,
+            abortId,
+          };
+          res.write(`data: ${JSON.stringify(finalEvent)}\n\n`);
+          res.write("data: [DONE]\n\n");
+          responseFinished = true;
+          res.end();
+          return;
+        }
 
         let result;
         try {
@@ -369,21 +499,30 @@ export function createChatRouter(deps) {
       if (!messages || !approvalDecision) {
         return res.status(400).json({ error: "messages and approvalDecision required" });
       }
-      const { approved, toolName, args, toolCallId } = approvalDecision;
+      const { approved, toolName, args, toolCallId, answers } = approvalDecision;
       const accountName = req.body.accountName;
       const account = accountName ? getAccountByUsername(accountName) : null;
 
       if (approved) {
         let toolResult;
-        try {
-          toolResult = await executeTool({ name: toolName, args }, { projectPath: cfg.projectPath, account });
-        } catch (e) {
-          toolResult = { success: false, error: e.message };
+        if (toolName === "question") {
+          if (answers) {
+            toolResult = { success: true, data: { questions: args.questions, answers } };
+          } else {
+            toolResult = { success: false, error: "No answers provided for question" };
+          }
+        } else {
+          try {
+            toolResult = await executeTool({ name: toolName, args }, { projectPath: cfg.projectPath, account });
+          } catch (e) {
+            toolResult = { success: false, error: e.message };
+          }
         }
+        const content = getToolModelOutput(toolName, toolResult);
         messages.push({
           role: "tool",
           tool_call_id: toolCallId || `web_${Date.now()}`,
-          content: JSON.stringify(toolResult),
+          content,
         });
       } else {
         messages.push({

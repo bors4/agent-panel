@@ -29,10 +29,12 @@
  * @property {Map<string, Object>} pendingApprovals — ожидающие подтверждения
  * @property {Function} addLog — логгер `(message, level) => void`
  * @property {Function} replyMsg — async (ctx, text, opts) => Message
+ * @property {Object} REPLY_OPTS — { parse_mode: "HTML", ... }
  * @property {Function} editDraftMessage — async (ctx, msgId, text) => void
  * @property {Function} sendLongMessage — async (ctx, text, opts) => number[]
  * @property {Function} chunkText — async generator (text) => AsyncGenerator<string>
  * @property {Function} KEYBOARD_YES_NO — (toolName) => InlineKeyboard
+ * @property {typeof InlineKeyboard} InlineKeyboard — grammy InlineKeyboard constructor
  * @property {Function} agentLoopStep — из lib/agent/agentLoop.js
  * @property {number} MAX_AGENT_ITERATIONS
  */
@@ -49,10 +51,12 @@ export function createHandleAgentResult(deps) {
     pendingApprovals,
     addLog,
     replyMsg,
+    REPLY_OPTS,
     editDraftMessage,
     sendLongMessage,
     chunkText,
     KEYBOARD_YES_NO,
+    InlineKeyboard: InlineKeyboardCtor,
     agentLoopStep,
     MAX_AGENT_ITERATIONS,
   } = deps;
@@ -93,6 +97,30 @@ export function createHandleAgentResult(deps) {
           .filter((m) => m.role !== "system" && !m.content?.includes("[TOOL APPROVAL REQUIRED]"))
           .slice(-(config.maxHistoryPairs * 2))
       );
+
+      if (result.toolName === "question" && result.args?.questions) {
+        const questions = result.args.questions;
+        for (let i = 0; i < questions.length; i++) {
+          const q = questions[i];
+          const text = `❓ <b>Question ${i + 1}/${questions.length}</b>\n\n${q.header ? `<b>[${q.header}]</b> ` : ""}${q.question}`;
+          if (q.options?.length) {
+            const kb = new InlineKeyboardCtor();
+            for (let j = 0; j < q.options.length; j++) {
+              const opt = q.options[j];
+              kb.text(opt.label, `q_ans_${chatId}_${i}_${j}`);
+              if (j < q.options.length - 1) kb.row();
+            }
+            if (q.multiple) {
+              kb.row().text("✅ Done", `q_done_${chatId}_${i}`);
+            }
+            await replyMsg(ctx, text, { reply_markup: kb });
+          } else {
+            await replyMsg(ctx, `${text}\n\nReply with your answer in chat.`);
+          }
+        }
+        return true;
+      }
+
       const paramStr = JSON.stringify(result.args);
       const displayParams =
         result.toolName === "write" && result.args.content
@@ -148,7 +176,7 @@ export function createHandleAgentResult(deps) {
         await editDraftMessage(ctx, draftMsgId, reasoningBlock + cleanResponse);
       } else if (ctx.chat?.type === "private") {
         const fullText = reasoningBlock + cleanResponse;
-        await ctx.replyWithStream(chunkText(fullText));
+        await ctx.replyWithStream(chunkText(fullText), REPLY_OPTS);
       } else {
         await sendLongMessage(ctx, reasoningBlock + cleanResponse);
       }

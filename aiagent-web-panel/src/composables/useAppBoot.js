@@ -91,14 +91,14 @@ function applyBackendConfig(backendConfig, { localConfig, modelName, serverUrl, 
  * Синхронизирует ТОЛЬКО поля, где backend ещё не имеет значения, а frontend уже знает.
  * Это гарантирует, что localStorage-сохранённый токен дойдёт до backend (для /api/start),
  * но не перезапишет backend-конфигурацию, заданную извне (env var / другая сессия).
- *
- * НЕ синхронизирует serverUrl/modelName — это делает loadFromBackend через onlyIfMissing.
  * @param {Object} deps
  * @param {import("vue").Ref<Object>} deps.localConfig
  * @param {Function} deps.addLog
  * @param {Object|null} deps.backendConfig - результат GET /api/config (для проверки текущих значений backend)
+ * @param {import("vue").Ref<string>} [deps.serverUrl] - URL AI сервера (синхронизируется если backend пустой)
+ * @param {import("vue").Ref<string>} [deps.modelName] - Имя модели (синхронизируется если backend пустой)
  */
-async function syncToBackend({ localConfig, addLog, backendConfig }) {
+async function syncToBackend({ localConfig, addLog, backendConfig, serverUrl, modelName }) {
   try {
     const cfg = backendConfig?.config || {};
     const payload = {};
@@ -110,6 +110,12 @@ async function syncToBackend({ localConfig, addLog, backendConfig }) {
     }
     if (!cfg.openrouterApiKey && localConfig.value.openrouterApiKey) {
       payload.openrouterApiKey = localConfig.value.openrouterApiKey;
+    }
+    if (!cfg.serverUrl && serverUrl?.value) {
+      payload.serverUrl = serverUrl.value;
+    }
+    if (!cfg.modelName && modelName?.value) {
+      payload.modelName = modelName.value;
     }
     if (Object.keys(payload).length === 0) return;
     await updateConfig(payload);
@@ -167,11 +173,10 @@ export async function bootApp({ refreshStatus, handleStart, addLog, warning, ref
   // - localStorage has values: apply only MISSING backend values (preserve user's choices)
   const backendConfig = await loadFromBackend({ ...refs, addLog, onlyIfMissing: localStorageApplied });
 
-  // Push critical user-input fields (token, projectPath, openrouterApiKey) to backend
-  // ONLY when backend's value is empty. This handles the case where the backend was
-  // restarted (env var empty) but localStorage still has the user's saved values.
-  // Does NOT sync serverUrl/modelName — those are handled by loadFromBackend above.
-  await syncToBackend({ localConfig: refs.localConfig, addLog, backendConfig });
+  // Push critical user-input fields (token, projectPath, openrouterApiKey, serverUrl, modelName)
+  // to backend ONLY when backend's value is empty. This handles the case where the backend
+  // was restarted but localStorage still has the user's saved values.
+  await syncToBackend({ localConfig: refs.localConfig, addLog, backendConfig, serverUrl: refs.serverUrl, modelName: refs.modelName });
 
   if (!refs.localConfig.value.projectPath) {
     warning("Путь к проекту не указан. Укажите его в разделе Параметры.");

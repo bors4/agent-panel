@@ -158,6 +158,187 @@ export const TOOLS = {
       required: ["source", "destination"],
     },
   },
+  edit: {
+    name: "edit",
+    description: "Replace exact text in one file. Requires oldString to match exactly including whitespace and indentation.",
+    category: "file",
+    examples: [
+      '<tool>{"name": "edit", "args": {"filePath": "src/main.js", "oldString": "console.log(1)", "newString": "console.log(2)"}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        filePath: { type: "string", description: "Path to file relative to project" },
+        oldString: { type: "string", description: "Exact text to replace" },
+        newString: { type: "string", description: "Replacement text" },
+        replaceAll: { type: "boolean", description: "Replace all occurrences (default false)" },
+      },
+      required: ["filePath", "oldString", "newString"],
+    },
+  },
+  glob: {
+    name: "glob",
+    description: "Find files by glob pattern in the project directory. Returns sorted relative file paths.",
+    category: "search",
+    examples: [
+      '<tool>{"name": "glob", "args": {"pattern": "**/*.js", "limit": 50}}</tool>',
+      '<tool>{"name": "glob", "args": {"pattern": "src/**/*.css", "path": "src"}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Glob pattern to match files against (e.g., **/*.js, src/**/*.{ts,tsx})" },
+        path: { type: "string", description: "Relative directory to search (defaults to project root)" },
+        limit: { type: "number", description: "Maximum results to return (default 200)" },
+      },
+      required: ["pattern"],
+    },
+  },
+  grep: {
+    name: "grep",
+    description: "Search file contents by regex within the project. Returns file paths, line numbers, and line previews.",
+    category: "search",
+    examples: [
+      '<tool>{"name": "grep", "args": {"pattern": "TODO|FIXME", "include": "*.js", "limit": 30}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Regex pattern to search for" },
+        include: { type: "string", description: 'File glob filter, e.g. "*.js" or "*.{ts,tsx}"' },
+        path: { type: "string", description: "Relative directory to search (defaults to project root)" },
+        limit: { type: "number", description: "Maximum matches to return (default 50)" },
+      },
+      required: ["pattern"],
+    },
+  },
+  question: {
+    name: "question",
+    description:
+      "Ask the user questions during execution. Use to gather preferences, clarify requests, or get decisions. Supports text input, multiple choice, and multi-select.",
+    category: "interaction",
+    examples: [
+      '<tool>{"name": "question", "args": {"questions": [{"question": "What port?", "header": "Port", "options": [{"label": "3000", "description": "Default"}]}]}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          description: "Questions to ask the user",
+          items: {
+            type: "object",
+            properties: {
+              question: { type: "string", description: "The question text" },
+              header: { type: "string", description: "Short label (max 30 chars)" },
+              options: {
+                type: "array",
+                description: "Available choices (omit for free-text input)",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string", description: "Display text" },
+                    description: { type: "string", description: "Explanation of choice" },
+                  },
+                  required: ["label", "description"],
+                },
+              },
+              multiple: { type: "boolean", description: "Allow selecting multiple choices" },
+            },
+            required: ["question"],
+          },
+        },
+      },
+      required: ["questions"],
+    },
+  },
+  websearch: {
+    name: "websearch",
+    description: "Search the web for current information. Returns title, snippet, and URL for each result.",
+    category: "web",
+    examples: [
+      '<tool>{"name": "websearch", "args": {"query": "latest stable Node.js version", "numResults": 5}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (max 400 chars)" },
+        numResults: { type: "number", description: "Number of results (1-20, default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  webfetch: {
+    name: "webfetch",
+    description: "Fetch content from an HTTP or HTTPS URL and return as text, markdown, or HTML.",
+    category: "web",
+    examples: [
+      '<tool>{"name": "webfetch", "args": {"url": "https://example.com", "format": "markdown"}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The HTTP or HTTPS URL to fetch" },
+        format: {
+          type: "string",
+          enum: ["text", "markdown", "html"],
+          description: "Return format (default: markdown)",
+        },
+        timeout: { type: "number", description: "Timeout in seconds (max 120, default 30)" },
+      },
+      required: ["url"],
+    },
+  },
+  skill: {
+    name: "skill",
+    description: "Load a specialized skill from the .agents/skills/ directory. Returns the skill content and references to its files.",
+    category: "system",
+    examples: [
+      '<tool>{"name": "skill", "args": {"name": "design-taste-frontend"}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "The name of the skill to load" },
+      },
+      required: ["name"],
+    },
+  },
+  todowrite: {
+    name: "todowrite",
+    description: "Create and maintain a structured task list for the current session. Track progress across steps.",
+    category: "system",
+    examples: [
+      '<tool>{"name": "todowrite", "args": {"todos": [{"content": "Fix bug", "status": "in_progress", "priority": "high"}]}}</tool>',
+    ],
+    input_schema: {
+      type: "object",
+      properties: {
+        todos: {
+          type: "array",
+          description: "Task list with content, status, and priority",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "Description of the task" },
+              status: {
+                type: "string",
+                enum: ["pending", "in_progress", "completed", "cancelled"],
+                description: "Task status",
+              },
+              priority: {
+                type: "string",
+                enum: ["high", "medium", "low"],
+                description: "Priority level",
+              },
+            },
+            required: ["content", "status", "priority"],
+          },
+        },
+      },
+      required: ["todos"],
+    },
+  },
 };
 
 /**

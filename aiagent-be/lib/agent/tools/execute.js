@@ -150,3 +150,16 @@ export async function execute(args, projectPath, config = {}) {
     data: { taskId, pid: child.pid, status: "running", command: args.command },
   };
 }
+
+export function toModelOutput(result) {
+  if (!result.success) return `Command failed: ${result.error}`;
+  if (result.data?.taskId) return `Task started: ${result.data.taskId} (${result.data.command})`;
+  const stdout = result.data?.stdout?.trim();
+  const stderr = result.data?.stderr?.trim();
+  const exitCode = result.data?.exitCode;
+  const lines = [];
+  if (stdout) lines.push(stdout);
+  if (stderr) lines.push("stderr:", stderr);
+  if (exitCode !== undefined) lines.push(`Exit code: ${exitCode}`);
+  return lines.join("\n") || "(no output)";
+}

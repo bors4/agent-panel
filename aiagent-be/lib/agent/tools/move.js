@@ -26,3 +26,8 @@ export async function move(args, projectPath) {
   await fs.rename(source, destination);
   return { success: true, data: { source, destination } };
 }
+
+export function toModelOutput(result) {
+  if (!result.success) return `Move failed: ${result.error}`;
+  return `Moved: ${result.data.source} -> ${result.data.destination}`;
+}

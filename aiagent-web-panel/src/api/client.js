@@ -319,6 +319,91 @@ export async function agentChat(options, signal = null, abortId = null) {
 }
 
 /**
+ * Потоковый agent loop (SSE). Получает чанки ответа и финальный объект с toolCalls.
+ * @param {Object} options
+ * @param {Object} callbacks
+ * @param {Function} [callbacks.onReasoning] - (chunk, accumulated) => void
+ * @param {Function} [callbacks.onReasoningDone] - () => void
+ * @param {Function} [callbacks.onContent] - (chunk, accumulated) => void
+ * @param {Function} [callbacks.onDone] - (finalObject) => void
+ * @param {Function} [callbacks.onError] - (error) => void
+ * @param {AbortSignal} [signal]
+ * @param {string} [abortId]
+ * @returns {Promise<Object>} Финальный объект
+ */
+export async function agentChatStream(options, callbacks = {}, signal = null, abortId = null) {
+  const response = await apiFetch("/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message: options.message,
+      messages: options.messages || [],
+      accountName: options.accountName || "",
+      useAgentLoop: true,
+      stream: true,
+      projectPath: options.projectPath,
+      serverUrl: options.serverUrl,
+      modelName: options.modelName,
+      systemPrompt: options.systemPrompt,
+      abortId,
+    }),
+    signal,
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult = null;
+
+  if (signal) {
+    if (signal.aborted) reader.cancel().catch(() => {});
+    else signal.addEventListener("abort", () => reader.cancel().catch(() => {}), { once: true });
+  }
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      const raw = trimmed.slice(6);
+      if (raw === "[DONE]") continue;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+
+      if (parsed.error) {
+        callbacks.onError?.(parsed.error);
+        finalResult = parsed;
+        continue;
+      }
+      if (parsed.done) {
+        finalResult = parsed;
+        callbacks.onDone?.(parsed);
+        continue;
+      }
+      if (parsed.reasoning) {
+        callbacks.onReasoning?.(parsed.reasoning, parsed.accumulated);
+      } else if (parsed.reasoningDone) {
+        callbacks.onReasoningDone?.();
+      } else if (parsed.reply !== undefined) {
+        callbacks.onContent?.(parsed.reply, parsed.accumulated);
+      }
+    }
+  }
+
+  return finalResult || {};
+}
+
+/**
  * Продолжить agent loop после одобрения/отклонения инструмента.
  * @param {Object} options
  * @param {Array} options.messages - Текущие сообщения

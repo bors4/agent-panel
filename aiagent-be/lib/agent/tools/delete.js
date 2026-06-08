@@ -41,3 +41,8 @@ export async function deletePath(args, projectPath) {
   }
   return { success: true, data: { path: targetPath } };
 }
+
+export function toModelOutput(result) {
+  if (!result.success) return `Delete failed: ${result.error}`;
+  return `Deleted: ${result.data.path}`;
+}

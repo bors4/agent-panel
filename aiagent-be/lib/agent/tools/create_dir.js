@@ -15,3 +15,8 @@ export async function createDir(args, projectPath) {
   await fs.mkdir(dirPath, { recursive: true });
   return { success: true, data: { path: dirPath } };
 }
+
+export function toModelOutput(result) {
+  if (!result.success) return `Create dir failed: ${result.error}`;
+  return `Created directory: ${result.data.path}`;
+}

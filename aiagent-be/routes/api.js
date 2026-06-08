@@ -13,6 +13,7 @@
  *   routes/config.js     — GET/POST /api/config, GET /api/models
  *   routes/asr.js        — POST /api/asr/transcribe, GET /api/asr/status
  *   routes/chat.js       — POST /api/chat, /api/chat/cancel, /api/chat/continue, /api/chat/clean-text
+ *   routes/fetch.js      — POST /api/fetch
  *
  * @module routes/api
  */
@@ -28,6 +29,7 @@ import { createAdminRouter } from "./admin.js";
 import { createConfigRouter } from "./config.js";
 import { createAsrRouter } from "./asr.js";
 import { createChatRouter } from "./chat.js";
+import { createFetchRouter } from "./fetch.js";
 
 /**
  * Создаёт Express Router с API маршрутами.
@@ -49,6 +51,7 @@ export function createApiRouter(deps) {
   router.use(createConfigRouter(deps));
   router.use(createAsrRouter(deps));
   router.use(createChatRouter(deps));
+  router.use(createFetchRouter());
 
   return router;
 }

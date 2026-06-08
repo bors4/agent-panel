@@ -19,6 +19,7 @@ vi.mock("@/api/client", () => ({
   directChat: vi.fn(),
   directChatStream: vi.fn(),
   agentChat: vi.fn(),
+  agentChatStream: vi.fn(),
 }));
 
 import { agentChat } from "@/api/client";

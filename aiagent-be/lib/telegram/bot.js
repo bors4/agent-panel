@@ -3,7 +3,7 @@
  * commands, voice/text/callback handlers, and account middleware.
  * @module telegram/bot
  */
-import { Bot } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 import { stream } from "@grammyjs/stream";
 import { autoRetry } from "@grammyjs/auto-retry";
 import { getAccountByUsername } from "../accounts.js";
@@ -57,10 +57,12 @@ export function initBot(token) {
     pendingApprovals,
     addLog,
     replyMsg,
+    REPLY_OPTS,
     editDraftMessage,
     sendLongMessage,
     chunkText,
     KEYBOARD_YES_NO,
+    InlineKeyboard,
     agentLoopStep,
     MAX_AGENT_ITERATIONS,
   });

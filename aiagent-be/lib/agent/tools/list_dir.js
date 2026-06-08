@@ -32,3 +32,8 @@ export async function listDir(args, projectPath) {
     data: { tree, path: dirPath },
   };
 }
+
+export function toModelOutput(result) {
+  if (!result.success) return `List dir failed: ${result.error}`;
+  return result.data.tree.join("\n");
+}

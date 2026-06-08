@@ -355,7 +355,7 @@ describe("toolConfig", () => {
     }
   });
 
-  it("getToolConfig returns all 9 tools with schema fields", () => {
+  it("getToolConfig returns all 17 tools with schema fields", () => {
     const config = getToolConfig();
     const names = Object.keys(config);
     expect(names).toContain("read");
@@ -367,7 +367,15 @@ describe("toolConfig", () => {
     expect(names).toContain("delete");
     expect(names).toContain("move");
     expect(names).toContain("copy");
-    expect(names.length).toBe(9);
+    expect(names).toContain("edit");
+    expect(names).toContain("glob");
+    expect(names).toContain("grep");
+    expect(names).toContain("question");
+    expect(names).toContain("websearch");
+    expect(names).toContain("webfetch");
+    expect(names).toContain("skill");
+    expect(names).toContain("todowrite");
+    expect(names.length).toBe(17);
   });
 
   it("each tool config includes input_schema, description, category, examples", () => {

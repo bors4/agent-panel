@@ -10,7 +10,7 @@
 
 export { TOOLS, DEFAULT_TOOL_CONFIG, toolConfig, getToolConfig, updateToolConfig } from "./tools/registry.js";
 export { activeProcesses } from "./tools/execute.js";
-export { executeTool } from "./tools/index.js";
+export { executeTool, getToolModelOutput } from "./tools/index.js";
 export { waitForTask, cancelTask, getActiveTasks } from "./tools/tasks.js";
 export { formatValue, rejectReDoS } from "./tools/format.js";
 export { sanitizeCommand, BLOCKED_PATTERNS } from "./tools/sanitize.js";
