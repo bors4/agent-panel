@@ -154,6 +154,12 @@ function truncateHistory(messages, maxPairs) {
   while (startIdx < nonSystem.length && nonSystem[startIdx].role === "tool") {
     startIdx++;
   }
+  // Если после truncation первое сообщение — assistant с tool_calls,
+  // очищаем tool_calls (соответствующие results остались за границей среза)
+  if (nonSystem[startIdx]?.role === "assistant" && nonSystem[startIdx]?.tool_calls?.length) {
+    const { tool_calls, ...rest } = nonSystem[startIdx];
+    nonSystem[startIdx] = rest;
+  }
   return nonSystem.slice(startIdx);
 }
 
@@ -462,7 +468,12 @@ export async function agentLoopStep(
         }
       }
       if (!msg.content?.trim() && !msg.tool_calls?.length) {
-        const reasoningTc = finalReasoning?.includes("<tool_call>") ? parseToolCall(finalReasoning) : null;
+        const hasToolCallInReasoning = finalReasoning && (
+          /<\w+>\s*\{/.test(finalReasoning) ||
+          /<function=\w+>/.test(finalReasoning) ||
+          /\{"name":\s*"/.test(finalReasoning)
+        );
+        const reasoningTc = hasToolCallInReasoning ? parseToolCall(finalReasoning) : null;
         if (reasoningTc) {
           msg.content = finalReasoning;
           logWarn(`[agentLoop] Promoted reasoning_content to content (detected tool call: ${reasoningTc.name})`);
@@ -597,6 +608,7 @@ export async function agentLoopStep(
             requiresApproval: true,
             toolName: tc.name,
             args: tc.args,
+            toolCallId: tc.id,
             messages,
           };
         onProgress?.({ type: "tool", toolName: tc.name, args: tc.args });

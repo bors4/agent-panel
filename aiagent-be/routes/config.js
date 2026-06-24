@@ -7,7 +7,6 @@ import fs from "fs";
 import path from "path";
 import { configDefaults } from "../lib/configDefaults.js";
 import { validateAsrUrl, sanitizeLanguage } from "../lib/asrClient.js";
-import { loadAccounts, getAccounts } from "../lib/accounts.js";
 
 /**
  * @param {Object} deps
@@ -69,8 +68,7 @@ export function createConfigRouter(deps) {
         return res.status(400).json({ error: `Cannot access path: ${e.message}` });
       }
       config.projectPath = resolved;
-      loadAccounts(process.cwd());
-      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}", accounts: ${getAccounts().length}`, "info");
+      addLog(`projectPath: "${body.projectPath}" → resolved: "${resolved}"`, "info");
     } else {
       addLog(`projectPath: skipped (value=${JSON.stringify(body.projectPath)})`, "warning");
     }

@@ -143,9 +143,17 @@
         <div class="field__row">
           <select :value="modelName" class="field__input" @change="updateModelName($event.target.value)">
             <option value="" disabled>Select a model…</option>
-            <option v-for="m in availableModels" :key="m.id" :value="m.id">{{ m.id }} ({{ m.source }})</option>
+            <option v-for="m in filteredModels" :key="m.id" :value="m.id">{{ m.id }} ({{ m.source }})</option>
           </select>
           <button class="field__btn" @click="$emit('refresh-models')">Refresh</button>
+        </div>
+        <div class="field__row" style="margin-top: 6px">
+          <input
+            v-model="modelFilter"
+            type="text"
+            class="field__input"
+            placeholder="Filter models by id or source…"
+          />
         </div>
         <p v-if="availableModels.length === 0" class="field__error">
           No models available. Check connection to the server.
@@ -242,6 +250,13 @@ const emit = defineEmits([
 
 const tokenVisible = ref(false);
 const orKeyVisible = ref(false);
+const modelFilter = ref("");
+
+const filteredModels = computed(() => {
+  const q = modelFilter.value.toLowerCase().trim();
+  if (!q) return props.availableModels;
+  return props.availableModels.filter((m) => m.id.toLowerCase().includes(q) || (m.source || "").toLowerCase().includes(q));
+});
 
 const hasToken = computed(() => !!props.config.token && props.config.token.trim().length > 0);
 

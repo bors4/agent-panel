@@ -51,6 +51,10 @@ export async function websearch(args) {
     const html = await response.text();
     const results = parseDdgResults(html).slice(0, numResults);
 
+    if (results.length === 0 && html.length > 100) {
+      logWarn("[websearch] No results parsed from DDG HTML; layout may have changed");
+    }
+
     return {
       success: true,
       data: { results, total: results.length, query },

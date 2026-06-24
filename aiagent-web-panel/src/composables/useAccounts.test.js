@@ -20,6 +20,9 @@ describe("useAccounts", () => {
     localStorage.clear();
     vi.clearAllMocks();
     window.confirm = vi.fn(() => true);
+    // Reset shared module-level accounts ref between tests
+    const { accounts } = useAccounts();
+    accounts.value = [];
   });
 
   afterEach(() => {

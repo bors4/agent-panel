@@ -76,7 +76,12 @@ export function createAdminRouter(deps) {
       const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
       if (!token) return res.status(400).json({ error: "Telegram token not configured" });
       if (!deps.bot) deps.bot = deps.initBot(token);
-      await deps.bot.start();
+      const startTimeout = 90000;
+      const startPromise = deps.bot.start();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Bot start timed out after ${startTimeout}ms`)), startTimeout)
+      );
+      await Promise.race([startPromise, timeoutPromise]);
       deps.updateStatus("running", "Работает");
       deps.addLog("Telegram connected", "success");
       res.json({ success: true, message: "Starting..." });

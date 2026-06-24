@@ -7,6 +7,13 @@
 import { ref, nextTick } from "vue";
 import { directChat, directChatStream, agentChat, agentChatStream } from "@/api/client";
 
+function genId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
 /**
  * Normalize token usage to canonical format { prompt, completion, total, cached }.
  * Handles both OpenAI format ({ prompt_tokens, ... }) and canonical.
@@ -133,7 +140,7 @@ export function useChatSend({
    * Agent loop: один вызов agentChat, обработка tool calls/results/approval.
    */
   async function sendAgentFlow(text, controller, attachAbortId, startTime, emitLog, emitTokenUsage) {
-    const abortId = crypto.randomUUID();
+    const abortId = genId();
     attachAbortId(abortId);
 
     if (options.streamEnabled) {

@@ -37,21 +37,27 @@ export function createAccountsRouter(deps) {
   });
 
   /**
-   * POST /api/accounts/import — import accounts from JSON string.
-   * Body: { json: string, merge?: boolean }
+   * POST /api/accounts/import — import accounts from JSON string or accounts array.
+   * Body: { json: string, merge?: boolean } | { accounts: Array, merge?: boolean }
    */
   router.post("/accounts/import", (req, res) => {
-    const { json, merge } = req.body || {};
-    if (!json) return res.status(400).json({ error: "json string required" });
+    const body = req.body || {};
     let parsed;
-    try {
-      parsed = JSON.parse(json);
-    } catch (e) {
-      return res.status(400).json({ error: `Invalid JSON: ${e.message}` });
+    if (body.json) {
+      try {
+        parsed = JSON.parse(body.json);
+      } catch (e) {
+        return res.status(400).json({ error: `Invalid JSON: ${e.message}` });
+      }
+    } else if (Array.isArray(body.accounts)) {
+      parsed = body.accounts;
+    } else {
+      return res.status(400).json({ error: "json string or accounts array required" });
     }
     if (!Array.isArray(parsed)) {
       return res.status(400).json({ error: "Expected array of accounts" });
     }
+    const merge = body.merge;
     if (merge) {
       const existing = getAccounts();
       const byUsername = new Map(existing.map((a) => [a.username, a]));

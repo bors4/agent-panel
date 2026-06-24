@@ -162,6 +162,7 @@ export async function parseStreamedResponse(response, callbacks = {}, serverUrl 
       if (raw !== "[DONE]") {
         try {
           const parsed = JSON.parse(raw);
+          normalizer.normalize(parsed);
           if (parsed.usage) usage = parsed.usage;
           if (parsed.reasoning_content) reasoningContent += parsed.reasoning_content;
           if (parsed.content) content += parsed.content;

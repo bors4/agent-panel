@@ -4,6 +4,19 @@ const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 120;
 
+function isPrivateHost(hostname) {
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h === "::1" || h.endsWith(".local") || h.endsWith(".internal") || h.endsWith(".localhost")) return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^0\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  if (/^fe80:/i.test(h)) return true;
+  return false;
+}
+
 function stripHtml(html) {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
@@ -35,6 +48,14 @@ export async function webfetch(args) {
     return { success: false, error: "Invalid URL" };
   }
 
+  if (parsedUrl.username || parsedUrl.password) {
+    return { success: false, error: "URL must not contain credentials" };
+  }
+
+  if (isPrivateHost(parsedUrl.hostname)) {
+    return { success: false, error: "URL blocked — private or loopback address" };
+  }
+
   const format = args.format || "markdown";
   const timeout = Math.min(args.timeout || DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
 
@@ -45,6 +66,7 @@ export async function webfetch(args) {
     let response;
     try {
       response = await fetch(url, {
+        redirect: "manual",
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
           Accept: format === "html"
@@ -57,6 +79,10 @@ export async function webfetch(args) {
       });
     } finally {
       clearTimeout(timeoutId);
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      return { success: false, error: "Redirects are not allowed" };
     }
 
     if (!response.ok) {

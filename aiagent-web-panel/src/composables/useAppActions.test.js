@@ -50,7 +50,7 @@ describe("useAppActions", () => {
     const o = makeOverrides();
     o.startAgent.mockRejectedValue(new Error("boom"));
     const a = useAppActions(o);
-    await a.handleStart();
+    await expect(a.handleStart()).rejects.toThrow("boom");
     expect(o.error).toHaveBeenCalledWith("boom");
   });
 

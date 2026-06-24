@@ -23,7 +23,8 @@ export function createFetchRouter() {
         size: result.data.size,
       });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      console.error("[fetch] Internal error:", e.message);
+      res.status(500).json({ error: "Fetch failed" });
     }
   });
 

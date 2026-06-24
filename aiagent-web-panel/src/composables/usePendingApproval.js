@@ -7,6 +7,13 @@
 import { ref, onUnmounted } from "vue";
 import { agentChatContinue } from "@/api/client";
 
+function genId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
 const PENDING_APPROVAL_KEY = "agent-pending-approval";
 const PENDING_TOOL_CALLS_KEY = "agent-pending-tool-calls";
 
@@ -187,7 +194,7 @@ export function usePendingApproval({ messages, approvalMessages, cancel }) {
     isTyping.value = true;
     cancel.isCancelling.value = false;
     const controller = cancel.createController();
-    const continueAbortId = crypto.randomUUID();
+    const continueAbortId = genId();
     cancel.attachAbortId(continueAbortId);
     pendingApproval.value = null;
     pendingToolCalls.value = [];

@@ -15,15 +15,17 @@ const MAX_LOG_ENTRIES = 200;
  * @returns {Object} { addLog, handleStart, handleStop, handleRestart, handleClearLogs, handleTokenUsage, formatPrompt, copyPrompt }
  */
 export function useAppActions(overrides = {}) {
-  const agent = useAgent();
+  const agentKeys = ["logs", "tokenUsage", "startAgent", "stopAgent", "restartAgent", "clearLogs"];
+  const hasAllAgentKeys = agentKeys.every((key) => key in overrides);
+  const agent = hasAllAgentKeys ? null : useAgent();
   const toast = useToast();
 
-  const logs = overrides.logs ?? agent.logs;
-  const tokenUsage = overrides.tokenUsage ?? agent.tokenUsage;
-  const startAgent = overrides.startAgent ?? agent.startAgent;
-  const stopAgent = overrides.stopAgent ?? agent.stopAgent;
-  const restartAgent = overrides.restartAgent ?? agent.restartAgent;
-  const clearLogsFn = overrides.clearLogs ?? agent.clearLogs;
+  const logs = overrides.logs ?? agent?.logs;
+  const tokenUsage = overrides.tokenUsage ?? agent?.tokenUsage;
+  const startAgent = overrides.startAgent ?? agent?.startAgent;
+  const stopAgent = overrides.stopAgent ?? agent?.stopAgent;
+  const restartAgent = overrides.restartAgent ?? agent?.restartAgent;
+  const clearLogsFn = overrides.clearLogs ?? agent?.clearLogs;
   const success = overrides.success ?? toast.success;
   const error = overrides.error ?? toast.error;
   const warning = overrides.warning ?? toast.warning;
@@ -44,10 +46,12 @@ export function useAppActions(overrides = {}) {
 
   async function handleStart() {
     try {
-      await startAgent();
+      const result = await startAgent();
       success("Агент запущен");
+      return result;
     } catch (e) {
       error(e.message);
+      throw e;
     }
   }
 

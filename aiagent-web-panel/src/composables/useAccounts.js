@@ -28,10 +28,12 @@ const ALL_TOOL_NAMES = ["read", "write", "search", "list_dir", "execute", "creat
 
 export { ROLE_DEFAULTS, ALL_TOOL_NAMES };
 
+/** Module-level shared state — all useAccounts() instances share the same accounts ref. */
+const accounts = ref([]);
+
 export function useAccounts() {
   const { success: toastSuccess, error: toastError } = useToast();
 
-  const accounts = ref([]);
   const accountSearch = ref("");
   const accountSettingsExpanded = ref({});
   const importFileInput = ref(null);

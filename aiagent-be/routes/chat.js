@@ -143,6 +143,13 @@ export function createChatRouter(deps) {
           res.setHeader("Connection", "keep-alive");
           res.setHeader("X-Accel-Buffering", "no");
 
+          function safeWrite(data) {
+            try { if (!res.writableEnded && !res.destroyed) res.write(data); } catch {}
+          }
+          function safeEnd() {
+            try { if (!res.writableEnded && !res.destroyed) res.end(); } catch {}
+          }
+
           const t0 = performance.now();
           let firstTokenMs = 0;
           let fullReasoning = "";
@@ -152,12 +159,12 @@ export function createChatRouter(deps) {
               if (progress.type === "reasoning" && progress.chunk) {
                 if (!firstTokenMs) firstTokenMs = performance.now() - t0;
                 fullReasoning += progress.chunk;
-                res.write(`data: ${JSON.stringify({ reasoning: progress.chunk, accumulated: fullReasoning })}\n\n`);
+                safeWrite(`data: ${JSON.stringify({ reasoning: progress.chunk, accumulated: fullReasoning })}\n\n`);
               } else if (progress.type === "reasoning_done") {
-                res.write(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`);
+                safeWrite(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`);
               } else if (progress.type === "content" && progress.chunk) {
                 if (!firstTokenMs) firstTokenMs = performance.now() - t0;
-                res.write(`data: ${JSON.stringify({ reply: progress.chunk, accumulated: progress.accumulated })}\n\n`);
+                safeWrite(`data: ${JSON.stringify({ reply: progress.chunk, accumulated: progress.accumulated })}\n\n`);
               }
             } catch (_err) {
               if (!abortController.signal.aborted) abortController.abort();
@@ -176,17 +183,17 @@ export function createChatRouter(deps) {
 
           if (result.cancelled) {
             responseFinished = true;
-            res.write(`data: ${JSON.stringify({ cancelled: true, done: true })}\n\n`);
-            res.write("data: [DONE]\n\n");
-            res.end();
+            safeWrite(`data: ${JSON.stringify({ cancelled: true, done: true })}\n\n`);
+            safeWrite("data: [DONE]\n\n");
+            safeEnd();
             return;
           }
 
           if (result.error && !result.cancelled) {
             responseFinished = true;
-            res.write(`data: ${JSON.stringify({ error: result.error, done: true })}\n\n`);
-            res.write("data: [DONE]\n\n");
-            res.end();
+            safeWrite(`data: ${JSON.stringify({ error: result.error, done: true })}\n\n`);
+            safeWrite("data: [DONE]\n\n");
+            safeEnd();
             return;
           }
 
@@ -225,12 +232,16 @@ export function createChatRouter(deps) {
             cancelled: false,
             abortId,
           };
-          res.write(`data: ${JSON.stringify(finalEvent)}\n\n`);
-          res.write("data: [DONE]\n\n");
+          safeWrite(`data: ${JSON.stringify(finalEvent)}\n\n`);
+          safeWrite("data: [DONE]\n\n");
           responseFinished = true;
-          res.end();
+          safeEnd();
           return;
         }
+
+        req.on("close", () => {
+          if (activeChatControllers.has(abortId) && !abortController.signal.aborted) abortController.abort();
+        });
 
         let result;
         try {
@@ -324,6 +335,18 @@ export function createChatRouter(deps) {
       }
 
       if (isStream) {
+        let responseFinished = false;
+        res.on("close", () => {
+          if (!responseFinished && !controller.signal.aborted) controller.abort();
+        });
+
+        function safeWrite(data) {
+          try { if (!res.writableEnded && !res.destroyed) res.write(data); } catch {}
+        }
+        function safeEnd() {
+          try { if (!res.writableEnded && !res.destroyed) res.end(); } catch {}
+        }
+
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
@@ -333,6 +356,7 @@ export function createChatRouter(deps) {
         let firstTokenMs = 0;
         let fullContent = "";
         let perfStatsSent = false;
+        let sseUsageReceived = false;
         const {
           usage: sseUsage,
           timings: sseTimings,
@@ -340,17 +364,18 @@ export function createChatRouter(deps) {
         } = await parseStreamedResponse(response, {
           onReasoning: (chunk, _accumulated) => {
             if (!firstTokenMs) firstTokenMs = performance.now() - t0;
-            res.write(`data: ${JSON.stringify({ reasoning: chunk })}\n\n`);
+            safeWrite(`data: ${JSON.stringify({ reasoning: chunk })}\n\n`);
           },
-          onReasoningDone: () => res.write(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`),
+          onReasoningDone: () => safeWrite(`data: ${JSON.stringify({ reasoningDone: true })}\n\n`),
           onContent: (chunk, accumulated) => {
             if (!firstTokenMs) firstTokenMs = performance.now() - t0;
             fullContent += chunk;
-            res.write(`data: ${JSON.stringify({ reply: chunk, accumulated })}\n\n`);
+            safeWrite(`data: ${JSON.stringify({ reply: chunk, accumulated })}\n\n`);
           },
-          onFinish: (reason) => res.write(`data: ${JSON.stringify({ finishReason: reason })}\n\n`),
+          onFinish: (reason) => safeWrite(`data: ${JSON.stringify({ finishReason: reason })}\n\n`),
           onUsage: (u) => {
             if (u) {
+              sseUsageReceived = true;
               const nu = normalizeUsage(u);
               tu.prompt += nu.prompt;
               tu.completion += nu.completion;
@@ -361,18 +386,20 @@ export function createChatRouter(deps) {
           },
           onTimings: (t) => {
             if (t) {
-              const delta = {
-                prompt: t.prompt_n || 0,
-                completion: t.predicted_n || 0,
-                total: (t.prompt_n || 0) + (t.predicted_n || 0),
-                cached: t.cache_n || 0,
-              };
-              tu.prompt += delta.prompt;
-              tu.completion += delta.completion;
-              tu.total += delta.total;
-              tu.cached += delta.cached;
-              if (t.tokens_cached) tu.tokensCached = t.tokens_cached;
-              wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
+              if (!sseUsageReceived) {
+                const delta = {
+                  prompt: t.prompt_n || 0,
+                  completion: t.predicted_n || 0,
+                  total: (t.prompt_n || 0) + (t.predicted_n || 0),
+                  cached: t.cache_n || 0,
+                };
+                tu.prompt += delta.prompt;
+                tu.completion += delta.completion;
+                tu.total += delta.total;
+                tu.cached += delta.cached;
+                if (t.tokens_cached) tu.tokensCached = t.tokens_cached;
+                wsBroadcast("tokenUsage", { ...delta, timestamp: Date.now() });
+              }
               if (!t.prompt_n && !t.predicted_n) return;
               perfStatsSent = true;
               wsBroadcast("perfStats", buildPerfStats(t));
@@ -423,9 +450,10 @@ export function createChatRouter(deps) {
         }
 
         wsBroadcast("stats", { requests: st.requests, tools: st.tools, errors: st.errors });
-        res.write(`data: ${JSON.stringify({ reply: "", usage: finalUsage, done: true })}\n\n`);
-        res.write("data: [DONE]\n\n");
-        res.end();
+        safeWrite(`data: ${JSON.stringify({ reply: "", usage: finalUsage, done: true })}\n\n`);
+        safeWrite("data: [DONE]\n\n");
+        responseFinished = true;
+        safeEnd();
       } else {
         const data = await response.json();
         const msg = data.choices?.[0]?.message || {};

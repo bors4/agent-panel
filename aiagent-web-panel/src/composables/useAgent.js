@@ -60,7 +60,7 @@ export function useAgent() {
   async function startAgent() {
     isProcessing.value = true;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
     try {
       const result = await apiStartBot(controller.signal);
       return result;

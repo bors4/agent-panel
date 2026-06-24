@@ -33,8 +33,13 @@ export function validateToolArgs(name, args, schema) {
         }
       }
 
-      if (type === "string" && prop.maxLength && String(value).length > prop.maxLength) {
-        errors.push(`Field "${key}" exceeds maximum length of ${prop.maxLength}`);
+      if (type === "string") {
+        if (prop.minLength !== undefined && String(value).length < prop.minLength) {
+          errors.push(`Field "${key}" must be at least ${prop.minLength} characters`);
+        }
+        if (prop.maxLength && String(value).length > prop.maxLength) {
+          errors.push(`Field "${key}" exceeds maximum length of ${prop.maxLength}`);
+        }
       }
       if (type === "number" || type === "integer") {
         if (prop.minimum !== undefined && value < prop.minimum) {

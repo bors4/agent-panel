@@ -132,8 +132,17 @@ async function maybeAutoStart({ localConfig, addLog, handleStart, refreshStatus 
   addLog(`AUTO START check: enabled=${autoStartEnabled}, token=${hasToken}, projectPath=${hasPath}`, "system");
   if (autoStartEnabled && hasToken && hasPath) {
     addLog("AUTO START triggered — starting bot...", "system");
-    await handleStart();
-    await refreshStatus();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 1000));
+        await handleStart();
+        await refreshStatus();
+        return;
+      } catch (e) {
+        addLog(`AUTO START attempt ${attempt + 1} failed: ${e.message}`, "warning");
+      }
+    }
+    addLog("AUTO START failed after 3 attempts", "error");
   } else if (autoStartEnabled) {
     const missing = [];
     if (!hasToken) missing.push("token");

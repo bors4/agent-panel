@@ -107,7 +107,8 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
     }
 
     const remaining = pending.pendingToolCalls || [];
-    for (const next of remaining) {
+    for (let ri = 0; ri < remaining.length; ri++) {
+      const next = remaining[ri];
       const ts = getToolConfig()[next.name] || {};
       if (ts.permission === "ask") {
         pendingApprovals.set(chatId, {
@@ -117,7 +118,7 @@ export async function continueAfterApproval(ctx, pending, depth = 0, abortSignal
           messages: newHistory,
           account,
           createdAt: Date.now(),
-          pendingToolCalls: remaining.slice(remaining.indexOf(next) + 1),
+          pendingToolCalls: remaining.slice(ri + 1),
         });
         const paramStr = JSON.stringify(next.args);
         const displayParams = paramStr.length > 300 ? paramStr.substring(0, 300) + "… [truncated]" : paramStr;

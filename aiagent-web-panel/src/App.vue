@@ -114,10 +114,18 @@ import LogsModal from "@/components/modals/LogsModal.vue";
 import AgentControls from "@/components/controls/AgentControls.vue";
 import ToastContainer from "@/components/ui/ToastContainer.vue";
 
-const { status, isRunning, stats, logs, tokenUsage, lastRequestTokens, perfStats, refreshStatus } = useAgent();
+const agent = useAgent();
+const { status, isRunning, stats, logs, tokenUsage, lastRequestTokens, perfStats, refreshStatus } = agent;
 const { success, error, warning } = useToast();
 
-const { addLog, handleStart, handleStop, handleRestart, handleClearLogs, handleTokenUsage, formatPrompt } = useAppActions();
+const { addLog, handleStart, handleStop, handleRestart, handleClearLogs, handleTokenUsage, formatPrompt } = useAppActions({
+  logs: agent.logs,
+  tokenUsage: agent.tokenUsage,
+  startAgent: agent.startAgent,
+  stopAgent: agent.stopAgent,
+  restartAgent: agent.restartAgent,
+  clearLogs: agent.clearLogs,
+});
 const { statsCollapsed, toggleStats } = useAppLayout();
 useTheme();
 const { isOpen: settingsOpen, open: openSettings, close: closeSettings } = useSettingsModal();
